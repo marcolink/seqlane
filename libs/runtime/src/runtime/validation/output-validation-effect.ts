@@ -140,7 +140,6 @@ export function validateRunnableOutputEffect(
             abortSignal,
             {
               invocationId: checkInvocationId,
-              observability: {},
               results: context.results,
               remainingConsumers: context.remainingConsumers,
               subject: { type: "task", taskId: source.taskId },
@@ -154,7 +153,6 @@ export function validateRunnableOutputEffect(
               try: () =>
                 executeValidationCheckNode(context, nodes.check, abortSignal, {
                   invocationId: checkInvocationId,
-                  observability: {},
                   results: context.results,
                   remainingConsumers: context.remainingConsumers,
                   iteration: options.iteration,
@@ -192,7 +190,6 @@ export function validateRunnableOutputEffect(
             abortSignal,
             {
               invocationId: gateInvocationId,
-              observability: {},
               results: context.results,
               remainingConsumers: context.remainingConsumers,
               iteration: options.iteration,

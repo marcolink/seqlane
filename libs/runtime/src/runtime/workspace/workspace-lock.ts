@@ -49,29 +49,6 @@ export class WorkspaceLockRegistry {
     return () => this.#changeListeners.delete(listener);
   }
 
-  /** Promise compatibility boundary for legacy runtime callers. */
-  acquire(
-    resource: WorkspaceResource,
-    policy: WorkspaceAdmission,
-    onWaiting?: (blockingInvocationId: string | undefined) => void,
-    creationOrdinal = Number.MAX_SAFE_INTEGER,
-    invocationId?: string,
-    ownerId?: string,
-    ownerAncestors: readonly string[] = [],
-  ): Promise<WorkspaceLockLease> {
-    return Effect.runPromise(
-      this.acquireEffect(
-        resource,
-        policy,
-        onWaiting,
-        creationOrdinal,
-        invocationId,
-        ownerId,
-        ownerAncestors,
-      ),
-    );
-  }
-
   acquireEffect(
     resource: WorkspaceResource,
     policy: WorkspaceAdmission,

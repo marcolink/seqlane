@@ -5,7 +5,7 @@ status: completed
 owners:
   - core
 created: 2026-09-23
-updated: 2026-09-24
+updated: 2026-10-22
 upstream:
   - spec.classifier-tasks
 supersedes: []
@@ -13,10 +13,14 @@ supersedes: []
 
 # Run One Classifier Task Through Jev
 
+> Historical task record. Scope and outcomes describe work before the current migration.
+> Current execution authority: [Effect v4 execution and operations](../specs/2026-10-21-effect-v4-execution-and-operations.md).
+> Current-owner links record the later contract transfer. They do not establish historical Effect v4 use or current delivery.
+
 ## Objective
 
 Prove one classifier-only workflow from `defineClassifierTask` through
-`seqlane run`, the Mastra step, the private System One HTTP client, and a full
+`seqlane run`, the task invocation, the private System One HTTP client, and a full
 validated Noul result. Emit the exact one-attempt request/response through the
 existing typed observation path. Keep this tracer as the foundation for later
 question kinds and retries.
@@ -35,7 +39,7 @@ Implement the first vertical slice of [spec.classifier-tasks](../specs/2026-09-2
   does not threshold.
 - Seqlane-owned classifier request/result types and optional
   `TaskContext.classify`. `defineClassifierTask` owns the typed missing-capability
-  failure. No Mastra, HTTP, or provider wire type enters core.
+  failure. No runtime-engine, HTTP, or provider wire type enters core.
 - Private client using native fetch, one POST to the configured System One
   endpoint, optional bearer header, bounded structural JSON, provider-to-core
   mapping, and typed failures. Use a local HTTP fixture.
@@ -69,7 +73,7 @@ Implement the first vertical slice of [spec.classifier-tasks](../specs/2026-09-2
 - Outcome: a CLI workflow with one static Noul question returns a validated
   provider-neutral result and emits one invocation observation, without an
   agent adapter.
-- Path: core factory → ordinary task Plan and Mastra step → local TaskContext
+- Path: core factory → ordinary task Plan and runtime invocation → local TaskContext
   capability → private System One client → existing observation sink/protocol
   event → CLI workflow result.
 - Risk: classifier-only work may hit agent preflight, leak child environment
@@ -104,13 +108,26 @@ and the public Seqlane result distinct.
 Request:
 
 ```json
-{"model":"jev-latest","state":"example diff","questions":{"needsReview":{"type":"noul","instructions":"Does this diff need review?"}}}
+{
+  "model": "jev-latest",
+  "state": "example diff",
+  "questions": {
+    "needsReview": {
+      "type": "noul",
+      "instructions": "Does this diff need review?"
+    }
+  }
+}
 ```
 
 Response:
 
 ```json
-{"model":"jev-1.13.0","answers":{"needsReview":{"type":"noul","noul":0.63}},"usage":{"input_tokens":10,"output_tokens":2}}
+{
+  "model": "jev-1.13.0",
+  "answers": { "needsReview": { "type": "noul", "noul": 0.63 } },
+  "usage": { "input_tokens": 10, "output_tokens": 2 }
+}
 ```
 
 ## Affected areas
@@ -141,7 +158,7 @@ client in a cohesive runtime classifier directory rather than an agent adapter.
   `--dry`, URL/model capture and credential removal before workflow import, and
   no agent adapter creation.
 - Run affected typecheck, build, lint, public-boundary checks, and forbidden
-  /ee/ import check. Record commands and results in Outcome.
+  public-boundary check. Record commands and results in Outcome.
 
 ## Completion criteria
 
@@ -183,7 +200,7 @@ focused lint, `pnpm docs:index`, `pnpm docs:validate` (367 documents), format
 check, and `git diff --check` with Node 24. The standalone example also returned
 a Noul result from the live TypeSafe endpoint in a user-run smoke test.
 
-## Delivery state
+## Historical delivery state
 
 Delivered to `main` in commit `200acf2` (PR #161), following the classifier
 contract in PR #160.

@@ -5,14 +5,18 @@ status: completed
 owners:
   - core
 created: 2026-09-24
-updated: 2026-10-04
+updated: 2026-10-22
 upstream:
-  - spec.mastra-runtime-and-operational-integration
+  - spec.effect-v4-execution-and-operations
   - spec.run-terminal-rendering
 supersedes: []
 ---
 
 # Remove Task Observability Configuration
+
+> Historical task record. Scope and outcomes describe work before the current migration.
+> Current execution authority: [Effect v4 execution and operations](../specs/2026-10-21-effect-v4-execution-and-operations.md).
+> Current-owner links record the later contract transfer. They do not establish historical Effect v4 use or current delivery.
 
 ## Objective
 
@@ -31,7 +35,7 @@ lifecycle tests and documentation.
 
 ## Out of scope
 
-Adapter observability context, Mastra tracing, and serialized event schemas.
+Adapter observability context, runtime tracing, and serialized event schemas.
 
 ## Implementation plan
 
@@ -86,7 +90,7 @@ Structural review flags added size and branches in the existing operational-host
 orchestration. This follow-up keeps the recovery change scoped; broader
 orchestration refactoring remains outside these approved fixes.
 
-## Delivery state
+## Historical delivery state
 
 Open PR [#167](https://github.com/marcolink/seqlane/pull/167) on
 `fix/remove-task-observability`, rebased onto `origin/main` at `f7dc05e`; not
@@ -94,5 +98,5 @@ yet merged to the default branch.
 
 ## Traceability
 
-- [spec.mastra-runtime-and-operational-integration](../specs/2026-09-03-mastra-runtime-and-operational-integration.md#requirement-task-display-values)
+- [spec.effect-v4-execution-and-operations](../specs/2026-10-21-effect-v4-execution-and-operations.md)
 - [spec.run-terminal-rendering](../specs/2026-09-15-run-terminal-rendering.md#requirement-human-details)

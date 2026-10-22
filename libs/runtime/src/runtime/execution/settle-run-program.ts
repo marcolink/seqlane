@@ -47,7 +47,7 @@ export async function settleRunProgram(
   };
 }
 
-/** Publish the canonical run terminal for either target or legacy outcomes. */
+/** Publish the canonical run terminal for native program or facade outcomes. */
 export function publishRunOutcome(
   events: Pick<SeqlaneEventSink, "emit">,
   workId: string,

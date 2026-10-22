@@ -5,13 +5,17 @@ status: completed
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-03
+updated: 2026-10-22
 upstream:
   - spec.executor-neutral-workflow-authoring
 supersedes: []
 ---
 
 # Update docs and enforce boundary checks
+
+> Historical task record. Scope and outcomes describe work before the current migration.
+> Current execution authority: [Effect v4 execution and operations](../specs/2026-10-21-effect-v4-execution-and-operations.md).
+> Current-owner links record the later contract transfer. They do not establish historical Effect v4 use or current delivery.
 
 > Migrated from implementation story `TS-008-05`.
 
@@ -34,26 +38,29 @@ supersedes: []
 
 ## Implementation Notes
 
-The source checks must fail on OpenCode or Mastra terms at public boundaries. They can allow private adapter implementation and adapter-specific tests. Documentation checks must show public `agent` and `operation` work without provider, endpoint, client, or credential details. They must cover supported workflow examples, CLI help, runtime configuration, package READMEs, TS documents, and adr.repository-user-workflow-discovery-and-composition.
+The source checks must fail on OpenCode or runtime-engine terms at public boundaries. They can allow private adapter implementation and adapter-specific tests. Documentation checks must show public `agent` and `operation` work without provider, endpoint, client, or credential details. They must cover supported workflow examples, CLI help, runtime configuration, package READMEs, TS documents, and adr.repository-user-workflow-discovery-and-composition.
 
 ## Acceptance Criteria
 
-**Scenario:** *Supported docs describe generic authoring*
+**Scenario:** _Supported docs describe generic authoring_
+
 - **Given:** The mutable Seqlane documents and READMEs
 - **When:** A contributor reads workflow, Plan, runtime, and CLI guidance
 - **Then:** They find agent and operation task authoring plus runtime profiles without OpenCode-specific workflow or CLI configuration
 
-**Scenario:** *Boundary checks block new leaks*
-- **Given:** A change that adds an OpenCode or Mastra term to a public core export, workflow source, Plan, runner IPC, CLI help, or supported example
+**Scenario:** _Boundary checks block new leaks_
+
+- **Given:** A change that adds an OpenCode or runtime-engine term to a public core export, workflow source, Plan, runner IPC, CLI help, or supported example
 - **When:** The boundary suite runs
 - **Then:** It fails with the leaking path and boundary
 
-**Scenario:** *Private adapter code remains permitted*
+**Scenario:** _Private adapter code remains permitted_
+
 - **Given:** The private OpenCode adapter and its contract tests
 - **When:** The boundary suite runs
 - **Then:** It permits required private SDK and server references without allowing them in public surfaces
 
-## Source
+## Source and current owners
 
 - [rfc.seqlane-technical-architecture — Seqlane Technical Architecture](../rfcs/2026-09-02-seqlane-technical-architecture.md)
 - [adr.repository-user-workflow-discovery-and-composition — Support Repository and User Scoped Composition Using Ordinary TypeScript](../adrs/2026-09-02-repository-user-workflow-discovery-and-composition.md)

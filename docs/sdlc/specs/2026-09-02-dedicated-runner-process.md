@@ -5,7 +5,7 @@ status: superseded
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-04
+updated: 2026-10-22
 upstream:
   - adr.dedicated-runner-process
 supersedes: []
@@ -13,7 +13,7 @@ supersedes: []
 
 # Dedicated Runner Process and CLI IPC
 
-> Superseded by [spec.mastra-runtime-and-operational-integration](./2026-09-03-mastra-runtime-and-operational-integration.md).
+> Superseded by [spec.effect-v4-execution-and-operations](./2026-10-21-effect-v4-execution-and-operations.md).
 
 > Migrated from legacy technical specification `TS-002`.
 
@@ -21,7 +21,7 @@ supersedes: []
 
 Run every `seqlane run` invocation in a fresh Node child process while keeping the oclif process responsible only for command handling, supervision, presentation, signal forwarding, and exit status.
 
-The runner, not the CLI, loads the workflow, builds and validates the Seqlane Plan, compiles it through the private Mastra runtime, owns execution state, and connects to the configured OpenCode server.
+The runner, not the CLI, loads the workflow, builds and validates the Seqlane Plan, compiles it through the private runtime runtime, owns execution state, and connects to the configured OpenCode server.
 
 ```text
 seqlane run <workflow>
@@ -34,7 +34,7 @@ seqlane run <workflow>
         │
         ├── workflow import
         ├── Plan construction and validation
-        ├── Mastra execution
+        ├── private Plan execution
         ├── executor/session state
         └── structured lifecycle events
 ```
@@ -47,7 +47,7 @@ seqlane run <workflow>
 - Runner processes are never reused between independent runs.
 - The CLI never imports the selected workflow for execution and never constructs or receives the executable Plan.
 - The runner imports the workflow and builds the Plan itself.
-- Mastra, executor, OpenCode, and run state remain inside the runner process.
+- Plan execution, executor, OpenCode, and run state remain inside the runner process.
 - Only Seqlane-owned, JSON-serializable protocol messages cross the process boundary.
 - The runner executes autonomously after startup; the CLI sends no runtime decision or input messages.
 - Cancellation is forwarded structurally; hard termination is only a bounded-grace fallback.
@@ -57,7 +57,7 @@ seqlane run <workflow>
 
 ### `@seqlane/core`
 
-Owns the public, Mastra-independent protocol and serializable data contracts:
+Owns the public, engine-independent protocol and serializable data contracts:
 
 - `WorkflowReference`;
 - `RunRequest` and `CancelRun`;
@@ -65,7 +65,7 @@ Owns the public, Mastra-independent protocol and serializable data contracts:
 - serialized Seqlane errors;
 - JSON-serializability guards or equivalent validation.
 
-Core must not import Node process APIs, oclif, Mastra, or OpenCode types.
+Core must not import Node process APIs, Oclif, runtime-library, or OpenCode types.
 
 ### `@seqlane/runtime`
 
@@ -74,7 +74,7 @@ Owns the runner entry point and child-process execution:
 - protocol decoding and command handling;
 - workflow module loading;
 - Plan construction and validation;
-- Mastra compilation and execution through spec.mastra-runtime-integration;
+- private Plan execution under the current runtime specification;
 - executor and OpenCode runtime state;
 - cancellation and cleanup;
 - conversion of in-process events/errors into process-safe events.
@@ -91,7 +91,7 @@ Owns the oclif command and parent-process supervision:
 - signal handling and cancellation forwarding;
 - terminal outcome and exit-code mapping.
 
-The CLI must not depend on Mastra or own workflow execution state.
+The CLI must not own the worker's workflow execution state.
 
 ## 4. Process Boundary Contract
 
@@ -187,7 +187,7 @@ type RunnerEvent =
   | { readonly type: "run.cancelled"; readonly workId: string; readonly runId: string }
 ```
 
-The runner sends exactly one terminal event: `run.succeeded`, `run.failed`, or `run.cancelled`. No Mastra, OpenCode, `Error`, stream, workflow, executor, or Plan object crosses the boundary.
+The runner sends exactly one terminal event: `run.succeeded`, `run.failed`, or `run.cancelled`. No runtime-library, OpenCode, `Error`, stream, workflow, executor, or Plan object crosses the boundary.
 
 `JsonValue` is the protocol's recursive JSON value type. Inputs, successful outputs, and all message fields must be JSON-serializable. Error causes and stack traces are not transported.
 
@@ -206,7 +206,7 @@ runner emits run.started
         ↓
 runner imports workflow and builds/validates Plan
         ↓
-runner compiles and executes through spec.mastra-runtime-integration
+runner compiles and executes through spec.effect-v4-execution-and-operations
         ↓
 runner emits invocation events
         ↓
@@ -265,7 +265,7 @@ SIGINT / SIGTERM
        ↓
 runner AbortController
        ↓
- Mastra cancellation
+ private run cancellation
        ↓
  executor/OpenCode abort
        ↓
@@ -277,7 +277,7 @@ runner AbortController
 - The CLI installs signal handlers only for the duration of the active run.
 - The first signal sends one `CancelRun` and begins the graceful-cancellation wait.
 - Repeated signals do not create additional semantic commands.
-- The runner forwards its abort signal through the spec.mastra-runtime-integration runtime to the active executor.
+- The runner forwards its abort signal through the spec.effect-v4-execution-and-operations runtime to the active executor.
 - The runner emits `run.cancelled` after cancellation cleanup.
 - If graceful cancellation does not complete within a bounded implementation-defined grace period, the CLI terminates the child and exits with `130`.
 - The cancellation path never stops an externally owned OpenCode server.
@@ -286,12 +286,12 @@ Cancellation before the runner starts execution is handled as a latched abort; t
 
 ## 9. Failure Handling
 
-The runner normalizes failures from workflow loading, Plan validation, Mastra execution, executor execution, output validation, and cancellation into Seqlane-owned categories before emitting events.
+The runner normalizes failures from workflow loading, Plan validation, Plan execution, executor execution, output validation, and cancellation into Seqlane-owned categories before emitting events.
 
 The runner must:
 
 - emit an invocation failure before a run failure when a task invocation fails;
-- stop downstream execution after failure, as defined by spec.mastra-runtime-integration;
+- stop downstream execution after failure, as defined by spec.effect-v4-execution-and-operations;
 - omit raw error causes, secrets, SDK objects, and non-serializable values from protocol messages;
 - release run-scoped state before exiting.
 
@@ -314,7 +314,7 @@ If the selected workflow or OpenCode environment requires unresolved interaction
 All of the following are created inside the child and become unreachable when it exits:
 
 - `ExecutionContext`;
-- Mastra workflow/run objects;
+- runtime-library workflow/run objects;
 - executor instances;
 - OpenCode client/session handles;
 - cancellation controller;
@@ -328,7 +328,7 @@ The CLI may retain only the selected reference, process handle, protocol message
 The runner translates runtime events into the Seqlane event model before transport:
 
 ```text
-Mastra / Executor / OpenCode
+Runtime / Executor / OpenCode
              ↓
        Seqlane runtime
              ↓
@@ -354,7 +354,7 @@ libs/seqlane-runtime/src/
     main.ts                # child-process entry point
     protocol.ts            # decode commands, encode events
     load-workflow.ts       # import WorkflowReference
-    run-request.ts         # create run and invoke spec.mastra-runtime-integration runtime
+    run-request.ts         # create run and invoke spec.effect-v4-execution-and-operations runtime
 
 apps/seqlane-cli/src/
   commands/run.ts          # oclif command
@@ -377,7 +377,7 @@ Using a fixture workflow and fake executor, verify that the child imports and bu
 
 ### CLI supervisor tests
 
-Verify fresh child launch, initial request delivery, event rendering, terminal outcome mapping, unexpected child exit handling, and absence of Mastra imports/state in the CLI package.
+Verify fresh child launch, initial request delivery, event rendering, terminal outcome mapping, unexpected child exit handling, and absence of worker runtime state in the CLI package.
 
 ### Cancellation tests
 
@@ -385,7 +385,7 @@ Exercise SIGINT/SIGTERM forwarding through the real child boundary. Verify execu
 
 ### Isolation and contract tests
 
-Run the same workflow twice and verify distinct child/run identities and no state sharing. Run the Renovate-shaped spec.mastra-runtime-integration fixture through the child boundary using mocked OpenCode execution.
+Run the same workflow twice and verify distinct child/run identities and no state sharing. Run the Renovate-shaped spec.effect-v4-execution-and-operations fixture through the child boundary using mocked OpenCode execution.
 
 ## 15. Acceptance Criteria
 
@@ -394,7 +394,7 @@ spec.dedicated-runner-process is complete when:
 - `seqlane run` launches one fresh foreground Node runner for each invocation;
 - the CLI sends a serializable `RunRequest` containing a workflow reference, input, and OpenCode connection, not a Plan or executable object;
 - the runner imports the workflow and builds/validates the Plan itself;
-- Mastra, executor, OpenCode, and execution state are absent from the CLI process;
+- worker execution, executor, and native OpenCode state are absent from the CLI process;
 - the runner emits the defined Seqlane-owned lifecycle events over the process boundary;
 - all transported messages and successful results are JSON-serializable;
 - errors crossing the boundary are normalized and do not include raw causes or engine types;
@@ -429,7 +429,7 @@ spec.dedicated-runner-process does not implement:
 - rfc.seqlane-technical-architecture defines package boundaries, autonomous execution, cancellation, runner protocol intent, and exit responsibilities.
 - rfc.execution-observability-and-debugging defines Seqlane-owned structured events and the CLI projection boundary.
 - MVP defines the V1 command/event shapes and the single-run, external-OpenCode profile.
-- spec.mastra-runtime-integration defines the runtime invoked inside the runner.
+- spec.effect-v4-execution-and-operations defines the runtime invoked inside the runner.
 
 ## Traceability
 

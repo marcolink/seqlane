@@ -1,11 +1,11 @@
 ---
 id: task.deliver-standalone-cli-runs
 title: Deliver Standalone CLI Runs
-status: in-progress
+status: cancelled
 owners:
   - core
 created: 2026-09-16
-updated: 2026-09-22
+updated: 2026-10-22
 upstream:
   - spec.standalone-cli-runs
   - spec.run-machine-output
@@ -14,6 +14,10 @@ supersedes: []
 ---
 
 # Deliver Standalone CLI Runs
+
+> Historical task record. Scope and outcomes describe work before the current migration.
+> Current execution authority: [Effect v4 execution and operations](../specs/2026-10-21-effect-v4-execution-and-operations.md).
+> Current-owner links record the later contract transfer. They do not establish historical Effect v4 use or current delivery.
 
 ## Objective
 
@@ -33,7 +37,7 @@ behavior. This task defines implementation and evidence.
 - Explicit file/package selection and project-aware TypeScript loading.
 - Input validation, stdin, dotted input fields, and independent execution
   workspace resolution.
-- Direct Mastra execution with in-memory state and bounded cleanup.
+- Direct runtime execution with in-memory state and bounded cleanup.
 - Managed adapter startup, native authentication and permission configuration.
 - Workflow-owned model selection with explicit compatibility failures.
 - Removal of run catalog, host, runtime-profile, recording, and summary writes.
@@ -59,10 +63,9 @@ before starting its successor. This document remains the parent deliverable.
 
 ## Implementation plan
 
-1. Inspect the pinned Mastra and adapter APIs and `startWorkflowRun` in
-   `libs/runtime/src/start-workflow-run.ts` as the existing direct-run seam.
-   Prove an in-memory workflow run without a Seqlane listener. Keep engine types
-   private. Do not replace Mastra scheduling or process primitives.
+1. Reuse the direct runtime seam and adapter lifecycle.
+   Prove an in-memory workflow run without a Seqlane listener.
+   Keep runtime types private.
 2. Implement explicit reference resolution from an external caller project.
    Add the supported TypeScript loader behavior and invalid-export diagnostics.
    Evaluate existing dependencies before selecting a new loader dependency.
@@ -75,7 +78,7 @@ before starting its successor. This document remains the parent deliverable.
    Cover ownership, readiness, authentication errors, concurrency, and cleanup.
 5. Enforce workflow model declarations and adapter compatibility. Prove no
    substitution and distinguish model failures from connection/authentication.
-6. Connect the selected workflow to direct Mastra execution and existing event
+6. Connect the selected workflow to direct runtime execution and existing event
    consumers. Keep all canonical run state in memory.
 7. Run the verification matrix and reconcile canonical docs with delivery
    evidence. Record any unsupported adapter capability as a delivery blocker.
@@ -108,7 +111,7 @@ listener, bounded shutdown, and survival of foreign services.
 Verify deterministic workflows make zero model calls and start no adapters.
 Run hosted-command regressions to prove shared runtime behavior remains intact.
 
-Check public declarations for Mastra leakage and reject `/ee/` imports. Run
+Check public declarations for runtime-engine types. Run
 `pnpm docs:index` and `pnpm docs:validate` after delivery reconciliation.
 
 ## Completion criteria
@@ -138,7 +141,9 @@ standalone CLI cutover was cancelled on 2026-09-18 and is not implied by this
 input-flag work.
 Child task outcomes own their verification evidence.
 
-## Delivery state
+## Historical delivery state
+
+The remaining original scope transferred to [task.effect-v4-cli-and-action-cutover](./2026-10-21-effect-v4-cli-and-action-cutover.md). This historical task is closed; its partial evidence below remains historical.
 
 Partial implementation in [PR #154](https://github.com/marcolink/seqlane/pull/154).
 The public command cutover remains incomplete and cancelled. No target-branch

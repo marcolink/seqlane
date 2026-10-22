@@ -5,7 +5,7 @@ status: superseded
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-08
+updated: 2026-10-22
 upstream:
   - rfc.seqlane-technical-architecture
 supersedes: []
@@ -170,7 +170,7 @@ stable home for recording and future observability adapters. Chosen.
 
 ## Follow-Up Constraints
 
-- `@seqlane/events` must not depend on Mastra, OpenCode, Studio, or
+- `@seqlane/events` must not depend on runtime libraries, OpenCode, Studio, or
   terminal-rendering libraries.
 - Canonical events must be JSON serializable and safe for recording/export
   after Seqlane redaction and bounds policies have run.
@@ -192,4 +192,4 @@ if external consumers require a different compatibility/versioning boundary.
 ## Traceability
 
 - [rfc.seqlane-technical-architecture: Seqlane Technical Architecture](../rfcs/2026-09-02-seqlane-technical-architecture.md)
-- [adr.mastra-backed-seqlane-workflows: Center Seqlane Workflows on a Mastra-Backed Executable DSL](./2026-09-08-mastra-backed-seqlane-workflows.md)
+- [rfc.effect-v4-migration: Full Effect v4 Migration](../rfcs/2026-10-21-effect-v4-migration.md)

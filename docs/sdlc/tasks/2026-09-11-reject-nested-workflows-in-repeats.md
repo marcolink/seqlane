@@ -5,14 +5,18 @@ status: cancelled
 owners:
   - core
 created: 2026-09-11
-updated: 2026-09-14
+updated: 2026-10-22
 upstream:
   - task.compose-workflows-as-runnables
-  - spec.mastra-backed-seqlane-workflows
+  - spec.workflow-execution-semantics
 supersedes: []
 ---
 
 # Reject Nested Workflows in Repeat Bodies
+
+> Historical task record. Scope and outcomes describe work before the current migration.
+> Current execution authority: [Effect v4 execution and operations](../specs/2026-10-21-effect-v4-execution-and-operations.md).
+> Current-owner links record the later contract transfer. They do not establish historical Effect v4 use or current delivery.
 
 ## Objective
 
@@ -24,7 +28,7 @@ rejected before execution instead of failing when the repeat dispatches it.
 
 - `SEQ-PR99-003`: Resolve the unsupported nested-workflow repeat path.
 - `REQ-PLAN-002`: Reject malformed or unsupported Plan data with typed errors.
-- [spec.mastra-backed-seqlane-workflows](../specs/2026-09-08-mastra-backed-seqlane-workflows.md)
+- [spec.workflow-execution-semantics](../specs/2026-10-22-workflow-execution-semantics.md)
 
 ## Scope
 
@@ -78,13 +82,13 @@ with that contract. [task.deliver-fluent-task-until-repeats](./2026-09-14-delive
 supersedes this task and carries the `SEQ-PR99-003` follow-up through
 supported nested execution.
 
-## Delivery state
+## Historical delivery state
 
 Cancelled; no implementation or delivery evidence claimed.
 
 ## Traceability
 
 - [task.compose-workflows-as-runnables: Compose Workflows as Runnables](./2026-09-08-compose-workflows-as-runnables.md)
-- [spec.mastra-backed-seqlane-workflows: Mastra-Backed Seqlane Workflow Contracts](../specs/2026-09-08-mastra-backed-seqlane-workflows.md)
+- [spec.workflow-execution-semantics: Workflow Authoring and Execution Semantics](../specs/2026-10-22-workflow-execution-semantics.md)
 - [spec.fluent-task-until-repeats: Fluent Task-Until Repeats](../specs/2026-09-14-fluent-task-until-repeats.md)
 - [task.deliver-fluent-task-until-repeats: Deliver Fluent Task-Until Repeats](./2026-09-14-deliver-fluent-task-until-repeats.md)

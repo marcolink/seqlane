@@ -5,10 +5,10 @@ status: accepted
 owners:
   - core
 created: 2026-09-23
-updated: 2026-09-23
+updated: 2026-10-22
 upstream:
-  - prd.seqlane-on-mastra
-  - rfc.mastra-runtime-and-operational-foundation
+  - prd.seqlane-runtime
+  - rfc.effect-v4-migration
   - adr.standalone-cli-runs
 supersedes: []
 ---
@@ -24,8 +24,7 @@ one state selected from each invocation's input and static questions declared
 with the task. A classifier request does not need an agent goal, coding tools,
 or a conversation session.
 
-Seqlane already uses one task/dataflow contract and Mastra as its only workflow
-runtime. Standalone runs do not require a Seqlane configuration file and do not
+Seqlane uses one task/dataflow contract and one private workflow runtime. Standalone runs do not require a Seqlane configuration file and do not
 persist Seqlane history. This decision adds a model-backed task without changing
 those foundations.
 
@@ -36,7 +35,7 @@ those foundations.
 `defineClassifierTask` creates an ordinary in-memory task definition. It fixes
 complete questions at definition time. Its `state` callback receives parsed
 task input and selects one JSON string, object, or array at invocation time.
-All questions evaluate that shared state. The task executes as one Mastra step
+All questions evaluate that shared state. The task executes as an ordinary invocation
 through a private classifier client. The Plan keeps its normal task ID and
 input binding, not a new node kind, callback, provider request, or credential.
 It creates no agent session or checkpoint.
@@ -76,7 +75,7 @@ Rejected.
 
 ### Add a classifier Plan node or a second execution engine
 
-Either choice duplicates existing task dataflow and Mastra step lifecycle.
+Either choice duplicates existing task dataflow and invocation lifecycle.
 Rejected.
 
 ### Put endpoint and credentials in the task definition
@@ -110,8 +109,8 @@ Delivery is tracked by the linked specification and planned tasks.
 
 ## Traceability
 
-- [prd.seqlane-on-mastra, classifier requirement](../prd/2026-09-03-seqlane-on-mastra.md#requirement-classifier-tasks)
-- [rfc.mastra-runtime-and-operational-foundation](../rfcs/2026-09-03-mastra-runtime-and-operational-foundation.md#classifier-tasks)
+- [prd.seqlane-runtime, classifier requirement](../prd/2026-10-21-seqlane-runtime.md)
+- [rfc.effect-v4-migration](../rfcs/2026-10-21-effect-v4-migration.md)
 - [adr.standalone-cli-runs](./2026-09-16-standalone-cli-runs.md)
 - [spec.classifier-tasks](../specs/2026-09-23-classifier-tasks.md)
 - [TypeSafe System One API](https://docs.typesafe.ai/api)

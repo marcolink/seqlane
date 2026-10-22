@@ -5,13 +5,17 @@ status: completed
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-03
+updated: 2026-10-22
 upstream:
   - spec.consumer-agnostic-seqlane-execution-events
 supersedes: []
 ---
 
 # Create the Canonical Execution-Events Package
+
+> Historical task record. Scope and outcomes describe work before the current migration.
+> Current execution authority: [Effect v4 execution and operations](../specs/2026-10-21-effect-v4-execution-and-operations.md).
+> Current-owner links record the later contract transfer. They do not establish historical Effect v4 use or current delivery.
 
 > Migrated from implementation story `TS-016-00`.
 
@@ -27,20 +31,20 @@ observability projections without depending on runner internals.
 
 ## Acceptance Criteria
 
-**Scenario:** *Consumers import one canonical event union*
+**Scenario:** _Consumers import one canonical event union_
 
 - **Given:** A consumer depends on `@seqlane/events`
 - **When:** It handles a serialized execution event
 - **Then:** It can use `SeqlaneExecutionEvent` and all existing lifecycle
   variants without importing `RunnerEvent` from `seqlane-core`
 
-**Scenario:** *Events round-trip safely*
+**Scenario:** _Events round-trip safely_
 
 - **Given:** A valid event has metadata and a JSON-safe payload
 - **When:** It is encoded and decoded
 - **Then:** The decoded event is equivalent and passes the canonical guard
 
-**Scenario:** *Malformed events are rejected*
+**Scenario:** _Malformed events are rejected_
 
 - **Given:** An event has invalid metadata, IDs, timestamps, sequence, or
   trace context
@@ -52,7 +56,7 @@ observability projections without depending on runner internals.
 Create `libs/seqlane-events` and export `SeqlaneExecutionEvent`, metadata,
 guards, JSON encoding/decoding, and `SeqlaneExecutionEventConsumer`. Move the
 serialized event definitions out of `seqlane-core`; keep shared IDs and Plan
-IR in `seqlane-core`. The package has no Mastra, executor, Studio, output, or
+IR in `seqlane-core`. The package has no runtime-engine, executor, Studio, output, or
 OTel dependencies. Use declared package exports across boundaries.
 
 Dependencies: none. Likely files: `libs/seqlane-events/**`,
@@ -67,7 +71,7 @@ tests, malformed-input tests, and dependency-boundary checks.
 - Studio or recording implementation
 - OpenTelemetry and CloudEvents adapters
 
-## Source
+## Source and current owners
 
 - [adr.consumer-agnostic-seqlane-execution-events](../adrs/2026-09-02-consumer-agnostic-seqlane-execution-events.md)
 - [spec.consumer-agnostic-seqlane-execution-events](../specs/2026-09-02-consumer-agnostic-seqlane-execution-events.md)

@@ -1,11 +1,11 @@
 ---
 id: task.implement-otel-aligned-opencode-observations
 title: Implement OTel-Aligned OpenCode Observations
-status: in-progress
+status: cancelled
 owners:
   - core
 created: 2026-09-19
-updated: 2026-09-20
+updated: 2026-10-22
 upstream:
   - spec.otel-aligned-observation-contract
 supersedes: []
@@ -13,13 +13,16 @@ supersedes: []
 
 # Implement OTel-Aligned OpenCode Observations
 
+> Historical task record. Scope and outcomes describe work before the current migration.
+> Current execution authority: [Effect v4 execution and operations](../specs/2026-10-21-effect-v4-execution-and-operations.md).
+> Current-owner links record the later contract transfer. They do not establish historical Effect v4 use or current delivery.
+
 ## Objective
 
 Implement the draft observation contract through the real OpenCode execution
 path, with the CLI/TUI as the first consumer. A single validated OpenCode
 observation must become one canonical, serialized protocol event before the
-CLI/TUI projects it. Mastra remains a later projection after the CLI path is
-proven.
+CLI/TUI projects it. Optional runtime telemetry derives from the accepted event.
 
 ## Upstream requirements
 
@@ -31,8 +34,7 @@ proven.
 
 - Protocol-owned Zod observation/event contract.
 - One protocol-owned adapter observation sink and one OpenCode reducer.
-- Protocol event delivery, then CLI/TUI projection; Mastra projection follows
-  as a later tracer.
+- Canonical event delivery followed by independent CLI/TUI and telemetry projections.
 - Preserve the existing `--json` final-result-only behavior.
 - Full available local model, tool, and skill payloads.
 - Compatibility, malformed-input, ordering, failure-isolation, and cost
@@ -73,19 +75,18 @@ payload loss.
 ### Checkpoint 1
 
 Stop and inspect the emitted protocol event and TUI detail model. Do not expand
-the schema if either boundary loses a value or changes identity. Do not add the
-Mastra projection until this CLI-first path is verified.
+the schema if either boundary loses a value or changes identity. Expand projections only after this CLI-first path preserves complete values.
 
 ### Tracer 2: Tool lifecycle and correlation
 
 - **Outcome:** One tool call preserves exact definition, arguments, result,
   metadata, lifecycle, and parent model exchange.
 - **Path:** OpenCode tool-part reducer → canonical `tool` observation →
-  protocol event → Mastra tool projection and TUI activity details.
+  protocol event → telemetry projection and TUI activity details.
 - **Risk:** Existing tool/activity and native span paths may duplicate or
   transform payloads.
 - **Evidence:** One stable activity identity across started/updated/completed
-  events; exact argument/result round-trip; one Mastra tool observation.
+  events; exact argument/result round-trip; one canonical tool observation.
 - **Files likely touched:** `libs/opencode/src/attempt-transitions.ts`,
   `libs/opencode/src/observations.ts`, `libs/opencode/src/observability.ts`,
   `libs/protocol/src/contracts.ts`, `libs/tui/src/run-activity.ts`.
@@ -96,7 +97,7 @@ Mastra projection until this CLI-first path is verified.
 - **Outcome:** A source-reported skill remains a skill and preserves identity,
   instructions, input, output, and metadata that OpenCode exposes.
 - **Path:** OpenCode skill observation → canonical `skill` observation →
-  protocol event → Mastra/TUI projections.
+  protocol event → telemetry and TUI projections.
 - **Risk:** Skill calls may currently be collapsed into ordinary tool spans or
   activity summaries.
 - **Evidence:** `kind: "skill"` when reported by the source, stable parent
@@ -112,7 +113,7 @@ Mastra projection until this CLI-first path is verified.
 - **Outcome:** Each actual model response, including every repair attempt, is a
   separate model observation under one invocation.
 - **Path:** OpenCode attempt loop → canonical exchange identity and zero-based
-  index (`attempts - 1`) → protocol event → Mastra/TUI projections.
+  index (`attempts - 1`) → protocol event → telemetry and TUI projections.
 - **Risk:** Terminal reconciliation may duplicate an exchange or overwrite the
   first response with the final validated response.
 - **Evidence:** Ordered exchange IDs, distinct attempt indexes, exact payloads
@@ -125,7 +126,7 @@ Mastra projection until this CLI-first path is verified.
 ### Checkpoint 2
 
 Run protocol round-trip and OpenCode integration tests together. Confirm that
-Mastra projection failure does not remove or alter protocol observations.
+Optional telemetry failure does not remove or alter protocol observations.
 
 ### Tracer 5: Full payload breadth and OTel mapping
 
@@ -133,7 +134,7 @@ Mastra projection failure does not remove or alter protocol observations.
   parts, reasoning, tool definitions, usage, cache, cost, timing, finish
   reasons, and errors exposed by OpenCode.
 - **Path:** Validated native fields → canonical nested payload → protocol
-  serialization → Mastra data fields and TUI details.
+  serialization → telemetry fields and TUI details.
 - **Risk:** OTel field mapping or JSON conversion may flatten, omit, or change
   values that are not present in the first text-only tracer.
 - **Evidence:** Fixture containing every supported field; deep-equality
@@ -147,7 +148,7 @@ Mastra projection failure does not remove or alter protocol observations.
 ### Tracer 6: Streaming, failure, cancellation, and malformed input
 
 - **Outcome:** Partial observations, terminal failures, cancellation, missing
-  values, non-JSON values, malformed native events, and Mastra failures are
+  values, non-JSON values, malformed native events, and optional telemetry failures are
   diagnosed without changing execution or suppressing valid protocol data.
 - **Path:** OpenCode reducer/error paths → canonical lifecycle/availability
   update → protocol event → isolated projections.
@@ -175,7 +176,6 @@ full scoped verification and review the TUI default/detail behavior.
 - `libs/runtime/src/runtime/invocation/invocation-execution.ts`
 - `libs/runtime/src/runner/profile/runtime-profile.ts`
 - `libs/runtime/src/runtime/compile/compile-plan.ts`
-- `libs/runtime/src/runtime/mastra/mastra-execution.ts`
 - `libs/runtime/src/start-workflow-run.ts`
 - `libs/runtime/src/runner/event-bridge.ts`
 - `libs/runtime/src/runner/run.ts`
@@ -209,14 +209,13 @@ Run in this order:
 
 The implementation must also run the repository boundary checks and confirm
 that contract tests pin
-`c88d504ab3d9879f8e50d3cc87e69775e11db234`, and that no OTel SDK or Mastra
+`c88d504ab3d9879f8e50d3cc87e69775e11db234`, and that no telemetry SDK or runtime-engine
 type enters protocol/core declarations.
 
 ## Completion criteria
 
 - All six tracers have evidence recorded in the implementation PR.
-- The first OpenCode model exchange crosses adapter, protocol, Mastra, and TUI
-  boundaries with exact available payload preservation.
+- The first OpenCode model exchange crosses adapter, protocol, and TUI boundaries with exact available payload preservation.
 - Tool and skill activities remain distinct and correlated.
 - Repair attempts are separate exchanges.
 - Protocol malformed-input and JSON round-trip tests pass.
@@ -235,9 +234,13 @@ workflow observations are forwarded. The shared Zod JSON schema validates
 captured payloads; Zod JSON Schema metadata is removed before validation.
 
 The tool, skill, streaming, failure, cancellation, malformed-input, and
-payload-cost tracers remain in progress. Mastra remains a later projection.
+payload-cost tracers remained in progress at this checkpoint.
+The later [adapter observation contract](../specs/2026-10-22-adapter-observation-projection.md)
+owns source reduction and complete payload fidelity. Runtime tasks own current telemetry delivery.
 
-## Delivery state
+## Historical delivery state
+
+The remaining original scope transferred to [task.effect-v4-telemetry-and-event-pressure](./2026-10-21-effect-v4-telemetry-and-event-pressure.md). This historical task is closed; its partial evidence below remains historical.
 
 The delivered slice exists on the feature branch. It is not yet reachable from
 `main`. The task is not complete.
@@ -246,4 +249,4 @@ The delivered slice exists on the feature branch. It is not yet reachable from
 
 - [spec.otel-aligned-observation-contract: OTel-Aligned Seqlane Observation Contract](../specs/2026-09-19-otel-aligned-observation-contract.md)
 - [rfc.high-fidelity-local-observability: High-Fidelity Local Model and Agent Observability](../rfcs/2026-09-19-high-fidelity-local-observability.md)
-- [task.add-mastra-observability: Add Mastra Observability](./2026-09-08-add-mastra-observability.md)
+- [task.effect-v4-telemetry-and-event-pressure: Telemetry sinks and event pressure](./2026-10-21-effect-v4-telemetry-and-event-pressure.md)

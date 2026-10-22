@@ -1,22 +1,26 @@
 ---
 id: task.standalone-run-execution
-title: Execute Standalone Runs Through Mastra
+title: Execute Standalone Runs Through the Runtime
 status: completed
 owners:
   - core
 created: 2026-09-16
-updated: 2026-09-16
+updated: 2026-10-22
 upstream:
   - spec.standalone-cli-runs
   - task.standalone-adapter-lifecycle
 supersedes: []
 ---
 
-# Execute Standalone Runs Through Mastra
+# Execute Standalone Runs Through the Runtime
+
+> Historical task record. Scope and outcomes describe work before the current migration.
+> Current execution authority: [Effect v4 execution and operations](../specs/2026-10-21-effect-v4-execution-and-operations.md).
+> Current-owner links record the later contract transfer. They do not establish historical Effect v4 use or current delivery.
 
 ## Objective
 
-Connect prepared workflows and managed adapters to direct Mastra execution.
+Connect prepared workflows and managed adapters to direct runtime execution.
 Preserve event/result contracts, cancellation, and resource cleanup without a
 Seqlane operational server or durable state.
 
@@ -46,7 +50,7 @@ Seqlane operational server or durable state.
 
 ## Implementation plan
 
-1. Reuse startWorkflowRun and pinned Mastra facilities; avoid a second engine.
+1. Reuse the direct runtime entrypoint; keep one execution program.
 2. Connect prepared workflows to the standalone adapter lifecycle.
 3. Retain existing event consumers and authoritative result normalization.
 4. Isolate incidental module/adapter output from final JSON stdout.
@@ -74,9 +78,9 @@ Git whitespace gates. Preserve hosted behavior during this intermediate step.
 
 ## Outcome
 
-Implemented direct standalone execution through the existing Mastra Plan seam.
-Standalone runs use in-memory runtime state, do not expose the Mastra server,
-validate transformed workflow input once, and dispose the Mastra runtime and
+Implemented direct standalone execution through the existing private Plan boundary.
+Standalone runs use in-memory runtime state, create no Seqlane listener,
+validate transformed workflow input once, and dispose the runtime and
 adapter resources before the terminal event.
 
 Agent adapters remain demand-driven. Deterministic tasks do not start an
@@ -89,7 +93,7 @@ late missing-model failure, unavailable models, model inheritance, transformed
 input, and cleanup outcomes. The full repository test gate and format, docs,
 typecheck, lint, build, Nx sync, and Git whitespace gates passed.
 
-## Delivery state
+## Historical delivery state
 
 Verified on `feat/standalone-cli-runs` in the commit containing this outcome.
 The public command cutover remains pending. No target-branch delivery is claimed.

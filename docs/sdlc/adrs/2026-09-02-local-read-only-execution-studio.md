@@ -5,7 +5,7 @@ status: superseded
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-05
+updated: 2026-10-22
 upstream:
   - rfc.seqlane-technical-architecture
 supersedes: []
@@ -13,7 +13,7 @@ supersedes: []
 
 # Provide a Local Read-Only Execution Studio
 
-> Superseded by [adr.local-mastra-operational-host](./2026-09-05-local-mastra-operational-host.md).
+> Superseded by [rfc.effect-v4-migration](../rfcs/2026-10-21-effect-v4-migration.md).
 
 ## Context
 
@@ -97,7 +97,7 @@ limits values before they cross the runner boundary. Agent or executor text
 continues to use `invocation.output`; it is not a structured task result.
 
 Studio uses only Seqlane-owned Plans, identities, and runner events. It must
-not expose Mastra, OpenCode, or any executor-specific field.
+not expose runtime-library, OpenCode, or any executor-specific field.
 
 ### Access boundary
 

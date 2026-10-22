@@ -5,27 +5,31 @@ status: planned
 owners:
   - core
 created: 2026-09-05
-updated: 2026-09-05
+updated: 2026-10-22
 upstream:
-  - spec.mastra-runtime-and-operational-integration
+  - spec.effect-v4-execution-and-operations
 supersedes: []
 ---
 
 # Bound Workflow Discovery
 
+> Historical task record. Scope and outcomes describe work before the current migration.
+> Current execution authority: [Effect v4 execution and operations](../specs/2026-10-21-effect-v4-execution-and-operations.md).
+> Current-owner links record the later contract transfer. They do not establish historical Effect v4 use or current delivery.
+
 ## Objective
 
 Make workflow discovery predictable for large or untrusted local workspaces.
 
-## Dependencies
+## Current replacement
 
-- [task.mastra-architectural-cleanup](./2026-09-03-mastra-architectural-cleanup.md)
+This later task owns replacement work. It was not an original prerequisite.
+
+- [task.effect-v4-complete-removal-and-release](./2026-10-21-effect-v4-complete-removal-and-release.md)
 
 ## Delivery
 
 - Stack order: 13
-- Branch: `mastra-13-workflow-discovery-bounds`
-- Pull request base: `mastra-operational-contracts`
 - Implementation agent: a fresh `gpt-5.6-luna` subagent with `high` reasoning
 - Delivery unit: exactly one task branch and one pull request
 
@@ -80,5 +84,5 @@ Not started.
 
 ## Traceability
 
-- [spec.mastra-runtime-and-operational-integration](../specs/2026-09-03-mastra-runtime-and-operational-integration.md)
+- [spec.effect-v4-execution-and-operations](../specs/2026-10-21-effect-v4-execution-and-operations.md)
 - [adr.repository-user-workflow-discovery-and-composition](../adrs/2026-09-02-repository-user-workflow-discovery-and-composition.md)

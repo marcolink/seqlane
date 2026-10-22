@@ -48,12 +48,14 @@ describe("joint admission", () => {
     const sessionLocks = new SessionLockRegistry();
     const workspaceLocks = new WorkspaceLockRegistry();
     const admissions = new JointAdmissionRegistry(workspaceLocks, sessionLocks);
-    const active = await workspaceLocks.acquire(
-      workspace,
-      "exclusive",
-      undefined,
-      0,
-      "active",
+    const active = await Effect.runPromise(
+      workspaceLocks.acquireEffect(
+        workspace,
+        "exclusive",
+        undefined,
+        0,
+        "active",
+      ),
     );
     let notifyWaiting!: () => void;
     const waitingSignal = new Promise<void>((resolve) => {
@@ -80,12 +82,14 @@ describe("joint admission", () => {
     const sessionLocks = new SessionLockRegistry();
     const workspaceLocks = new WorkspaceLockRegistry();
     const admissions = new JointAdmissionRegistry(workspaceLocks, sessionLocks);
-    const active = await workspaceLocks.acquire(
-      workspace,
-      "exclusive",
-      undefined,
-      0,
-      "active",
+    const active = await Effect.runPromise(
+      workspaceLocks.acquireEffect(
+        workspace,
+        "exclusive",
+        undefined,
+        0,
+        "active",
+      ),
     );
     const controller = new AbortController();
     const reason = new Error("cancelled before owner release");
@@ -115,12 +119,14 @@ describe("joint admission", () => {
     const activeSession = await sessionLocks.acquire(session);
     const waiting = admissions.acquire(request("waiting", 0));
 
-    const competingWorkspace = await workspaceLocks.acquire(
-      workspace,
-      "exclusive",
-      undefined,
-      0,
-      "competing",
+    const competingWorkspace = await Effect.runPromise(
+      workspaceLocks.acquireEffect(
+        workspace,
+        "exclusive",
+        undefined,
+        0,
+        "competing",
+      ),
     );
     expect(competingWorkspace).toBeDefined();
 
@@ -135,12 +141,14 @@ describe("joint admission", () => {
     const sessionLocks = new SessionLockRegistry();
     const workspaceLocks = new WorkspaceLockRegistry();
     const admissions = new JointAdmissionRegistry(workspaceLocks, sessionLocks);
-    const activeWorkspace = await workspaceLocks.acquire(
-      workspace,
-      "exclusive",
-      undefined,
-      0,
-      "active",
+    const activeWorkspace = await Effect.runPromise(
+      workspaceLocks.acquireEffect(
+        workspace,
+        "exclusive",
+        undefined,
+        0,
+        "active",
+      ),
     );
     const waiting = admissions.acquire(request("waiting", 0));
 
@@ -160,7 +168,9 @@ describe("joint admission", () => {
     const admissions = new JointAdmissionRegistry(workspaceLocks, sessionLocks);
     const first = { key: "/first" };
     const second = { key: "/second" };
-    const activeSecond = await workspaceLocks.acquire(second, "exclusive");
+    const activeSecond = await Effect.runPromise(
+      workspaceLocks.acquireEffect(second, "exclusive"),
+    );
     let groupWaiting!: () => void;
     const waiting = new Promise<void>((resolve) => {
       groupWaiting = resolve;
@@ -200,7 +210,9 @@ describe("joint admission", () => {
     const admissions = new JointAdmissionRegistry(workspaceLocks, sessionLocks);
     const first = { key: "/first" };
     const second = { key: "/second" };
-    const activeSecond = await workspaceLocks.acquire(second, "exclusive");
+    const activeSecond = await Effect.runPromise(
+      workspaceLocks.acquireEffect(second, "exclusive"),
+    );
     const controller = new AbortController();
     let groupWaiting!: () => void;
     const waiting = new Promise<void>((resolve) => {
@@ -238,12 +250,14 @@ describe("joint admission", () => {
     const admissions = new JointAdmissionRegistry(workspaceLocks, sessionLocks);
     const blockedWorkspace = { key: "/blocked-checkout" };
     const availableWorkspace = { key: "/available-checkout" };
-    const activeWorkspace = await workspaceLocks.acquire(
-      blockedWorkspace,
-      "exclusive",
-      undefined,
-      0,
-      "active",
+    const activeWorkspace = await Effect.runPromise(
+      workspaceLocks.acquireEffect(
+        blockedWorkspace,
+        "exclusive",
+        undefined,
+        0,
+        "active",
+      ),
     );
     let blockedWaiterObserved!: () => void;
     const blockedWaiter = new Promise<void>((resolve) => {
@@ -274,12 +288,14 @@ describe("joint admission", () => {
     const admissions = new JointAdmissionRegistry(workspaceLocks, sessionLocks);
     const blockedWorkspace = { key: "/quarantined-checkout" };
     const availableWorkspace = { key: "/unrelated-checkout" };
-    const activeWorkspace = await workspaceLocks.acquire(
-      blockedWorkspace,
-      "exclusive",
-      undefined,
-      0,
-      "workspace-owner",
+    const activeWorkspace = await Effect.runPromise(
+      workspaceLocks.acquireEffect(
+        blockedWorkspace,
+        "exclusive",
+        undefined,
+        0,
+        "workspace-owner",
+      ),
     );
     const activeSession = await sessionLocks.acquire(session);
     let blockedWaiterObserved!: () => void;
@@ -317,12 +333,8 @@ describe("joint admission", () => {
     const sessionLocks = new SessionLockRegistry();
     const workspaceLocks = new WorkspaceLockRegistry();
     const admissions = new JointAdmissionRegistry(workspaceLocks, sessionLocks);
-    const active = await workspaceLocks.acquire(
-      workspace,
-      "shared",
-      undefined,
-      0,
-      "active",
+    const active = await Effect.runPromise(
+      workspaceLocks.acquireEffect(workspace, "shared", undefined, 0, "active"),
     );
     const exclusive = admissions.acquire(request("exclusive", 1));
     const shared = admissions.acquire({

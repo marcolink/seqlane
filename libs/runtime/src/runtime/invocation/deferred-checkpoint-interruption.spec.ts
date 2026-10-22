@@ -101,7 +101,6 @@ describe("deferred task completion ownership", () => {
         new AbortController().signal,
         {
           invocationId: "invocation",
-          observability: {},
           results: context.results,
           remainingConsumers: context.remainingConsumers,
           subject: { type: "task", taskId: task.id },
@@ -288,7 +287,6 @@ describe("deferred task completion ownership", () => {
       abortSignal,
       {
         invocationId: "invocation",
-        observability: {},
         results: context.results,
         remainingConsumers: context.remainingConsumers,
         subject: { type: "task", taskId: task.id },

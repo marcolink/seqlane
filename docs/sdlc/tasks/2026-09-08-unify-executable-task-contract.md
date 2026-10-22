@@ -5,13 +5,17 @@ status: completed
 owners:
   - core
 created: 2026-09-08
-updated: 2026-09-09
+updated: 2026-10-22
 upstream:
-  - spec.mastra-backed-seqlane-workflows
+  - spec.workflow-execution-semantics
 supersedes: []
 ---
 
 # Unify the Executable Task Contract
+
+> Historical task record. Scope and outcomes describe work before the current migration.
+> Current execution authority: [Effect v4 execution and operations](../specs/2026-10-21-effect-v4-execution-and-operations.md).
+> Current-owner links record the later contract transfer. They do not establish historical Effect v4 use or current delivery.
 
 ## Objective
 
@@ -22,7 +26,7 @@ specialized agent and shell factories construct that contract.
 
 - `REQ-TASK-001`: Use one executable task contract.
 - `REQ-PLAN-002`: Validate Plan data at runtime.
-- [spec.mastra-backed-seqlane-workflows](../specs/2026-09-08-mastra-backed-seqlane-workflows.md)
+- [spec.workflow-execution-semantics](../specs/2026-10-22-workflow-execution-semantics.md)
 
 ## Dependencies
 
@@ -31,8 +35,6 @@ None. This is the first implementation slice.
 ## Delivery
 
 - Stack order: 1
-- Branch: `mastra-01-unify-executable-task-contract`
-- Pull request base: `mastra`
 - Implementation agent: a fresh `gpt-5.6-luna` subagent with `high` reasoning
 - Delivery unit: exactly one task branch and one pull request
 
@@ -59,7 +61,7 @@ None. This is the first implementation slice.
 ## Out of scope
 
 - Fluent-builder redesign, workflow composition, and new Plan node kinds.
-- Mastra compiler work.
+- private compiler work.
 - Effect removal.
 - Runtime scheduling or event migration.
 
@@ -125,7 +127,7 @@ Then run:
 
 ## Outcome
 
-Completed on `mastra-01-unify-executable-task-contract`.
+The original implementation completed this task.
 
 The public DSL now has one Zod-backed `TaskDefinition` with an `execute`
 callback and runtime-owned `TaskContext`. Agent and shell factories construct
@@ -136,5 +138,5 @@ as an invocation failure.
 
 ## Traceability
 
-- [spec.mastra-backed-seqlane-workflows: Mastra-Backed Seqlane Workflow Contracts](../specs/2026-09-08-mastra-backed-seqlane-workflows.md)
-- [adr.mastra-backed-seqlane-workflows: Center Seqlane Workflows on a Mastra-Backed Executable DSL](../adrs/2026-09-08-mastra-backed-seqlane-workflows.md)
+- [spec.workflow-execution-semantics: Workflow Authoring and Execution Semantics](../specs/2026-10-22-workflow-execution-semantics.md)
+- [rfc.effect-v4-migration: Full Effect v4 Migration](../rfcs/2026-10-21-effect-v4-migration.md)

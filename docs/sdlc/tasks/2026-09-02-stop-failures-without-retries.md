@@ -5,42 +5,53 @@ status: completed
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-03
+updated: 2026-10-22
 upstream:
-  - spec.mastra-runtime-integration
+  - spec.effect-v4-execution-and-operations
 supersedes: []
 ---
 
 # Stop failed workflows without automatic retries
 
+> Historical task record. Scope and outcomes describe work before the current migration.
+> Current execution authority: [Effect v4 execution and operations](../specs/2026-10-21-effect-v4-execution-and-operations.md).
+> Current-owner links record the later contract transfer. They do not establish historical Effect v4 use or current delivery.
+
 > Migrated from implementation story `TS-001-05`.
 
 ## Use Case
+
 **As a** workflow operator, **I want to** stop downstream execution when a task fails without silently retrying it, **so that** failures and side effects remain deterministic in the MVP.
 
 ## Acceptance Criteria
-**Scenario:** *Failure stops downstream execution*
+
+**Scenario:** _Failure stops downstream execution_
+
 - **Given:** A workflow contains an ordered chain where an upstream invocation fails
 - **When:** The runtime normalizes that failure
 - **Then:** Downstream invocations do not execute and the run fails with a Seqlane error
 
-**Scenario:** *Failed invocation is attempted once*
-- **Given:** A generated Mastra step encounters an executor failure
-- **When:** The step exits
-- **Then:** The runtime performs one executor attempt and does not apply an automatic Mastra retry policy
+**Scenario:** _Failed invocation is attempted once_
+
+- **Given:** An invocation encounters an executor failure
+- **When:** The invocation exits
+- **Then:** The runtime performs one executor attempt and does not retry side effects automatically
 
 ## Technical Details
-Exceptions leaving generated steps are converted with `toSeqlaneInvocationError`. Seqlane, rather than Mastra, owns retry safety and keeps retries disabled for the MVP.
+
+Seqlane normalizes invocation failures and owns retry safety. The original MVP slice disabled automatic invocation retries. Current classifier transport retry policy has a separate owner.
 
 ## Out of Scope
+
 - Effect-aware retry semantics
 - Backoff or retry configuration
 - Durable execution after failure
 
-## Source
+## Source and current owners
+
 - [rfc.seqlane-technical-architecture — Seqlane Technical Architecture](../rfcs/2026-09-02-seqlane-technical-architecture.md)
-- [spec.mastra-runtime-integration — Mastra Runtime Integration](../specs/2026-09-02-mastra-runtime-integration.md)
+- [spec.effect-v4-execution-and-operations: Effect v4 Execution and Operations](../specs/2026-10-21-effect-v4-execution-and-operations.md)
 
 ## Traceability
 
-- [spec.mastra-runtime-integration](../specs/2026-09-02-mastra-runtime-integration.md)
+- [spec.effect-v4-execution-and-operations](../specs/2026-10-21-effect-v4-execution-and-operations.md)

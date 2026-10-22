@@ -18,6 +18,7 @@ import type { CompileWorkflowOptions } from "./compile-plan.js";
 import { executeChoiceNodeEffect } from "../execution/effect-choice.js";
 import { executeRepeatNodeEffect } from "../execution/effect-repeat.js";
 import type { TaskNode } from "@seqlane/core";
+import { settleUnstartedChoiceArms } from "../execution/workflow-run.js";
 
 const invocationCounter = Metric.counter("seqlane.invocations", {
   description: "Completed Seqlane Plan invocations",
@@ -61,7 +62,6 @@ export function createCompiledNodeStep(
           abortSignal,
           {
             invocationId: invocationIdForNode(context, node),
-            observability: {},
             results: context.results,
             remainingConsumers: context.remainingConsumers,
             subject: { type: "task", taskId: node.taskId },
@@ -86,7 +86,6 @@ export function createCompiledNodeStep(
           abortSignal,
           {
             invocationId: invocationIdForNode(context, node),
-            observability: {},
             results: context.results,
             remainingConsumers: context.remainingConsumers,
             subject: { type: "task", taskId: node.source.taskId },
@@ -172,17 +171,19 @@ export function createCompiledNodeStep(
       });
     },
     onSkip: (failedDependencyIds) => {
+      const dependencyIds = failedDependencyIds.flatMap((id) => {
+        const invocationId = context.invocationIds.get(id);
+        return invocationId === undefined ? [] : [invocationId];
+      });
       context.events.emit({
         type: "invocation.skipped",
         workId: context.workId,
         runId: context.runId,
         invocationId: invocationIdForNode(context, node),
         reason: "dependency failed",
-        dependencyIds: failedDependencyIds.flatMap((id) => {
-          const invocationId = context.invocationIds.get(id);
-          return invocationId === undefined ? [] : [invocationId];
-        }),
+        dependencyIds,
       });
+      settleUnstartedChoiceArms(context, node, "skipped", dependencyIds);
     },
     onCancel: () => {
       context.events.emit({
@@ -192,6 +193,7 @@ export function createCompiledNodeStep(
         invocationId: invocationIdForNode(context, node),
         reason: "Run cancelled before invocation execution",
       });
+      settleUnstartedChoiceArms(context, node, "cancelled");
     },
   };
 }
@@ -210,7 +212,6 @@ async function executeNode(
   if (node.type === "task") {
     await executeTaskNode(context, node, abortSignal, {
       invocationId: invocationIdForNode(context, node),
-      observability: {},
       results: context.results,
       remainingConsumers: context.remainingConsumers,
       subject: { type: "task", taskId: node.taskId },
@@ -223,7 +224,6 @@ async function executeNode(
   } else if (node.type === "validation.check") {
     await executeValidationCheckNode(context, node, abortSignal, {
       invocationId: invocationIdForNode(context, node),
-      observability: {},
       results: context.results,
       remainingConsumers: context.remainingConsumers,
       workspaceAdmission: "graph",
@@ -235,7 +235,6 @@ async function executeNode(
     }
     await executeValidationGateNode(context, node, checkNode, abortSignal, {
       invocationId: invocationIdForNode(context, node),
-      observability: {},
       results: context.results,
       remainingConsumers: context.remainingConsumers,
     });
@@ -262,11 +261,13 @@ function emitFailureTerminal(
       invocationId,
       reason: "Run cancelled during invocation execution",
     });
+    settleUnstartedChoiceArms(context, node, "cancelled");
     return;
   }
   const taskId = node.type === "task" ? node.taskId : node.nodeId;
   const error = toSeqlaneInvocationError(cause, "runtime", taskId);
   context.failure = error;
+  settleUnstartedChoiceArms(context, node, "skipped", [invocationId]);
   context.events.emit({
     type: "invocation.failed",
     workId: context.workId,

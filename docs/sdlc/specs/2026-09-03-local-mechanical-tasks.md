@@ -5,12 +5,12 @@ status: active
 owners:
   - core
 created: 2026-09-03
-updated: 2026-10-21
+updated: 2026-10-22
 upstream:
-  - adr.mastra-local-mechanical-tasks
-  - spec.mastra-backed-seqlane-workflows
+  - rfc.effect-v4-migration
+  - spec.workflow-execution-semantics
   - spec.executor-neutral-workflow-authoring
-  - spec.mastra-runtime-and-operational-integration
+  - spec.effect-v4-execution-and-operations
   - spec.seqlane-plan-ir-typed-dataflow
   - spec.invocation-admission-and-workspace-coordination
   - spec.autonomous-non-interactive-execution
@@ -19,7 +19,7 @@ supersedes: []
 
 # In-Process and Shell Mechanical Tasks
 
-> Runtime authority: In-process and shell task semantics, process bounds, cancellation, and workspace ownership remain active. Requirements to use Mastra workspace or sandbox process APIs are superseded by the Effect v4 execution and operations spec; preserve the behavior through its process contract. See [spec.effect-v4-execution-and-operations](./2026-10-21-effect-v4-execution-and-operations.md).
+> Runtime authority: deterministic task semantics remain active. Effect owns process acquisition, interruption, and cleanup under [the runtime contract](./2026-10-21-effect-v4-execution-and-operations.md).
 
 ## Summary
 
@@ -42,8 +42,8 @@ that computes in the Seqlane process. It is not a separate public task type.
 - **Shell task:** A `defineShellTask` task that starts exactly one external
   executable with an argv array. It does not run an arbitrary callback.
 - **Command request:** One executable name and an ordered argv array.
-- **Subprocess gate:** The required subprocess behavior that Mastra's local
-  workspace or sandbox process support must provide for task process execution.
+- **Subprocess gate:** The required argv, stream, deadline, interruption, and
+  confirmed-termination behavior supplied by Effect process integration.
 
 ## Invariants
 
@@ -67,9 +67,9 @@ that computes in the Seqlane process. It is not a separate public task type.
 
 ## Subprocess contract
 
-Before public contracts or runtime execution code are added, evaluate the
-pinned Mastra Workspace or Sandbox process API with the matching private
-runtime dependencies.
+Use the pinned Effect process API and Node process services at the owned
+private integration boundary. Verify installed exports and declarations before
+using an uncertain API.
 
 The runtime must prove all items:
 
@@ -82,10 +82,11 @@ The runtime must prove all items:
    close.
 7. Map spawn, stream, exit, and interruption errors to typed Seqlane errors.
 
-Run the dependency security preflight before adding private Mastra packages. If
-any item cannot be met, stop this delivery and make the Mastra runtime support
-the required behavior before resuming. Do not add an Effect or Node subprocess
-fallback for this delivery.
+Check dependency security before adding process integration packages. If the
+selected API cannot meet a requirement, isolate an observed platform gap behind
+a narrow native interop edge and prove the required behavior. Effect retains
+resource lifetime, interruption, and cleanup ownership. No second process engine
+or hidden shell fallback is allowed.
 
 ## Public contracts
 
@@ -133,9 +134,8 @@ collection. An agent operation uses the invocation's resolved session when one
 was declared. A non-zero exit is returned to the task. The task decides if that
 exit is an expected result or an error.
 
-The Mastra Plan compiler dispatches every task through the same executable
-task path after invocation policy admission. Repeat support remains outside
-this migration slice.
+The Effect Plan program dispatches every task through the same executable
+task path after invocation policy admission. Repeat attempts use this same invocation boundary and shared run limits.
 
 The initial implementation supports only foreground processes. A future
 background-process API requires a separate decision.
@@ -145,8 +145,8 @@ background-process API requires a separate decision.
 Tasks publish through the versioned runner protocol. Runner notifications
 remain bounded. Canonical `invocation.input`, `invocation.result`, and
 `invocation.activity` events preserve complete JSON values for the local TUI
-and event recording. Mastra operational observability remains a separate
-bounded projection. A task that does not call `TaskContext.runAgent()`
+and event recording. Effect telemetry remains a separate projection of canonical protocol events;
+projection/export bounds do not truncate canonical task values. A task that does not call `TaskContext.runAgent()`
 produces no token or model metrics.
 
 Spawn, timeout, interruption, output-limit, uncertain-termination, and invalid
@@ -162,7 +162,7 @@ definitions stay on `defineTask`. Existing command tasks migrate to
 This work does not add shell strings, `execa`, command allowlists, Git helper
 APIs, terminal interaction, network policy, sandboxing, background processes,
 retries, or a general shell or environment API. Independent workflow nodes can
-execute concurrently under the active Mastra eligibility and Seqlane admission
+execute concurrently under the active Effect dependency eligibility and Seqlane admission
 rules.
 
 ## Verification gate
@@ -182,10 +182,10 @@ git diff --check
 
 ## Traceability
 
-- [adr.mastra-local-mechanical-tasks](../adrs/2026-09-04-mastra-local-mechanical-tasks.md)
+- [rfc.effect-v4-migration](../rfcs/2026-10-21-effect-v4-migration.md)
 - [spec.executor-neutral-workflow-authoring](2026-09-02-executor-neutral-workflow-authoring.md)
-- [spec.mastra-runtime-and-operational-integration](2026-09-03-mastra-runtime-and-operational-integration.md)
+- [spec.effect-v4-execution-and-operations](./2026-10-21-effect-v4-execution-and-operations.md)
 - [spec.seqlane-plan-ir-typed-dataflow](2026-09-02-seqlane-plan-ir-typed-dataflow.md)
-- [spec.mastra-backed-seqlane-workflows](2026-09-08-mastra-backed-seqlane-workflows.md)
+- [spec.workflow-execution-semantics](./2026-10-22-workflow-execution-semantics.md)
 - [spec.invocation-admission-and-workspace-coordination](2026-09-02-invocation-admission-and-workspace-coordination.md)
 - [spec.autonomous-non-interactive-execution](2026-09-02-autonomous-non-interactive-execution.md)

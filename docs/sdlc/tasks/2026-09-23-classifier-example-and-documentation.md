@@ -5,7 +5,7 @@ status: in-progress
 owners:
   - core
 created: 2026-09-23
-updated: 2026-09-24
+updated: 2026-10-22
 upstream:
   - spec.classifier-tasks
   - task.classifier-reliability-and-observation
@@ -13,6 +13,10 @@ supersedes: []
 ---
 
 # Demonstrate Classifier Tasks in Git Diff Summary
+
+> Historical task record. Scope and outcomes describe work before the current migration.
+> Current execution authority: [Effect v4 execution and operations](../specs/2026-10-21-effect-v4-execution-and-operations.md).
+> Current-owner links record the later contract transfer. They do not establish historical Effect v4 use or current delivery.
 
 ## Objective
 
@@ -76,7 +80,7 @@ Finish [spec.classifier-tasks, acceptance criteria](../specs/2026-09-23-classifi
 1. Add a cohesive classifier task file and extend the example input/output
    schemas. Keep all existing summaries and their schemas readable.
 2. Add the focused integration test through the existing workflow loader and
-   Mastra runtime. Follow the repository test-to-implementation mapping rule.
+   private runtime. Follow the repository test-to-implementation mapping rule.
 3. Update `workflows/git-diff-summary-example/README.md`, the public classifier
    authoring page, CLI run page, and nearby README/AGENTS material. Show the
    complete output and both run modes. Replace the homepage Introduction card
@@ -125,7 +129,7 @@ Classifier tasks card, and nearby model and introduction pages distinguish
 classifier calls from agent adapters. This work is local. The Git diff summary
 example and its integration test remain pending.
 
-## Delivery state
+## Historical delivery state
 
 Public docs implemented locally. The complete task has no target-branch
 delivery claim.

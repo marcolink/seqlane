@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-03
+updated: 2026-10-22
 upstream:
   - adr.semantic-validation-gates
 supersedes: []
@@ -49,7 +49,7 @@ autonomous runtime.
 
 ## 3. Core Contracts
 
-Add these Mastra-independent contracts to `@seqlane/core`.
+Add these engine-independent contracts to `@seqlane/core`.
 
 ```ts
 export interface ValidationIssue {
@@ -533,7 +533,7 @@ spec.semantic-validation-gates is complete when:
 - a false gate result prevents dependent work and fails the Run;
 - a repeat can converge on a validated postcondition within its bound;
 - validation issues and bounded evidence reach outcomes and output consumers;
-- Plans contain no callbacks, Mastra types, executor objects, or model clients;
+- Plans contain no callbacks, runtime-engine types, executor objects, or model clients;
 - validation invocations are visible in existing event and Studio projections;
 - cancellation, schema validation, and no-retry behavior remain unchanged; and
 - all core, runtime, runner, output, typecheck, format, and sync checks pass.

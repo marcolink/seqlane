@@ -10,12 +10,12 @@ upstream:
   - rfc.effect-v4-migration
   - prd.seqlane-runtime
 supersedes:
-  - spec.mastra-backed-seqlane-workflows
-  - spec.mastra-runtime-and-operational-integration
-  - spec.mastra-native-agent-observability
-  - spec.acp-mastra-observability-projection
   - spec.standalone-cli-runs
-  - spec.opencode-mastra-observability-projection
+  - spec.effect-runtime-integration
+  - spec.dedicated-runner-process
+  - spec.local-read-only-execution-studio
+  - spec.local-development-studio-trust-and-lifecycle
+  - spec.studio-vite-development-and-isolated-replay
 ---
 
 # Effect v4 Execution and Operations
@@ -44,20 +44,21 @@ It does not replace Oclif, Zod, or coding-agent harnesses.
 
 ## Preserved product contracts
 
-This specification replaces engine ownership and private runtime integration only. The following referenced contracts remain normative for their engine-independent behavior and public or wire contracts until S12 transfers them to target-only owners:
+This specification replaces engine ownership and private runtime integration only. The following current owners are normative for domain behavior and public or wire contracts:
 
-| Contract                                                                                   | Preserved requirements                                                                     |
-| ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------ |
-| [Workflow authoring and Plan semantics](./2026-09-08-mastra-backed-seqlane-workflows.md)   | Authoring, choice selection, repeat behavior, validation, bindings, and output semantics.  |
-| [Session and checkpoint semantics](./2026-09-02-session-checkpoint-reuse-and-branching.md) | Isolated, shared, checkpoint, and fork behavior.                                           |
-| [Local mechanical tasks](./2026-09-03-local-mechanical-tasks.md)                           | Deterministic tasks, argv process behavior, bounds, cancellation, and workspace ownership. |
-| [Repeat semantics](./2026-09-14-fluent-task-until-repeats.md)                              | Repeat limits, stop conditions, next-input bindings, admission, and invocation identity.   |
-| [Classifier tasks](./2026-09-23-classifier-tasks.md)                                       | Authoring, question/result validation, connection handling, retry policy, and outputs.     |
-| [Standalone CLI runs](./2026-09-16-standalone-cli-runs.md)                                 | Entrypoints, input and output modes, cancellation, and standalone isolation.               |
-| [Execution events](./2026-09-02-consumer-agnostic-seqlane-execution-events.md)             | Protocol compatibility, event meaning, and serialized contracts.                           |
-| [OpenCode integration](./2026-09-02-opencode-executor-integration.md)                      | Supported native harness behavior and capability reporting.                                |
+| Contract                                                                                   | Preserved requirements                                                                         |
+| ------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| [Workflow authoring and Plan semantics](./2026-10-22-workflow-execution-semantics.md)      | Authoring, choice selection, repeat behavior, validation, bindings, and output semantics.      |
+| [Adapter observations](./2026-10-22-adapter-observation-projection.md)                     | Source extraction, one reducer, identity, lifecycle, deduplication, and truthful availability. |
+| [Session and checkpoint semantics](./2026-09-02-session-checkpoint-reuse-and-branching.md) | Isolated, shared, checkpoint, and fork behavior.                                               |
+| [Local mechanical tasks](./2026-09-03-local-mechanical-tasks.md)                           | Deterministic tasks, argv process behavior, bounds, cancellation, and workspace ownership.     |
+| [Repeat semantics](./2026-09-14-fluent-task-until-repeats.md)                              | Repeat limits, stop conditions, next-input bindings, admission, and invocation identity.       |
+| [Classifier tasks](./2026-09-23-classifier-tasks.md)                                       | Authoring, question/result validation, connection handling, retry policy, and outputs.         |
+| [Standalone CLI runs](./2026-09-16-standalone-cli-runs.md)                                 | Entrypoints, input and output modes, cancellation, and standalone isolation.                   |
+| [Execution events](./2026-09-02-consumer-agnostic-seqlane-execution-events.md)             | Protocol compatibility, event meaning, and serialized contracts.                               |
+| [OpenCode integration](./2026-09-02-opencode-executor-integration.md)                      | Supported native harness behavior and capability reporting.                                    |
 
-Any clause in a referenced contract that requires Mastra types, APIs, spans, services, or execution is superseded by this specification. No supported behavior is removed solely because its former implementation used Mastra.
+This specification owns Effect execution mechanisms. Focused contracts own domain semantics; no supported behavior disappears because its private implementation changed.
 
 ## Requirements
 
@@ -306,6 +307,32 @@ closure or process death releases ownership without a separate stale lock file.
 Use a fresh database for the new schema. Do not overwrite, open as the new format, or automatically remove old history.
 Document the history discontinuity and keep new history inspectable after restart.
 
+### requirement-operational-registration-and-bounds
+
+Workflow registration requires a non-empty description, valid identifiers,
+input/output schemas, and a validated Plan/registry. Invalid registration fails
+before exposing a callable workflow. Discovery does not execute workflow tasks.
+Descriptor listing does not import workflow modules; planning imports only the
+selected trusted module and starts no agent, model, task, or task process.
+Standalone `run` bypasses catalogs and uses an explicit entrypoint.
+
+Discovery has explicit depth, file-count, workflow-count, and startup-time
+budgets. Do not follow symbolic links outside declared roots. Limit and
+containment failures use typed errors before registration. Where qualified
+repository/user discovery is exposed, reject ambiguous unqualified names.
+
+Unauthenticated operational access is local only. Loopback URL validation
+accepts `localhost`, `127.0.0.1`, and `[::1]`; non-loopback or multi-user access
+requires a separate authenticated authorization design. Preserve origin checks,
+transport validation, deadlines, cancellation, and finite concurrency limits.
+Run, event, result, and trace queries bound rows and serialized bytes, with
+explicit continuation, gaps, and completeness. Hosted data has an explicit
+retention/cleanup policy; cleanup never removes an active run's required state.
+
+All hosted surfaces read the same authoritative run records, identities,
+normalized outcomes, observations, and correlated traces. There is no second
+canonical run store or reconstruction from terminal text.
+
 ### requirement-complete-removal
 
 The final tracked tree and built distributions contain no old engine names, imports, dependencies, symbols, file paths, fixtures, docs, skills, or assets.
@@ -342,7 +369,9 @@ Never claim cleanup guarantees after SIGKILL or machine loss.
 
 ## Migration
 
-This active contract supersedes the engine-specific implementation clauses listed in its metadata. S0 records the authority transition and reconciles remaining active documents. Implementation follows S0 completion and the full verification gate.
+Retained product and detailed semantic requirements have current canonical owners.
+S0 records the authority transition; S1–S11 record scoped implementation evidence.
+S12 records complete removal, final artifact inspection, and exact-head hosted CI.
 Deliver the linked vertical slices. Remove temporary internal bridges before final release.
 Preserve public/wire compatibility unless an explicit contract amendment documents and tests the change.
 
@@ -362,19 +391,26 @@ No previous runtime fallback remains, and no observability capability lacks a do
 
 ## Delivery state
 
-Active target contract. [S1](../tasks/2026-10-21-effect-v4-effect-tracer.md) verifies the Effect process boundary. [S2](../tasks/2026-10-21-effect-v4-dependency-graphs.md) verifies dependency graphs through the private CLI worker composition and direct runtime facade. [S3](../tasks/2026-10-21-effect-v4-sessions-and-workspace-admission.md) verifies sessions, workspace admission, observations, and scoped cleanup through those callers. [S4](../tasks/2026-10-21-effect-v4-nested-workflows-and-validation.md) verifies nested workflows, choices, repeats, shared limits, validation, and cleanup. [S5](../tasks/2026-10-21-effect-v4-native-adapters-and-observations.md) verifies native adapters, full observations, and confirmed cleanup. [S6](../tasks/2026-10-21-effect-v4-acp-transport.md) verifies official ACP transport, complete native updates, and confirmed process cleanup. [S7](../tasks/2026-10-21-effect-v4-classifier-and-deadlines.md) verifies classifier HTTP, native retry schedules, monotonic transport deadlines, and mixed workflows through direct and compiled CLI callers. [S8](../tasks/2026-10-21-effect-v4-telemetry-and-event-pressure.md) verifies real CLI-to-adapter trace correlation, canonical observations, native metrics and logs, bounded event delivery, acknowledgement deadlines, isolated OTLP export, and cleanup. [S9](../tasks/2026-10-21-effect-v4-cli-and-action-cutover.md) verifies the sole CLI/direct Action run program, native ownership control, bounded supervision, original failure causes, plan/replay orchestration, and compiled caller parity. [S10](../tasks/2026-10-21-effect-v4-hosted-history-and-inspection.md) verifies native HTTP/MCP, versioned operational contracts, transactional SQL inspection, cancellation and admission ownership, persisted canonical observations, restart inspection, and crash recovery without replay. [S11](../tasks/2026-10-21-effect-v4-remaining-actions-and-distribution.md) verifies all six Actions, shared libraries, production distributions, and actual hosted entry/post execution. [Hosted CI](https://github.com/marcolink/seqlane/actions/runs/39744581106) passes. S12 complete removal and release verification remain pending. No full migration or remote delivery is claimed.
+Active target contract. [S1](../tasks/2026-10-21-effect-v4-effect-tracer.md) verifies the Effect process boundary. [S2](../tasks/2026-10-21-effect-v4-dependency-graphs.md) verifies dependency graphs through the private CLI worker composition and direct runtime facade. [S3](../tasks/2026-10-21-effect-v4-sessions-and-workspace-admission.md) verifies sessions, workspace admission, observations, and scoped cleanup through those callers. [S4](../tasks/2026-10-21-effect-v4-nested-workflows-and-validation.md) verifies nested workflows, choices, repeats, shared limits, validation, and cleanup. [S5](../tasks/2026-10-21-effect-v4-native-adapters-and-observations.md) verifies native adapters, full observations, and confirmed cleanup. [S6](../tasks/2026-10-21-effect-v4-acp-transport.md) verifies official ACP transport, complete native updates, and confirmed process cleanup. [S7](../tasks/2026-10-21-effect-v4-classifier-and-deadlines.md) verifies classifier HTTP, native retry schedules, monotonic transport deadlines, and mixed workflows through direct and compiled CLI callers. [S8](../tasks/2026-10-21-effect-v4-telemetry-and-event-pressure.md) verifies real CLI-to-adapter trace correlation, canonical observations, native metrics and logs, bounded event delivery, acknowledgement deadlines, isolated OTLP export, and cleanup. [S9](../tasks/2026-10-21-effect-v4-cli-and-action-cutover.md) verifies the sole CLI/direct Action run program, native ownership control, bounded supervision, original failure causes, plan/replay orchestration, and compiled caller parity. [S10](../tasks/2026-10-21-effect-v4-hosted-history-and-inspection.md) verifies native HTTP/MCP, versioned operational contracts, transactional SQL inspection, cancellation and admission ownership, persisted canonical observations, restart inspection, and crash recovery without replay. [S11](../tasks/2026-10-21-effect-v4-remaining-actions-and-distribution.md) verifies all six Actions, shared libraries, production distributions, and actual hosted entry/post execution. [Hosted CI](https://github.com/marcolink/seqlane/actions/runs/39744581106) passes. [S12](../tasks/2026-10-21-effect-v4-complete-removal-and-release.md) completes requirement transfer, removal, all 23 package audits, rebuilt artifacts, installed-package consumption, and release dry runs. [Implementation-checkpoint CI](https://github.com/marcolink/seqlane/actions/runs/39751001939) passes. Final documentation reconciliation changes no executable code. The reachable S12 task commit and its exact-head CI in [branch history](https://github.com/marcolink/seqlane/actions/workflows/ci.yml?query=branch%3Afeat%2Feffect-v4-migration) establish feature-branch delivery. No default-branch merge or registry publication is claimed.
 
 ## Traceability
+
+- Supersedes [the earlier sequential runtime contract](./2026-09-02-effect-runtime-integration.md).
+- Supersedes [the earlier dedicated runner contract](./2026-09-02-dedicated-runner-process.md).
+- Supersedes [the earlier local read-only Studio contract](./2026-09-02-local-read-only-execution-studio.md).
+- Supersedes [the earlier Studio lifecycle contract](./2026-09-02-local-development-studio-trust-and-lifecycle.md).
+- Supersedes [the earlier Studio development and replay contract](./2026-09-02-studio-vite-development-and-isolated-replay.md).
 
 - [rfc.effect-v4-migration: Migration proposal](../rfcs/2026-10-21-effect-v4-migration.md)
 - [prd.seqlane-runtime: Product requirements](../prd/2026-10-21-seqlane-runtime.md)
 - [Delivery task](../tasks/2026-10-21-migrate-all-packages-to-effect-v4.md)
-- [Current workflow contracts](./2026-09-08-mastra-backed-seqlane-workflows.md)
+- [Workflow authoring and execution semantics](./2026-10-22-workflow-execution-semantics.md)
+- [Adapter observation lifecycle and projection](./2026-10-22-adapter-observation-projection.md)
 - [Standalone CLI](./2026-09-16-standalone-cli-runs.md)
 - [Runner process](./2026-09-02-dedicated-runner-process.md)
 - [Machine output](./2026-09-15-run-machine-output.md)
 - [Terminal output](./2026-09-15-run-terminal-rendering.md)
-- [Canonical observations, currently draft](./2026-09-19-otel-aligned-observation-contract.md)
+- [Draft observation vocabulary and OTel mapping](./2026-09-19-otel-aligned-observation-contract.md)
 - [Adapter contracts](./2026-09-04-agent-adapter-boundary-and-capabilities.md)
 - [Session model semantics](./2026-09-03-model-selection-and-session-model-semantics.md)
 - [Repeat semantics](./2026-09-14-fluent-task-until-repeats.md)

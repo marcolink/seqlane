@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import type { WorkspaceResource } from "./workspace-resource.js";
 import { WorkspaceLockRegistry } from "./workspace-lock.js";
@@ -17,28 +18,34 @@ describe("workspace policy locks", () => {
   it("grants exclusive admission for an idle workspace", async () => {
     const locks = new WorkspaceLockRegistry();
 
-    const lease = await locks.acquire(workspace, "exclusive");
+    const lease = await Effect.runPromise(
+      locks.acquireEffect(workspace, "exclusive"),
+    );
 
     lease.release();
   });
 
   it("allows a nested invocation to re-enter its parent workspace lease", async () => {
     const locks = new WorkspaceLockRegistry();
-    const parent = await locks.acquire(
-      workspace,
-      "exclusive",
-      undefined,
-      0,
-      "parent",
-      "parent",
+    const parent = await Effect.runPromise(
+      locks.acquireEffect(
+        workspace,
+        "exclusive",
+        undefined,
+        0,
+        "parent",
+        "parent",
+      ),
     );
-    const child = await locks.acquire(
-      workspace,
-      "exclusive",
-      undefined,
-      1,
-      "parent:child",
-      "parent",
+    const child = await Effect.runPromise(
+      locks.acquireEffect(
+        workspace,
+        "exclusive",
+        undefined,
+        1,
+        "parent:child",
+        "parent",
+      ),
     );
 
     child.release();
@@ -47,30 +54,30 @@ describe("workspace policy locks", () => {
 
   it("serializes sibling exclusive children while allowing each under its ancestor", async () => {
     const locks = new WorkspaceLockRegistry();
-    const parent = await locks.acquire(
-      workspace,
-      "exclusive",
-      undefined,
-      0,
-      "parent",
+    const parent = await Effect.runPromise(
+      locks.acquireEffect(workspace, "exclusive", undefined, 0, "parent"),
     );
-    const first = await locks.acquire(
-      workspace,
-      "exclusive",
-      undefined,
-      1,
-      "parent:first",
-      undefined,
-      ["parent"],
+    const first = await Effect.runPromise(
+      locks.acquireEffect(
+        workspace,
+        "exclusive",
+        undefined,
+        1,
+        "parent:first",
+        undefined,
+        ["parent"],
+      ),
     );
-    const second = locks.acquire(
-      workspace,
-      "exclusive",
-      undefined,
-      2,
-      "parent:second",
-      undefined,
-      ["parent"],
+    const second = Effect.runPromise(
+      locks.acquireEffect(
+        workspace,
+        "exclusive",
+        undefined,
+        2,
+        "parent:second",
+        undefined,
+        ["parent"],
+      ),
     );
 
     await expectPending(second);
@@ -81,33 +88,33 @@ describe("workspace policy locks", () => {
 
   it("lets a child bypass a foreign writer queued behind its parent reservation", async () => {
     const locks = new WorkspaceLockRegistry();
-    const parent = await locks.acquire(
-      workspace,
-      "exclusive",
-      undefined,
-      0,
-      "parent",
+    const parent = await Effect.runPromise(
+      locks.acquireEffect(workspace, "exclusive", undefined, 0, "parent"),
     );
     let foreignWaiting!: () => void;
     const waiting = new Promise<void>((resolve) => {
       foreignWaiting = resolve;
     });
-    const foreign = locks.acquire(
-      workspace,
-      "exclusive",
-      () => foreignWaiting(),
-      1,
-      "foreign",
+    const foreign = Effect.runPromise(
+      locks.acquireEffect(
+        workspace,
+        "exclusive",
+        () => foreignWaiting(),
+        1,
+        "foreign",
+      ),
     );
     await waiting;
-    const child = await locks.acquire(
-      workspace,
-      "exclusive",
-      undefined,
-      2,
-      "parent:child",
-      undefined,
-      ["parent"],
+    const child = await Effect.runPromise(
+      locks.acquireEffect(
+        workspace,
+        "exclusive",
+        undefined,
+        2,
+        "parent:child",
+        undefined,
+        ["parent"],
+      ),
     );
 
     child.release();
@@ -117,28 +124,22 @@ describe("workspace policy locks", () => {
 
   it("makes an exclusive child exclude foreign shared readers under a shared parent", async () => {
     const locks = new WorkspaceLockRegistry();
-    const parent = await locks.acquire(
-      workspace,
-      "shared",
-      undefined,
-      0,
-      "parent",
+    const parent = await Effect.runPromise(
+      locks.acquireEffect(workspace, "shared", undefined, 0, "parent"),
     );
-    const child = await locks.acquire(
-      workspace,
-      "exclusive",
-      undefined,
-      1,
-      "parent:child",
-      undefined,
-      ["parent"],
+    const child = await Effect.runPromise(
+      locks.acquireEffect(
+        workspace,
+        "exclusive",
+        undefined,
+        1,
+        "parent:child",
+        undefined,
+        ["parent"],
+      ),
     );
-    const foreignReader = locks.acquire(
-      workspace,
-      "shared",
-      undefined,
-      2,
-      "foreign-reader",
+    const foreignReader = Effect.runPromise(
+      locks.acquireEffect(workspace, "shared", undefined, 2, "foreign-reader"),
     );
 
     await expectPending(foreignReader);
@@ -149,39 +150,41 @@ describe("workspace policy locks", () => {
 
   it("allows two levels of nested exclusive ownership without merging sibling owners", async () => {
     const locks = new WorkspaceLockRegistry();
-    const root = await locks.acquire(
-      workspace,
-      "exclusive",
-      undefined,
-      0,
-      "root",
+    const root = await Effect.runPromise(
+      locks.acquireEffect(workspace, "exclusive", undefined, 0, "root"),
     );
-    const child = await locks.acquire(
-      workspace,
-      "exclusive",
-      undefined,
-      1,
-      "root:child",
-      undefined,
-      ["root"],
+    const child = await Effect.runPromise(
+      locks.acquireEffect(
+        workspace,
+        "exclusive",
+        undefined,
+        1,
+        "root:child",
+        undefined,
+        ["root"],
+      ),
     );
-    const grandchild = await locks.acquire(
-      workspace,
-      "exclusive",
-      undefined,
-      2,
-      "root:child:grandchild",
-      undefined,
-      ["root", "root:child"],
+    const grandchild = await Effect.runPromise(
+      locks.acquireEffect(
+        workspace,
+        "exclusive",
+        undefined,
+        2,
+        "root:child:grandchild",
+        undefined,
+        ["root", "root:child"],
+      ),
     );
-    const sibling = locks.acquire(
-      workspace,
-      "exclusive",
-      undefined,
-      3,
-      "root:sibling",
-      undefined,
-      ["root"],
+    const sibling = Effect.runPromise(
+      locks.acquireEffect(
+        workspace,
+        "exclusive",
+        undefined,
+        3,
+        "root:sibling",
+        undefined,
+        ["root"],
+      ),
     );
 
     await expectPending(sibling);
@@ -193,10 +196,16 @@ describe("workspace policy locks", () => {
 
   it("shares shared admission while an exclusive task waits", async () => {
     const locks = new WorkspaceLockRegistry();
-    const firstReader = await locks.acquire(workspace, "shared");
+    const firstReader = await Effect.runPromise(
+      locks.acquireEffect(workspace, "shared"),
+    );
 
-    const secondReader = await locks.acquire(workspace, "shared");
-    const waitingWriter = locks.acquire(workspace, "exclusive");
+    const secondReader = await Effect.runPromise(
+      locks.acquireEffect(workspace, "shared"),
+    );
+    const waitingWriter = Effect.runPromise(
+      locks.acquireEffect(workspace, "exclusive"),
+    );
 
     await expectPending(waitingWriter);
 
@@ -211,9 +220,15 @@ describe("workspace policy locks", () => {
 
   it("does not let a late shared request bypass queued exclusive admission", async () => {
     const locks = new WorkspaceLockRegistry();
-    const activeShared = await locks.acquire(workspace, "shared");
-    const waitingExclusive = locks.acquire(workspace, "exclusive");
-    const lateShared = locks.acquire(workspace, "shared");
+    const activeShared = await Effect.runPromise(
+      locks.acquireEffect(workspace, "shared"),
+    );
+    const waitingExclusive = Effect.runPromise(
+      locks.acquireEffect(workspace, "exclusive"),
+    );
+    const lateShared = Effect.runPromise(
+      locks.acquireEffect(workspace, "shared"),
+    );
 
     await expectPending(waitingExclusive);
     await expectPending(lateShared);
@@ -229,9 +244,15 @@ describe("workspace policy locks", () => {
 
   it("blocks shared and exclusive admission until exclusive release", async () => {
     const locks = new WorkspaceLockRegistry();
-    const writer = await locks.acquire(workspace, "exclusive");
-    const waitingReader = locks.acquire(workspace, "shared");
-    const waitingWriter = locks.acquire(workspace, "exclusive");
+    const writer = await Effect.runPromise(
+      locks.acquireEffect(workspace, "exclusive"),
+    );
+    const waitingReader = Effect.runPromise(
+      locks.acquireEffect(workspace, "shared"),
+    );
+    const waitingWriter = Effect.runPromise(
+      locks.acquireEffect(workspace, "exclusive"),
+    );
 
     await expectPending(waitingReader);
     await expectPending(waitingWriter);
@@ -249,9 +270,15 @@ describe("workspace policy locks", () => {
 
   it("grants waiting exclusive tasks in invocation creation order", async () => {
     const locks = new WorkspaceLockRegistry();
-    const activeWriter = await locks.acquire(workspace, "exclusive");
-    const laterWriter = locks.acquire(workspace, "exclusive", undefined, 2);
-    const earlierWriter = locks.acquire(workspace, "exclusive", undefined, 1);
+    const activeWriter = await Effect.runPromise(
+      locks.acquireEffect(workspace, "exclusive"),
+    );
+    const laterWriter = Effect.runPromise(
+      locks.acquireEffect(workspace, "exclusive", undefined, 2),
+    );
+    const earlierWriter = Effect.runPromise(
+      locks.acquireEffect(workspace, "exclusive", undefined, 1),
+    );
 
     activeWriter.release();
     const firstAdmitted = await Promise.race([

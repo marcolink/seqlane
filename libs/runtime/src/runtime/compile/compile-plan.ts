@@ -27,7 +27,6 @@ import {
 import { type ExecutorRegistry } from "../execution/executor.js";
 import { toSeqlaneInvocationError } from "../execution/errors.js";
 import { resolveBinding } from "../plan/binding-resolution.js";
-import { orderParsedPlanNodes } from "../plan/plan-ordering.js";
 import { type TaskSchemaRegistry } from "../plan/task-schema.js";
 import {
   createSequentialProgram,
@@ -42,19 +41,13 @@ import type { SessionResolver } from "../session/session-resolution.js";
 import type { WorkspaceResourceRegistry } from "../workspace/workspace-resource.js";
 import type { WorkspaceLockRegistry } from "../workspace/workspace-lock.js";
 import type { ClassifierTaskRunner } from "../../classifier/types.js";
-import { validatePlan } from "../validation/plan-validation.js";
 import {
   lowerReuseSessionOrdering,
   withLoweredPlanNodes,
 } from "../session/session-ordering.js";
-import { lowerWorkspaceOrdering } from "../workspace/workspace-ordering.js";
 import { createCompiledNodeStep } from "./compile-node-step.js";
 import { preflightSelectedChoiceModel } from "../execution/model-preflight.js";
-
-export interface PreparedPlan {
-  readonly plan: Plan;
-  readonly orderedNodes: readonly PlanNode[];
-}
+import { preparePlan, type PreparedPlan } from "./prepare-plan.js";
 
 export interface PreparedPlanExecution {
   readonly plan: Plan;
@@ -165,36 +158,12 @@ export class PlanCompiler {
     taskDefinitions?: TaskDefinitionRegistry,
     workflowDefinitions?: WorkflowDefinitionRegistry,
   ): PreparedPlan {
-    assertDefinitionRegistries(taskDefinitions, undefined);
-    const parsedPlan = validatePlan(
-      plan,
-      taskDefinitions,
-      taskDefinitions !== undefined || workflowDefinitions !== undefined,
-      workflowDefinitions,
-    );
-    return {
-      plan: parsedPlan,
-      // Standalone Plan ordering is useful before definitions are loaded.
-      // Workflow compilation performs the full definition validation above.
-      orderedNodes: orderParsedPlanNodes(parsedPlan),
-    };
+    return preparePlan(plan, taskDefinitions, workflowDefinitions);
   }
 
-  prepare(plan: Plan): PreparedPlan {
-    return this.compile(plan);
-  }
-
-  prepareWorkflow(
+  private prepareExecution(
     plan: Plan,
     options: CompileWorkflowOptions,
-  ): PreparedPlanExecution {
-    return this.prepareWorkflowWithAdmission(plan, options, true);
-  }
-
-  private prepareWorkflowWithAdmission(
-    plan: Plan,
-    options: CompileWorkflowOptions,
-    lowerStaticWorkspaceOrdering: boolean,
   ): PreparedPlanExecution {
     assertDefinitionRegistries(
       options.taskDefinitions,
@@ -206,12 +175,7 @@ export class PlanCompiler {
       options.workflowDefinitions,
     );
     const parsedPlan = prepared.plan;
-    const sessionOrderedNodes = lowerReuseSessionOrdering(
-      prepared.orderedNodes,
-    );
-    const orderedNodes = lowerStaticWorkspaceOrdering
-      ? lowerWorkspaceOrdering(sessionOrderedNodes, options.workspaceResources)
-      : sessionOrderedNodes;
+    const orderedNodes = lowerReuseSessionOrdering(prepared.orderedNodes);
     const loweredPlan = withLoweredPlanNodes(parsedPlan, orderedNodes);
     assertValidationRegistries(
       parsedPlan,
@@ -268,7 +232,7 @@ export class PlanCompiler {
       plan: loweredPlan,
       orderedNodes,
       context,
-    } = this.prepareWorkflowWithAdmission(plan, options, false);
+    } = this.prepareExecution(plan, options);
     const checkNodes = new Map(
       loweredPlan.nodes
         .filter(
@@ -351,8 +315,4 @@ export class PlanCompiler {
       }),
     };
   }
-}
-
-export function compilePlan(plan: Plan): PreparedPlan {
-  return new PlanCompiler().compile(plan);
 }

@@ -5,13 +5,17 @@ status: completed
 owners:
   - core
 created: 2026-09-08
-updated: 2026-09-11
+updated: 2026-10-22
 upstream:
-  - spec.mastra-backed-seqlane-workflows
+  - spec.workflow-execution-semantics
 supersedes: []
 ---
 
 # Compose Workflows as Runnables
+
+> Historical task record. Scope and outcomes describe work before the current migration.
+> Current execution authority: [Effect v4 execution and operations](../specs/2026-10-21-effect-v4-execution-and-operations.md).
+> Current-owner links record the later contract transfer. They do not establish historical Effect v4 use or current delivery.
 
 ## Objective
 
@@ -23,11 +27,13 @@ inputs, outputs, identities, and runtime outcomes.
 - `REQ-TASK-003`: Treat workflows as runnables.
 - `REQ-PLAN-001`: Keep workflow invocation nodes in the Plan.
 - `REQ-COMPAT-001`: Preserve current user-visible behavior.
-- [spec.mastra-backed-seqlane-workflows](../specs/2026-09-08-mastra-backed-seqlane-workflows.md)
+- [spec.workflow-execution-semantics](../specs/2026-10-22-workflow-execution-semantics.md)
 
-## Dependencies
+## Current replacement
 
-- Depends on [task.cut-over-to-mastra-runtime](./2026-09-08-cut-over-to-mastra-runtime.md).
+This later task owns replacement work. It was not an original prerequisite.
+
+Current successor owner: [task.effect-v4-complete-removal-and-release](./2026-10-21-effect-v4-complete-removal-and-release.md).
 
 ## Scope
 
@@ -43,7 +49,7 @@ inputs, outputs, identities, and runtime outcomes.
 - New control-flow node kinds.
 - Adding a new parallel control-flow node. Independent nested work follows the
   current eligibility and admission concurrency contract.
-- Public Mastra types or engine configuration.
+- Public runtime-engine types or engine configuration.
 - Changes to active session or model policy contracts.
 
 ## Implementation plan
@@ -86,13 +92,13 @@ Delivered in [PR #99](https://github.com/marcolink/seqlane/pull/99) from
 `feat/compose-workflows-as-runnables`.
 
 The implementation adds typed workflow-as-runnable authoring, serializable
-workflow invocation nodes, recursive private Mastra compilation, distinct
+workflow invocation nodes, recursive private runtime compilation, distinct
 parent and child invocation identities, child policy retention, cancellation
 propagation, and workflow Plan snapshot/event validation. Scoped tests,
 typechecks, lint, formatting, and SDLC validation passed.
 
 ## Traceability
 
-- [spec.mastra-backed-seqlane-workflows: Mastra-Backed Seqlane Workflow Contracts](../specs/2026-09-08-mastra-backed-seqlane-workflows.md)
-- [adr.mastra-backed-seqlane-workflows: Center Seqlane Workflows on a Mastra-Backed Executable DSL](../adrs/2026-09-08-mastra-backed-seqlane-workflows.md)
-- [task.cut-over-to-mastra-runtime: Cut Over to the Mastra Runtime](./2026-09-08-cut-over-to-mastra-runtime.md)
+- [spec.workflow-execution-semantics: Workflow Authoring and Execution Semantics](../specs/2026-10-22-workflow-execution-semantics.md)
+- [rfc.effect-v4-migration: Full Effect v4 Migration](../rfcs/2026-10-21-effect-v4-migration.md)
+- [task.effect-v4-complete-removal-and-release: Complete removal and release gate](./2026-10-21-effect-v4-complete-removal-and-release.md)

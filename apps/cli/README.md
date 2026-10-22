@@ -1,5 +1,8 @@
 # Seqlane CLI
 
+Use Node.js 24 or later. Oclif owns command parsing and help. Effect v4 owns
+application execution and resource cleanup behind those commands.
+
 Seqlane provides the workflow layer. It defines typed tasks, dependencies,
 schemas, sessions, workspace policy, and workflow outputs.
 
@@ -68,8 +71,8 @@ seqlane run ./workflows/minimal-example/workflow.ts \
   --output ci
 ```
 
-CI output does not print invocation input or transient output. It prints
-terminal tool and skill activity summaries, including successful calls. Use
+CI output prints complete invocation input, result, activity, and model
+observation events as JSON lines. Transient output has its own channel. Use
 `run --json` for one final machine-readable result.
 
 ## File-accessing workflows

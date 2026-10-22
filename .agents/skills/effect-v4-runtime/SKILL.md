@@ -1,11 +1,11 @@
 ---
 name: effect-v4-runtime
-description: Verify and use repository-pinned Effect v4 APIs for Seqlane runtime work under the active migration spec.
+description: Verify and use repository-pinned Effect v4 APIs for Seqlane runtime work under the active execution specification.
 ---
 
 # Effect v4 runtime
 
-Use this guidance for new runtime work under [the active execution and operations spec](../../../docs/sdlc/specs/2026-10-21-effect-v4-execution-and-operations.md). Migration delivery is incomplete until its task slices and final removal audit have evidence.
+Use this guidance for runtime work under [the active execution and operations spec](../../../docs/sdlc/specs/2026-10-21-effect-v4-execution-and-operations.md). Verify source, tests, and delivery evidence before claiming a capability is available.
 
 ## Establish the source of truth
 

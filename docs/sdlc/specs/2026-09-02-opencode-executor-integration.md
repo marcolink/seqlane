@@ -5,7 +5,7 @@ status: superseded
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-04
+updated: 2026-10-22
 upstream:
   - adr.opencode-executor-integration
 supersedes: []
@@ -37,7 +37,7 @@ The MVP does not start, stop, or delete an OpenCode server. It does not delete a
 
 ## 2. Normative Invariants
 
-- `@seqlane/core` remains independent of OpenCode and Mastra.
+- `@seqlane/core` remains independent of OpenCode and runtime libraries.
 - `@seqlane/runtime` remains independent of OpenCode SDK types and client objects.
 - Only `@seqlane/opencode` imports the OpenCode SDK.
 - OpenCode SDK types, clients, session IDs, message IDs, parts, events, and raw errors do not cross a public Seqlane boundary. The adapter may translate model/provider identifiers and response usage into the generic Seqlane invocation-metrics contract.
@@ -131,11 +131,11 @@ If the endpoint is unreachable, the SDK/server contract is unsupported, or a req
 
 After compatibility validation, the adapter creates exactly one session for the Run. It retains the opaque session ID only in run-scoped adapter state. It does not attach to, enumerate, delete, or otherwise alter an existing session.
 
-The adapter serializes all calls for this session. spec.mastra-runtime-integration already serializes MVP Plan nodes. The adapter must also retain a session queue so later runtime scheduling cannot create interleaved messages by accident.
+The adapter serializes all calls for this session. spec.effect-v4-execution-and-operations already serializes MVP Plan nodes. The adapter must also retain a session queue so later runtime scheduling cannot create interleaved messages by accident.
 
 ## 6. Invocation Translation and Result Boundary
 
-For each Seqlane invocation, the runtime first resolves and validates input as defined by spec.mastra-runtime-integration. The adapter then:
+For each Seqlane invocation, the runtime first resolves and validates input as defined by spec.effect-v4-execution-and-operations. The adapter then:
 
 1. finds the in-memory OpenCode task definition by `taskId`
 2. builds the task objective from the validated input
@@ -165,7 +165,9 @@ typed downstream ValueRef
 
 The adapter does not turn tool output, shell output, or OpenCode event payloads into a Seqlane result. Native mode does not parse assistant prose. Prompt mode accepts only direct JSON or one complete `json` Markdown fence, then validates it with the task's canonical output schema. Missing, malformed, or incomplete output fails after the configured repair bound.
 
-The existing spec.mastra-runtime-integration output-validation boundary remains authoritative. OpenCode-side validation is an additional boundary only.
+Seqlane's owning output schema remains authoritative. OpenCode-side validation
+is an additional boundary. The [current workflow contract](./2026-10-22-workflow-execution-semantics.md#req-task-001-use-one-executable-task-contract)
+defines validation order and typed results.
 
 ## 7. Failure, Cancellation, and Autonomy
 

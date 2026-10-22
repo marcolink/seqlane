@@ -5,7 +5,7 @@ status: superseded
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-05
+updated: 2026-10-22
 upstream:
   - adr.local-read-only-execution-studio
 supersedes: []
@@ -13,11 +13,11 @@ supersedes: []
 
 # Local Read-Only Execution Studio
 
-> Superseded by [spec.mastra-runtime-and-operational-integration](./2026-09-03-mastra-runtime-and-operational-integration.md).
+> Superseded by [spec.effect-v4-execution-and-operations](./2026-10-21-effect-v4-execution-and-operations.md).
 
 The dedicated Seqlane Studio service and its local event-forwarding contract
-were removed. Operational inspection now uses the upstream Mastra Community
-Studio.
+were removed. Current inspection uses terminal output, supplied-file replay,
+and explicit hosted APIs under the Effect runtime contract.
 
 > Migrated from legacy technical specification `TS-013`.
 
@@ -42,7 +42,7 @@ CLI supervisor ── ordered event copy ──► Studio service ──► brow
 
 - Studio is a foreground, loopback-only service. It is not a persistent
   Seqlane daemon.
-- The Studio service has no executor, Mastra, or executor-connection data.
+- The Studio service has no runtime-library, executor, or executor-connection data.
 - The runner remains the source of canonical Seqlane events.
 - The CLI forwards events after it validates runner IPC. It does not change
   event meaning, allocate IDs, or make execution depend on Studio delivery.
@@ -414,7 +414,7 @@ a new dependency review.
   Plan-node invocations, inspector display states, and no editing controls.
 - Accessibility tests prove keyboard selection and inspector updates from the
   invocation list.
-- Boundary tests prove Studio contracts do not expose Mastra or executor
+- Boundary tests prove Studio contracts do not expose runtime-library or executor
   fields and packages use public exports only.
 
 ## 10. Acceptance Criteria
@@ -432,7 +432,7 @@ spec.local-read-only-execution-studio is complete when:
   stream reset;
 - a Studio failure or event-forwarding failure leaves the Seqlane run and CLI
   exit status unchanged; and
-- no durable history, remote access, editing, run control, Mastra type, or
+- no durable history, remote access, editing, run control, runtime-engine type, or
   executor-specific value is added.
 
 ## 11. Explicitly Deferred

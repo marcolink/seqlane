@@ -1,2443 +1,533 @@
 {
   "sourceCommit": "51249b721a340959702e550fb84e7a3bd51ed59f",
-  "kind": "pre-migration snapshot; not delivery evidence",
+  "kind": "migration verification measurements; no default-branch delivery claim",
   "workspacePackageCount": 23,
-  "oldEngineTrackedPathCount": 255,
-  "packages": [
-    {
-      "path": "actions/code-review/package.json",
-      "name": "@seqlane/action-code-review-entrypoint",
-      "dependencies": {
-        "@actions/core": "3.0.1",
-        "@actions/github": "9.1.1",
-        "@seqlane/action-code-review": "workspace:*",
-        "@seqlane/opencode-adapter": "workspace:*"
-      },
-      "oldEngineDependencies": {}
+  "baseline": {
+    "trackedCodeFiles": 630,
+    "trackedCodeLines": 119934,
+    "trackedCodeBytes": 3669263,
+    "lockPackageCount": 1326,
+    "lockBytes": 562604,
+    "retiredIntegrationTrackedPathCount": 255,
+    "performance": {
+      "runtime": "Node v24.16.0",
+      "packageManager": "pnpm10.33.0",
+      "workload": "compiled CLI runs one deterministic Node process that prints baseline; empty Zod input and shell result output",
+      "command": "node apps/cli/bin/run.js run <temporary-workflow.mjs> --workspace <checkout> --json",
+      "trials": [
+        {
+          "trial": 1,
+          "exit": 0,
+          "wallMs": 2133.04,
+          "stdoutBytes": 511,
+          "stderrBytes": 0
+        },
+        {
+          "trial": 2,
+          "exit": 0,
+          "wallMs": 2314.78,
+          "stdoutBytes": 511,
+          "stderrBytes": 0
+        },
+        {
+          "trial": 3,
+          "exit": 0,
+          "wallMs": 1544.91,
+          "stdoutBytes": 511,
+          "stderrBytes": 0
+        }
+      ],
+      "medianWallMs": 2133.04,
+      "measurementLimits": "Local three-run wall time, not a regression threshold; no model/adapter needed. Peak memory and concurrent graph throughput require later measurements."
     },
-    {
-      "path": "actions/opencode-server/package.json",
-      "name": "@seqlane/action-opencode-server",
-      "dependencies": {
-        "@actions/core": "3.0.1",
-        "@seqlane/action-service-lifecycle": "workspace:*"
-      },
-      "oldEngineDependencies": {}
+    "productionDependencyNodes": 662
+  },
+  "bundleBaseline": {
+    "sourceCommit": "7eb36b6",
+    "assets": {
+      "actions/resolve-merge-conflicts/dist/main.js": 13229146,
+      "actions/opencode-server/dist/post.js": 426084,
+      "actions/opencode-server/dist/tsconfig.tsbuildinfo": 55798,
+      "actions/opencode-server/dist/main.js": 432135,
+      "actions/setup-opencode/dist/tsconfig.tsbuildinfo": 77034,
+      "actions/setup-opencode/dist/main.js": 1630776,
+      "actions/zvec-grep-server/dist/post.js": 426085,
+      "actions/zvec-grep-server/dist/tsconfig.tsbuildinfo": 56522,
+      "actions/zvec-grep-server/dist/main.js": 436126,
+      "actions/code-review/dist/post.js": 546906,
+      "actions/code-review/dist/tsconfig.tsbuildinfo": 321403,
+      "actions/code-review/dist/main.js": 13527266,
+      "actions/ripwire-server/dist/post.js": 861638,
+      "actions/ripwire-server/dist/tsconfig.tsbuildinfo": 77309,
+      "actions/ripwire-server/dist/main.js": 887434,
+      "actions/opencode-server/process-anchor.js": 2460,
+      "actions/zvec-grep-server/process-anchor.js": 2460,
+      "actions/ripwire-server/process-anchor.js": 2655
     },
-    {
-      "path": "actions/resolve-merge-conflicts/package.json",
-      "name": "@seqlane/action-resolve-merge-conflicts",
-      "dependencies": {
-        "@actions/core": "3.0.1",
-        "@actions/github": "9.1.1",
-        "@seqlane/action-merge-conflict-resolution": "workspace:*",
-        "@seqlane/resolve-merge-conflicts-workflow": "workspace:*"
-      },
-      "oldEngineDependencies": {}
+    "definition": "All Action dist files plus service resident entrypoints at their original package paths; compare runnable JavaScript separately from sourcemaps."
+  },
+  "finalVerification": "All final local gates and hosted implementation gates pass after the process handoff repair. The final S12 task commit reconciles documentation and status only. Its reachable branch head and exact-head CI establish delivery.",
+  "dependencyAudit": {
+    "productionVulnerabilities": {
+      "info": 0,
+      "low": 0,
+      "moderate": 0,
+      "high": 0,
+      "critical": 0
     },
-    {
-      "path": "actions/ripwire-server/package.json",
-      "name": "@seqlane/action-ripwire-server",
-      "dependencies": {
-        "@actions/core": "3.0.1",
-        "@seqlane/action-service-lifecycle": "workspace:*",
-        "zod": "4.5.4"
-      },
-      "oldEngineDependencies": {}
+    "allWorkspaceVulnerabilities": {
+      "info": 0,
+      "low": 3,
+      "moderate": 41,
+      "high": 33,
+      "critical": 0
     },
-    {
-      "path": "actions/setup-opencode/package.json",
-      "name": "@seqlane/action-setup-opencode",
-      "dependencies": {
-        "@actions/cache": "6.2.0",
-        "@actions/core": "3.0.1",
-        "@actions/tool-cache": "4.0.0",
-        "zod": "4.5.4"
-      },
-      "oldEngineDependencies": {}
+    "baselineAllWorkspaceVulnerabilities": {
+      "info": 0,
+      "low": 3,
+      "moderate": 52,
+      "high": 45,
+      "critical": 0
     },
-    {
-      "path": "actions/zvec-grep-server/package.json",
-      "name": "@seqlane/action-zvec-grep-server",
-      "dependencies": {
-        "@actions/core": "3.0.1",
-        "@seqlane/action-service-lifecycle": "workspace:*"
-      },
-      "oldEngineDependencies": {}
+    "newAdvisoryIds": [],
+    "scope": "Production audit is clean. Existing development-tool findings remain outside the runtime migration; no new advisory IDs were introduced.",
+    "productionLicenseGroups": {
+      "MIT": 129,
+      "Apache-2.0": 4,
+      "(Apache-2.0 AND BSD-3-Clause)": 1,
+      "ISC": 7,
+      "BlueOak-1.0.0": 1,
+      "0BSD": 1,
+      "(MIT OR CC0-1.0)": 1
     },
-    {
-      "path": "apps/cli/package.json",
-      "name": "seqlane",
-      "dependencies": {
-        "mastra": "1.27.3",
-        "@seqlane/core": "workspace:*",
-        "@seqlane/agent-adapter": "workspace:*",
-        "@seqlane/codex-adapter": "workspace:*",
-        "@seqlane/opencode-adapter": "workspace:*",
-        "@seqlane/protocol": "workspace:*",
-        "@seqlane/tui": "workspace:*",
-        "@seqlane/runtime": "workspace:*",
-        "@oclif/core": "4.13.5",
-        "get-tsconfig": "4.14.3",
-        "tsx": "4.23.13",
-        "zod": "4.5.4"
-      },
-      "oldEngineDependencies": {
-        "mastra": "1.27.3"
-      }
+    "compatiblePatchUpdates": {
+      "brace-expansion@1": "1.1.21",
+      "brace-expansion@5": "5.0.12"
     },
-    {
-      "path": "apps/docs/package.json",
-      "name": "@seqlane/public-docs",
-      "dependencies": {},
-      "oldEngineDependencies": {}
-    },
-    {
-      "path": "libs/acp/package.json",
-      "name": "@seqlane/acp-adapter",
-      "dependencies": {
-        "@mastra/acp": "0.4.0",
-        "@mastra/core": "1.64.0",
-        "@seqlane/agent-adapter": "workspace:*",
-        "@seqlane/core": "workspace:*",
-        "zod": "4.5.4"
-      },
-      "oldEngineDependencies": {
-        "@mastra/acp": "0.4.0",
-        "@mastra/core": "1.64.0"
-      }
-    },
-    {
-      "path": "libs/action-code-review/package.json",
-      "name": "@seqlane/action-code-review",
-      "dependencies": {
-        "@seqlane/code-review-workflow": "workspace:*",
-        "@seqlane/agent-adapter": "workspace:*",
-        "@seqlane/core": "workspace:*",
-        "@seqlane/runtime": "workspace:*",
-        "zod": "4.5.4"
-      },
-      "oldEngineDependencies": {}
-    },
-    {
-      "path": "libs/action-merge-conflict-resolution/package.json",
-      "name": "@seqlane/action-merge-conflict-resolution",
-      "dependencies": {
-        "@seqlane/core": "workspace:*",
-        "@seqlane/opencode-adapter": "workspace:*",
-        "@seqlane/resolve-merge-conflicts-workflow": "workspace:*",
-        "@seqlane/runtime": "workspace:*",
-        "zod": "4.5.4"
-      },
-      "oldEngineDependencies": {}
-    },
-    {
-      "path": "libs/action-service-lifecycle/package.json",
-      "name": "@seqlane/action-service-lifecycle",
-      "dependencies": {},
-      "oldEngineDependencies": {}
-    },
-    {
-      "path": "libs/adapter/package.json",
-      "name": "@seqlane/agent-adapter",
-      "dependencies": {
-        "@seqlane/core": "workspace:*",
-        "@seqlane/protocol": "workspace:*",
-        "zod": "4.5.4"
-      },
-      "oldEngineDependencies": {}
-    },
-    {
-      "path": "libs/codex/package.json",
-      "name": "@seqlane/codex-adapter",
-      "dependencies": {
-        "@seqlane/agent-adapter": "workspace:*",
-        "@seqlane/core": "workspace:*",
-        "zod": "4.5.4"
-      },
-      "oldEngineDependencies": {}
-    },
-    {
-      "path": "libs/core/package.json",
-      "name": "@seqlane/core",
-      "dependencies": {
-        "zod": "4.5.4"
-      },
-      "oldEngineDependencies": {}
-    },
-    {
-      "path": "libs/fixtures/package.json",
-      "name": "@seqlane/fixtures",
-      "dependencies": {
-        "@seqlane/core": "workspace:*",
-        "zod": "4.5.4"
-      },
-      "oldEngineDependencies": {}
-    },
-    {
-      "path": "libs/opencode/package.json",
-      "name": "@seqlane/opencode-adapter",
-      "dependencies": {
-        "@mastra/core": "1.64.0",
-        "@opencode-ai/sdk": "1.18.27",
-        "@seqlane/agent-adapter": "workspace:*",
-        "@seqlane/core": "workspace:*",
-        "@seqlane/protocol": "workspace:*",
-        "zod": "4.5.4"
-      },
-      "oldEngineDependencies": {
-        "@mastra/core": "1.64.0"
-      }
-    },
-    {
-      "path": "libs/protocol/package.json",
-      "name": "@seqlane/protocol",
-      "dependencies": {
-        "@seqlane/core": "workspace:*",
-        "zod": "4.5.4"
-      },
-      "oldEngineDependencies": {}
-    },
-    {
-      "path": "libs/runtime/package.json",
-      "name": "@seqlane/runtime",
-      "dependencies": {
-        "@seqlane/agent-adapter": "workspace:*",
-        "@mastra/core": "1.64.0",
-        "@mastra/hono": "1.7.6",
-        "@mastra/libsql": "1.22.3",
-        "@mastra/mcp": "1.15.0",
-        "@mastra/observability": "1.17.4",
-        "@mastra/server": "1.64.0",
-        "@hono/node-server": "2.1.1",
-        "@seqlane/core": "workspace:*",
-        "@seqlane/protocol": "workspace:*",
-        "hono": "4.13.5",
-        "zod": "4.5.4"
-      },
-      "oldEngineDependencies": {
-        "@mastra/core": "1.64.0",
-        "@mastra/hono": "1.7.6",
-        "@mastra/libsql": "1.22.3",
-        "@mastra/mcp": "1.15.0",
-        "@mastra/observability": "1.17.4",
-        "@mastra/server": "1.64.0"
-      }
-    },
-    {
-      "path": "libs/tui/package.json",
-      "name": "@seqlane/tui",
-      "dependencies": {
-        "@seqlane/core": "workspace:*",
-        "@seqlane/protocol": "workspace:*",
-        "ink": "7.1.1",
-        "react": "19.3.0"
-      },
-      "oldEngineDependencies": {}
-    },
-    {
-      "path": "workflows/code-review/package.json",
-      "name": "@seqlane/code-review-workflow",
-      "dependencies": {
-        "@seqlane/core": "workspace:*",
-        "zod": "4.5.4"
-      },
-      "oldEngineDependencies": {}
-    },
-    {
-      "path": "workflows/read-context/package.json",
-      "name": "@seqlane/read-context-workflow",
-      "dependencies": {
-        "@seqlane/core": "workspace:*",
-        "zod": "4.5.4"
-      },
-      "oldEngineDependencies": {}
-    },
-    {
-      "path": "workflows/resolve-merge-conflicts/package.json",
-      "name": "@seqlane/resolve-merge-conflicts-workflow",
-      "dependencies": {
-        "@seqlane/core": "workspace:*",
-        "zod": "4.5.4"
-      },
-      "oldEngineDependencies": {}
+    "securitySources": [
+      "https://security.snyk.io/package/npm/brace-expansion/1.1.21",
+      "https://security.snyk.io/package/npm/brace-expansion/5.0.12"
+    ]
+  },
+  "final": {
+    "trackedCodeFiles": 727,
+    "trackedCodeLines": 147303,
+    "trackedCodeBytes": 4589380,
+    "lockPackageCount": 946,
+    "lockBytes": 416472,
+    "productionDependencyNodes": 199
+  },
+  "bundleFinal": {
+    "assets": {
+      "actions/code-review/dist/main.js": 1624733,
+      "actions/code-review/dist/post.js": 1092513,
+      "actions/code-review/dist/tsconfig.tsbuildinfo": 151338,
+      "actions/opencode-server/dist/bundle-runtime.spec.d.ts": 60,
+      "actions/opencode-server/dist/bundle-runtime.spec.d.ts.map": 132,
+      "actions/opencode-server/dist/filesystem.d.ts": 115,
+      "actions/opencode-server/dist/filesystem.d.ts.map": 181,
+      "actions/opencode-server/dist/lifecycle.d.ts": 645,
+      "actions/opencode-server/dist/lifecycle.d.ts.map": 710,
+      "actions/opencode-server/dist/main.d.ts": 133,
+      "actions/opencode-server/dist/main.d.ts.map": 186,
+      "actions/opencode-server/dist/main.js": 1001613,
+      "actions/opencode-server/dist/main.spec.d.ts": 50,
+      "actions/opencode-server/dist/main.spec.d.ts.map": 112,
+      "actions/opencode-server/dist/post.d.ts": 80,
+      "actions/opencode-server/dist/post.d.ts.map": 151,
+      "actions/opencode-server/dist/post.js": 973035,
+      "actions/opencode-server/dist/post.spec.d.ts": 50,
+      "actions/opencode-server/dist/post.spec.d.ts.map": 112,
+      "actions/opencode-server/dist/process-anchor.d.ts": 106,
+      "actions/opencode-server/dist/process-anchor.d.ts.map": 143,
+      "actions/opencode-server/dist/process-anchor.js": 547409,
+      "actions/opencode-server/dist/readiness.d.ts": 213,
+      "actions/opencode-server/dist/readiness.d.ts.map": 297,
+      "actions/opencode-server/dist/readiness.spec.d.ts": 55,
+      "actions/opencode-server/dist/readiness.spec.d.ts.map": 122,
+      "actions/opencode-server/dist/tsconfig.tsbuildinfo": 113793,
+      "actions/resolve-merge-conflicts/dist/main.js": 1627245,
+      "actions/resolve-merge-conflicts/dist/tsconfig.tsbuildinfo": 152273,
+      "actions/ripwire-server/dist/bundle-runtime.spec.d.ts": 60,
+      "actions/ripwire-server/dist/bundle-runtime.spec.d.ts.map": 132,
+      "actions/ripwire-server/dist/commands.d.ts": 567,
+      "actions/ripwire-server/dist/commands.d.ts.map": 411,
+      "actions/ripwire-server/dist/commands.spec.d.ts": 54,
+      "actions/ripwire-server/dist/commands.spec.d.ts.map": 120,
+      "actions/ripwire-server/dist/config.d.ts": 1319,
+      "actions/ripwire-server/dist/config.d.ts.map": 1272,
+      "actions/ripwire-server/dist/config.spec.d.ts": 52,
+      "actions/ripwire-server/dist/config.spec.d.ts.map": 116,
+      "actions/ripwire-server/dist/filesystem.d.ts": 115,
+      "actions/ripwire-server/dist/filesystem.d.ts.map": 181,
+      "actions/ripwire-server/dist/lifecycle.d.ts": 2278,
+      "actions/ripwire-server/dist/lifecycle.d.ts.map": 1853,
+      "actions/ripwire-server/dist/lifecycle.spec.d.ts": 55,
+      "actions/ripwire-server/dist/lifecycle.spec.d.ts.map": 122,
+      "actions/ripwire-server/dist/main.d.ts": 441,
+      "actions/ripwire-server/dist/main.d.ts.map": 490,
+      "actions/ripwire-server/dist/main.js": 1026630,
+      "actions/ripwire-server/dist/main.spec.d.ts": 50,
+      "actions/ripwire-server/dist/main.spec.d.ts.map": 112,
+      "actions/ripwire-server/dist/port.d.ts": 112,
+      "actions/ripwire-server/dist/port.d.ts.map": 172,
+      "actions/ripwire-server/dist/port.spec.d.ts": 50,
+      "actions/ripwire-server/dist/port.spec.d.ts.map": 112,
+      "actions/ripwire-server/dist/post.d.ts": 80,
+      "actions/ripwire-server/dist/post.d.ts.map": 150,
+      "actions/ripwire-server/dist/post.js": 973838,
+      "actions/ripwire-server/dist/post.spec.d.ts": 50,
+      "actions/ripwire-server/dist/post.spec.d.ts.map": 112,
+      "actions/ripwire-server/dist/process-anchor.d.ts": 106,
+      "actions/ripwire-server/dist/process-anchor.d.ts.map": 143,
+      "actions/ripwire-server/dist/process-anchor.js": 547409,
+      "actions/ripwire-server/dist/readiness.d.ts": 1896,
+      "actions/ripwire-server/dist/readiness.d.ts.map": 1539,
+      "actions/ripwire-server/dist/readiness.spec.d.ts": 55,
+      "actions/ripwire-server/dist/readiness.spec.d.ts.map": 122,
+      "actions/ripwire-server/dist/release.d.ts": 3777,
+      "actions/ripwire-server/dist/release.d.ts.map": 3099,
+      "actions/ripwire-server/dist/release.spec.d.ts": 53,
+      "actions/ripwire-server/dist/release.spec.d.ts.map": 118,
+      "actions/ripwire-server/dist/socket-ownership.d.ts": 1384,
+      "actions/ripwire-server/dist/socket-ownership.d.ts.map": 1377,
+      "actions/ripwire-server/dist/socket-ownership.spec.d.ts": 62,
+      "actions/ripwire-server/dist/socket-ownership.spec.d.ts.map": 136,
+      "actions/ripwire-server/dist/state.d.ts": 1375,
+      "actions/ripwire-server/dist/state.d.ts.map": 526,
+      "actions/ripwire-server/dist/state.spec.d.ts": 51,
+      "actions/ripwire-server/dist/state.spec.d.ts.map": 114,
+      "actions/ripwire-server/dist/token.d.ts": 162,
+      "actions/ripwire-server/dist/token.d.ts.map": 176,
+      "actions/ripwire-server/dist/token.spec.d.ts": 51,
+      "actions/ripwire-server/dist/token.spec.d.ts.map": 114,
+      "actions/ripwire-server/dist/tsconfig.tsbuildinfo": 117518,
+      "actions/setup-opencode/dist/archive.d.ts": 879,
+      "actions/setup-opencode/dist/archive.d.ts.map": 923,
+      "actions/setup-opencode/dist/archive.spec.d.ts": 53,
+      "actions/setup-opencode/dist/archive.spec.d.ts.map": 118,
+      "actions/setup-opencode/dist/bundle-runtime.spec.d.ts": 60,
+      "actions/setup-opencode/dist/bundle-runtime.spec.d.ts.map": 132,
+      "actions/setup-opencode/dist/cache.d.ts": 558,
+      "actions/setup-opencode/dist/cache.d.ts.map": 730,
+      "actions/setup-opencode/dist/cache.spec.d.ts": 51,
+      "actions/setup-opencode/dist/cache.spec.d.ts.map": 114,
+      "actions/setup-opencode/dist/entrypoint.d.ts": 51,
+      "actions/setup-opencode/dist/entrypoint.d.ts.map": 114,
+      "actions/setup-opencode/dist/filesystem.d.ts": 184,
+      "actions/setup-opencode/dist/filesystem.d.ts.map": 253,
+      "actions/setup-opencode/dist/filesystem.spec.d.ts": 56,
+      "actions/setup-opencode/dist/filesystem.spec.d.ts.map": 124,
+      "actions/setup-opencode/dist/io.d.ts": 694,
+      "actions/setup-opencode/dist/io.d.ts.map": 742,
+      "actions/setup-opencode/dist/io.spec.d.ts": 48,
+      "actions/setup-opencode/dist/io.spec.d.ts.map": 108,
+      "actions/setup-opencode/dist/main.d.ts": 80,
+      "actions/setup-opencode/dist/main.d.ts.map": 151,
+      "actions/setup-opencode/dist/main.js": 1742194,
+      "actions/setup-opencode/dist/main.spec.d.ts": 50,
+      "actions/setup-opencode/dist/main.spec.d.ts.map": 112,
+      "actions/setup-opencode/dist/platform.d.ts": 448,
+      "actions/setup-opencode/dist/platform.d.ts.map": 475,
+      "actions/setup-opencode/dist/platform.spec.d.ts": 54,
+      "actions/setup-opencode/dist/platform.spec.d.ts.map": 120,
+      "actions/setup-opencode/dist/release.d.ts": 442,
+      "actions/setup-opencode/dist/release.d.ts.map": 493,
+      "actions/setup-opencode/dist/release.spec.d.ts": 53,
+      "actions/setup-opencode/dist/release.spec.d.ts.map": 118,
+      "actions/setup-opencode/dist/setup.d.ts": 1013,
+      "actions/setup-opencode/dist/setup.d.ts.map": 1048,
+      "actions/setup-opencode/dist/setup.spec.d.ts": 51,
+      "actions/setup-opencode/dist/setup.spec.d.ts.map": 114,
+      "actions/setup-opencode/dist/tsconfig.tsbuildinfo": 115834,
+      "actions/setup-opencode/dist/version.d.ts": 98,
+      "actions/setup-opencode/dist/version.d.ts.map": 160,
+      "actions/setup-opencode/dist/version.spec.d.ts": 53,
+      "actions/setup-opencode/dist/version.spec.d.ts.map": 118,
+      "actions/zvec-grep-server/dist/bundle-runtime.spec.d.ts": 60,
+      "actions/zvec-grep-server/dist/bundle-runtime.spec.d.ts.map": 132,
+      "actions/zvec-grep-server/dist/commands.d.ts": 1457,
+      "actions/zvec-grep-server/dist/commands.d.ts.map": 1275,
+      "actions/zvec-grep-server/dist/commands.spec.d.ts": 54,
+      "actions/zvec-grep-server/dist/commands.spec.d.ts.map": 120,
+      "actions/zvec-grep-server/dist/filesystem.d.ts": 115,
+      "actions/zvec-grep-server/dist/filesystem.d.ts.map": 181,
+      "actions/zvec-grep-server/dist/lifecycle.d.ts": 1727,
+      "actions/zvec-grep-server/dist/lifecycle.d.ts.map": 1524,
+      "actions/zvec-grep-server/dist/lifecycle.spec.d.ts": 55,
+      "actions/zvec-grep-server/dist/lifecycle.spec.d.ts.map": 122,
+      "actions/zvec-grep-server/dist/main.d.ts": 159,
+      "actions/zvec-grep-server/dist/main.d.ts.map": 208,
+      "actions/zvec-grep-server/dist/main.js": 1006396,
+      "actions/zvec-grep-server/dist/main.spec.d.ts": 50,
+      "actions/zvec-grep-server/dist/main.spec.d.ts.map": 112,
+      "actions/zvec-grep-server/dist/post.d.ts": 80,
+      "actions/zvec-grep-server/dist/post.d.ts.map": 151,
+      "actions/zvec-grep-server/dist/post.js": 973039,
+      "actions/zvec-grep-server/dist/post.spec.d.ts": 50,
+      "actions/zvec-grep-server/dist/post.spec.d.ts.map": 112,
+      "actions/zvec-grep-server/dist/process-anchor.d.ts": 106,
+      "actions/zvec-grep-server/dist/process-anchor.d.ts.map": 143,
+      "actions/zvec-grep-server/dist/process-anchor.js": 547409,
+      "actions/zvec-grep-server/dist/readiness.d.ts": 1059,
+      "actions/zvec-grep-server/dist/readiness.d.ts.map": 1203,
+      "actions/zvec-grep-server/dist/readiness.spec.d.ts": 55,
+      "actions/zvec-grep-server/dist/readiness.spec.d.ts.map": 122,
+      "actions/zvec-grep-server/dist/tsconfig.tsbuildinfo": 114535
     }
-  ],
-  "oldEngineTrackedPaths": [
-    ".agents/skills/mastra/SKILL.md",
-    ".agents/skills/sdlc-impact/SKILL.md",
-    ".github/workflows/seqlane-code-review.yml",
-    "AGENTS.md",
-    "README.md",
-    "apps/cli/package.json",
-    "apps/cli/src/agent-runtime.spec.ts",
-    "apps/cli/src/all-features-example.spec.ts",
-    "apps/cli/src/commands/unstable_serve.ts",
-    "apps/cli/src/commands/unstable_studio.spec.ts",
-    "apps/cli/src/commands/unstable_studio.ts",
-    "apps/cli/src/operational-client.spec.ts",
-    "apps/docs/introduction/what-is-seqlane.md",
-    "docs/sdlc/adrs/2026-09-02-consumer-agnostic-seqlane-execution-events.md",
-    "docs/sdlc/adrs/2026-09-02-dedicated-runner-process.md",
-    "docs/sdlc/adrs/2026-09-02-dedicated-seqlane-output-package.md",
-    "docs/sdlc/adrs/2026-09-02-effect-private-runtime-engine.md",
-    "docs/sdlc/adrs/2026-09-02-executor-neutral-workflow-authoring.md",
-    "docs/sdlc/adrs/2026-09-02-fluent-seqlane-flow-dsl.md",
-    "docs/sdlc/adrs/2026-09-02-local-development-studio-trust-and-lifecycle.md",
-    "docs/sdlc/adrs/2026-09-02-local-read-only-execution-studio.md",
-    "docs/sdlc/adrs/2026-09-02-mastra-internal-workflow-engine.md",
-    "docs/sdlc/adrs/2026-09-02-opencode-executor-integration.md",
-    "docs/sdlc/adrs/2026-09-02-semantic-validation-gates.md",
-    "docs/sdlc/adrs/2026-09-02-seqlane-plan-ir-and-typed-dataflow.md",
-    "docs/sdlc/adrs/2026-09-02-studio-vite-development-and-isolated-replay.md",
-    "docs/sdlc/adrs/2026-09-03-local-mechanical-tasks.md",
-    "docs/sdlc/adrs/2026-09-04-mastra-local-mechanical-tasks.md",
-    "docs/sdlc/adrs/2026-09-05-local-mastra-operational-host.md",
-    "docs/sdlc/adrs/2026-09-07-mastra-native-agent-observability.md",
-    "docs/sdlc/adrs/2026-09-08-mastra-backed-seqlane-workflows.md",
-    "docs/sdlc/adrs/2026-09-13-separate-seqlane-protocol-package.md",
-    "docs/sdlc/adrs/2026-09-15-run-terminal-presentation-boundary.md",
-    "docs/sdlc/adrs/2026-09-16-passive-run-output.md",
-    "docs/sdlc/adrs/2026-09-16-standalone-cli-runs.md",
-    "docs/sdlc/adrs/2026-09-18-engine-opaque-agent-adapter-contracts.md",
-    "docs/sdlc/adrs/2026-09-21-public-npm-release.md",
-    "docs/sdlc/adrs/2026-09-22-preserve-workspace-release-references.md",
-    "docs/sdlc/adrs/2026-09-23-classifier-task-runtime-boundary.md",
-    "docs/sdlc/adrs/2026-09-26-exclusive-flow-choice.md",
-    "docs/sdlc/adrs/index.md",
-    "docs/sdlc/prd/2026-09-02-seqlane.md",
-    "docs/sdlc/prd/2026-09-03-seqlane-on-mastra.md",
-    "docs/sdlc/prd/index.md",
-    "docs/sdlc/rfcs/2026-09-02-execution-observability-and-debugging.md",
-    "docs/sdlc/rfcs/2026-09-02-seqlane-technical-architecture.md",
-    "docs/sdlc/rfcs/2026-09-03-mastra-runtime-and-operational-foundation.md",
-    "docs/sdlc/rfcs/2026-09-19-high-fidelity-local-observability.md",
-    "docs/sdlc/rfcs/index.md",
-    "docs/sdlc/specs/2026-09-02-autonomous-non-interactive-execution.md",
-    "docs/sdlc/specs/2026-09-02-builtin-workflow-distribution.md",
-    "docs/sdlc/specs/2026-09-02-consumer-agnostic-seqlane-execution-events.md",
-    "docs/sdlc/specs/2026-09-02-dedicated-runner-process.md",
-    "docs/sdlc/specs/2026-09-02-effect-runtime-integration.md",
-    "docs/sdlc/specs/2026-09-02-executor-neutral-workflow-authoring.md",
-    "docs/sdlc/specs/2026-09-02-fluent-seqlane-flow-dsl.md",
-    "docs/sdlc/specs/2026-09-02-local-development-studio-trust-and-lifecycle.md",
-    "docs/sdlc/specs/2026-09-02-local-read-only-execution-studio.md",
-    "docs/sdlc/specs/2026-09-02-mastra-runtime-integration.md",
-    "docs/sdlc/specs/2026-09-02-opencode-executor-integration.md",
-    "docs/sdlc/specs/2026-09-02-semantic-validation-gates.md",
-    "docs/sdlc/specs/2026-09-02-seqlane-execution-output-package.md",
-    "docs/sdlc/specs/2026-09-02-seqlane-plan-ir-typed-dataflow.md",
-    "docs/sdlc/specs/2026-09-02-studio-vite-development-and-isolated-replay.md",
-    "docs/sdlc/specs/2026-09-02-work-run-invocation-identity-model.md",
-    "docs/sdlc/specs/2026-09-03-local-mechanical-tasks.md",
-    "docs/sdlc/specs/2026-09-03-mastra-runtime-and-operational-integration.md",
-    "docs/sdlc/specs/2026-09-04-agent-adapter-boundary-and-capabilities.md",
-    "docs/sdlc/specs/2026-09-07-acp-mastra-observability-projection.md",
-    "docs/sdlc/specs/2026-09-07-mastra-native-agent-observability.md",
-    "docs/sdlc/specs/2026-09-08-mastra-backed-seqlane-workflows.md",
-    "docs/sdlc/specs/2026-09-08-opencode-mastra-observability-projection.md",
-    "docs/sdlc/specs/2026-09-12-codex-app-server-adapter.md",
-    "docs/sdlc/specs/2026-09-14-fluent-task-until-repeats.md",
-    "docs/sdlc/specs/2026-09-15-run-machine-output.md",
-    "docs/sdlc/specs/2026-09-15-run-terminal-rendering.md",
-    "docs/sdlc/specs/2026-09-16-standalone-cli-runs.md",
-    "docs/sdlc/specs/2026-09-19-otel-aligned-observation-contract.md",
-    "docs/sdlc/specs/2026-09-23-classifier-tasks.md",
-    "docs/sdlc/specs/index.md",
-    "docs/sdlc/tasks/2026-09-02-bootstrap-core-runtime.md",
-    "docs/sdlc/tasks/2026-09-02-bootstrap-output-package.md",
-    "docs/sdlc/tasks/2026-09-02-boundary-verification-and-documentation.md",
-    "docs/sdlc/tasks/2026-09-02-canonical-execution-events-package.md",
-    "docs/sdlc/tasks/2026-09-02-cli-integration-and-verification.md",
-    "docs/sdlc/tasks/2026-09-02-cli-runner-boundary.md",
-    "docs/sdlc/tasks/2026-09-02-connect-external-opencode-session.md",
-    "docs/sdlc/tasks/2026-09-02-define-non-interactive-failure-contract.md",
-    "docs/sdlc/tasks/2026-09-02-document-and-verify-studio-boundary.md",
-    "docs/sdlc/tasks/2026-09-02-effect-boundaries-and-documentation.md",
-    "docs/sdlc/tasks/2026-09-02-effect-compiled-plan-runner.md",
-    "docs/sdlc/tasks/2026-09-02-effect-workflow-surface.md",
-    "docs/sdlc/tasks/2026-09-02-execute-conditioned-repeats.md",
-    "docs/sdlc/tasks/2026-09-02-execute-project-events.md",
-    "docs/sdlc/tasks/2026-09-02-execute-static-plans.md",
-    "docs/sdlc/tasks/2026-09-02-execute-structured-opencode-tasks.md",
-    "docs/sdlc/tasks/2026-09-02-forward-cancellation.md",
-    "docs/sdlc/tasks/2026-09-02-identity-lifecycle-runner-contracts.md",
-    "docs/sdlc/tasks/2026-09-02-lifecycle-events-outcomes.md",
-    "docs/sdlc/tasks/2026-09-02-load-authored-workflows.md",
-    "docs/sdlc/tasks/2026-09-02-map-interaction-requirements-to-task-failure.md",
-    "docs/sdlc/tasks/2026-09-02-migrate-examples-documentation.md",
-    "docs/sdlc/tasks/2026-09-02-plan-node-addresses.md",
-    "docs/sdlc/tasks/2026-09-02-preserve-input-output.md",
-    "docs/sdlc/tasks/2026-09-02-propagate-cancellation.md",
-    "docs/sdlc/tasks/2026-09-02-prove-process-isolation.md",
-    "docs/sdlc/tasks/2026-09-02-public-authoring-contracts.md",
-    "docs/sdlc/tasks/2026-09-02-renovate-runtime-contract.md",
-    "docs/sdlc/tasks/2026-09-02-resolve-executors-in-private-runner.md",
-    "docs/sdlc/tasks/2026-09-02-run-workflow-through-cli.md",
-    "docs/sdlc/tasks/2026-09-02-runner-protocol.md",
-    "docs/sdlc/tasks/2026-09-02-runtime-validation-execution.md",
-    "docs/sdlc/tasks/2026-09-02-stop-failures-without-retries.md",
-    "docs/sdlc/tasks/2026-09-02-update-docs-and-enforce-boundary-checks.md",
-    "docs/sdlc/tasks/2026-09-02-validate-mvp-runner-contract.md",
-    "docs/sdlc/tasks/2026-09-02-validate-static-plans.md",
-    "docs/sdlc/tasks/2026-09-02-validation-contracts-plan-nodes.md",
-    "docs/sdlc/tasks/2026-09-03-mastra-agent-acp.md",
-    "docs/sdlc/tasks/2026-09-03-mastra-architectural-cleanup.md",
-    "docs/sdlc/tasks/2026-09-03-mastra-community-dependencies.md",
-    "docs/sdlc/tasks/2026-09-03-mastra-community-studio.md",
-    "docs/sdlc/tasks/2026-09-03-mastra-deterministic-shell.md",
-    "docs/sdlc/tasks/2026-09-03-mastra-identity-events.md",
-    "docs/sdlc/tasks/2026-09-03-mastra-migration-foundation.md",
-    "docs/sdlc/tasks/2026-09-03-mastra-plan-compiler.md",
-    "docs/sdlc/tasks/2026-09-03-mastra-runtime-spine.md",
-    "docs/sdlc/tasks/2026-09-03-mastra-server-mcp.md",
-    "docs/sdlc/tasks/2026-09-03-mastra-session-semantics.md",
-    "docs/sdlc/tasks/2026-09-03-mastra-storage-tracing.md",
-    "docs/sdlc/tasks/2026-09-03-mastra-workspace-constraints.md",
-    "docs/sdlc/tasks/2026-09-04-agent-adapter-integration-cleanup.md",
-    "docs/sdlc/tasks/2026-09-04-cli-run-status-and-cancel.md",
-    "docs/sdlc/tasks/2026-09-04-mastra-local-task-dispatch.md",
-    "docs/sdlc/tasks/2026-09-04-mastra-mcp-transports.md",
-    "docs/sdlc/tasks/2026-09-04-mastra-operational-end-to-end.md",
-    "docs/sdlc/tasks/2026-09-04-mastra-operational-host.md",
-    "docs/sdlc/tasks/2026-09-04-mastra-studio-run-inspection.md",
-    "docs/sdlc/tasks/2026-09-04-opencode-sdk-only-adapter.md",
-    "docs/sdlc/tasks/2026-09-04-protocol-agnostic-acp-adapter.md",
-    "docs/sdlc/tasks/2026-09-04-session-checkpoint-fork-capabilities.md",
-    "docs/sdlc/tasks/2026-09-04-workflow-discovery-and-plan-cli.md",
-    "docs/sdlc/tasks/2026-09-05-investigate-mastra-mcp-runtime-reuse.md",
-    "docs/sdlc/tasks/2026-09-05-operational-data-bounds.md",
-    "docs/sdlc/tasks/2026-09-05-workflow-discovery-bounds.md",
-    "docs/sdlc/tasks/2026-09-06-operational-workflow-registration-boundary.md",
-    "docs/sdlc/tasks/2026-09-08-add-mastra-observability.md",
-    "docs/sdlc/tasks/2026-09-08-add-mastra-plan-compiler.md",
-    "docs/sdlc/tasks/2026-09-08-compose-workflows-as-runnables.md",
-    "docs/sdlc/tasks/2026-09-08-cut-over-to-mastra-runtime.md",
-    "docs/sdlc/tasks/2026-09-08-migrate-execution-event-consumers.md",
-    "docs/sdlc/tasks/2026-09-08-project-acp-v1-observations-into-mastra.md",
-    "docs/sdlc/tasks/2026-09-08-project-opencode-observations-into-mastra.md",
-    "docs/sdlc/tasks/2026-09-08-propagate-mastra-observability-context.md",
-    "docs/sdlc/tasks/2026-09-08-remove-effect-subprocess-runtime.md",
-    "docs/sdlc/tasks/2026-09-08-remove-seqlane-events.md",
-    "docs/sdlc/tasks/2026-09-08-unify-executable-task-contract.md",
-    "docs/sdlc/tasks/2026-09-08-unify-flow-authoring-and-minimal-plan.md",
-    "docs/sdlc/tasks/2026-09-09-correct-mastra-observability-tool-semantics.md",
-    "docs/sdlc/tasks/2026-09-10-code-review-skill-policy.md",
-    "docs/sdlc/tasks/2026-09-11-nested-workflow-compilation-lifecycle.md",
-    "docs/sdlc/tasks/2026-09-11-nested-workflow-workspace-admission.md",
-    "docs/sdlc/tasks/2026-09-11-reject-nested-workflows-in-repeats.md",
-    "docs/sdlc/tasks/2026-09-12-integrate-codex-runtime-adapter.md",
-    "docs/sdlc/tasks/2026-09-14-deliver-fluent-task-until-repeats.md",
-    "docs/sdlc/tasks/2026-09-16-centralize-workflow-directories.md",
-    "docs/sdlc/tasks/2026-09-16-decouple-runtime-adapter-composition.md",
-    "docs/sdlc/tasks/2026-09-16-deliver-standalone-cli-runs.md",
-    "docs/sdlc/tasks/2026-09-16-standalone-adapter-lifecycle.md",
-    "docs/sdlc/tasks/2026-09-16-standalone-run-execution.md",
-    "docs/sdlc/tasks/2026-09-17-direct-run-cleanup.md",
-    "docs/sdlc/tasks/2026-09-18-expand-public-documentation-navigation.md",
-    "docs/sdlc/tasks/2026-09-18-public-documentation-site.md",
-    "docs/sdlc/tasks/2026-09-18-support-package-manager-installation.md",
-    "docs/sdlc/tasks/2026-09-19-implement-otel-aligned-opencode-observations.md",
-    "docs/sdlc/tasks/2026-09-20-git-diff-summary-example.md",
-    "docs/sdlc/tasks/2026-09-22-agent-task-execution-deadline.md",
-    "docs/sdlc/tasks/2026-09-23-classifier-example-and-documentation.md",
-    "docs/sdlc/tasks/2026-09-23-classifier-reliability-and-observation.md",
-    "docs/sdlc/tasks/2026-09-23-classifier-system-one-tracer.md",
-    "docs/sdlc/tasks/2026-09-24-remove-task-observability.md",
-    "docs/sdlc/tasks/2026-09-26-deliver-exclusive-flow-choice.md",
-    "docs/sdlc/tasks/2026-10-05-session-fork-naming.md",
-    "docs/sdlc/tasks/2026-10-05-unify-runnable-construction-and-input-preparation.md",
-    "docs/sdlc/tasks/index.md",
-    "eslint.config.mjs",
-    "libs/acp/README.md",
-    "libs/acp/package.json",
-    "libs/acp/src/adapter-integration.spec.ts",
-    "libs/acp/src/adapter.spec.ts",
-    "libs/acp/src/adapter.ts",
-    "libs/acp/src/contracts.ts",
-    "libs/acp/src/observability.spec.ts",
-    "libs/acp/src/observability.ts",
-    "libs/acp/src/stream.ts",
-    "libs/action-code-review/src/pr-code-review-example.spec.ts",
-    "libs/action-code-review/src/publication-fitting.spec.ts",
-    "libs/action-merge-conflict-resolution/src/seqlane-agent-runner.ts",
-    "libs/core/README.md",
-    "libs/opencode/README.md",
-    "libs/opencode/package.json",
-    "libs/opencode/src/observability.spec.ts",
-    "libs/opencode/src/observability.ts",
-    "libs/protocol/README.md",
-    "libs/runtime/README.md",
-    "libs/runtime/fixtures/forbidden-ee-dynamic-import.ts",
-    "libs/runtime/fixtures/forbidden-ee-export-from.ts",
-    "libs/runtime/fixtures/forbidden-ee-import.mts",
-    "libs/runtime/fixtures/forbidden-ee-import.ts",
-    "libs/runtime/fixtures/forbidden-ee-require.cjs",
-    "libs/runtime/fixtures/forbidden-ee-side-effect-import.ts",
-    "libs/runtime/fixtures/mastra-runtime-spine-workflow.ts",
-    "libs/runtime/package.json",
-    "libs/runtime/src/choice-flow.spec.ts",
-    "libs/runtime/src/choice-node-identity.spec.ts",
-    "libs/runtime/src/index.spec.ts",
-    "libs/runtime/src/operational-host.ts",
-    "libs/runtime/src/runner/run.ts",
-    "libs/runtime/src/runtime/compile/mastra-choice-compiler.spec.ts",
-    "libs/runtime/src/runtime/compile/mastra-choice-compiler.ts",
-    "libs/runtime/src/runtime/compile/mastra-choice-envelope.spec.ts",
-    "libs/runtime/src/runtime/compile/mastra-plan-compiler.spec.ts",
-    "libs/runtime/src/runtime/compile/mastra-plan-compiler.ts",
-    "libs/runtime/src/runtime/compile/mastra-repeat-attempt-runtime.spec.ts",
-    "libs/runtime/src/runtime/compile/mastra-repeat-attempt-runtime.ts",
-    "libs/runtime/src/runtime/compile/mastra-repeat-attempt.ts",
-    "libs/runtime/src/runtime/compile/mastra-repeat-compiler.ts",
-    "libs/runtime/src/runtime/compile/mastra-repeat-envelope.spec.ts",
-    "libs/runtime/src/runtime/compile/mastra-repeat-envelope.ts",
-    "libs/runtime/src/runtime/compile/mastra-repeat-lifecycle.ts",
-    "libs/runtime/src/runtime/compile/mastra-run-context.ts",
-    "libs/runtime/src/runtime/execution/executor.ts",
-    "libs/runtime/src/runtime/invocation/invocation-support.ts",
-    "libs/runtime/src/runtime/local/mastra-process.spec.ts",
-    "libs/runtime/src/runtime/local/mastra-process.ts",
-    "libs/runtime/src/runtime/local/task-execution.spec.ts",
-    "libs/runtime/src/runtime/local/task-execution.ts",
-    "libs/runtime/src/runtime/mastra/choice-input-failure.spec.ts",
-    "libs/runtime/src/runtime/mastra/choice-preflight.spec.ts",
-    "libs/runtime/src/runtime/mastra/choice-session-cancellation.spec.ts",
-    "libs/runtime/src/runtime/mastra/community-dependency-guards.spec.ts",
-    "libs/runtime/src/runtime/mastra/community-dependency-guards.ts",
-    "libs/runtime/src/runtime/mastra/mastra-composition.ts",
-    "libs/runtime/src/runtime/mastra/mastra-execution.ts",
-    "libs/runtime/src/runtime/mastra/mastra-runtime.spec.ts",
-    "libs/runtime/src/runtime/mastra/mastra-runtime.ts",
-    "libs/runtime/src/runtime/mastra/mastra-server.ts",
-    "libs/runtime/src/runtime/mastra/operational-host.spec.ts",
-    "libs/runtime/src/runtime/mastra/operational-host.ts",
-    "libs/runtime/src/runtime/mastra/operational-plan-timing.spec.ts",
-    "libs/runtime/src/runtime/mastra/operational-run-lifecycle.ts",
-    "libs/runtime/src/runtime/profile/runtime-profile.ts",
-    "libs/runtime/src/standalone-run.spec.ts",
-    "libs/runtime/src/start-workflow-run.ts",
-    "libs/tui/src/renderer-contract.spec.ts",
-    "pnpm-lock.yaml"
-  ],
-  "oldEngineDocuments": [
-    {
-      "path": "docs/sdlc/adrs/2026-09-02-consumer-agnostic-seqlane-execution-events.md",
-      "id": "adr.consumer-agnostic-seqlane-execution-events",
-      "status": "superseded",
-      "relationships": ["rfc.seqlane-technical-architecture"],
-      "referencedBy": [
-        "adr.mastra-backed-seqlane-workflows",
-        "spec.consumer-agnostic-seqlane-execution-events"
-      ]
-    },
-    {
-      "path": "docs/sdlc/adrs/2026-09-02-dedicated-runner-process.md",
-      "id": "adr.dedicated-runner-process",
-      "status": "superseded",
-      "relationships": ["rfc.seqlane-technical-architecture"],
-      "referencedBy": [
-        "adr.direct-runtime-code-review-action",
-        "adr.local-mastra-operational-host",
-        "adr.seqlane-action-library-boundary",
-        "spec.dedicated-runner-process",
-        "spec.seqlane-action-merge-conflict-resolution"
-      ]
-    },
-    {
-      "path": "docs/sdlc/adrs/2026-09-02-dedicated-seqlane-output-package.md",
-      "id": "adr.dedicated-seqlane-output-package",
-      "status": "superseded",
-      "relationships": ["rfc.seqlane-technical-architecture"],
-      "referencedBy": [
-        "adr.run-terminal-presentation-boundary",
-        "spec.seqlane-execution-output-package"
-      ]
-    },
-    {
-      "path": "docs/sdlc/adrs/2026-09-02-effect-private-runtime-engine.md",
-      "id": "adr.effect-private-runtime-engine",
-      "status": "superseded",
-      "relationships": [
-        "rfc.seqlane-technical-architecture",
-        "adr.mastra-internal-workflow-engine"
-      ],
-      "referencedBy": [
-        "adr.direct-runtime-code-review-action",
-        "adr.local-mechanical-tasks",
-        "adr.mastra-backed-seqlane-workflows",
-        "rfc.mastra-runtime-and-operational-foundation",
-        "spec.effect-runtime-integration"
-      ]
-    },
-    {
-      "path": "docs/sdlc/adrs/2026-09-02-executor-neutral-workflow-authoring.md",
-      "id": "adr.executor-neutral-workflow-authoring",
-      "status": "superseded",
-      "relationships": [
-        "rfc.seqlane-technical-architecture",
-        "adr.opencode-executor-integration"
-      ],
-      "referencedBy": [
-        "adr.direct-runtime-code-review-action",
-        "adr.local-mechanical-tasks",
-        "adr.mastra-backed-seqlane-workflows",
-        "adr.seqlane-action-library-boundary",
-        "spec.agent-adapter-boundary-and-capabilities",
-        "spec.executor-neutral-workflow-authoring",
-        "spec.seqlane-action-merge-conflict-resolution"
-      ]
-    },
-    {
-      "path": "docs/sdlc/adrs/2026-09-02-fluent-seqlane-flow-dsl.md",
-      "id": "adr.fluent-seqlane-flow-dsl",
-      "status": "superseded",
-      "relationships": ["rfc.seqlane-technical-architecture"],
-      "referencedBy": [
-        "adr.mastra-backed-seqlane-workflows",
-        "spec.fluent-seqlane-flow-dsl"
-      ]
-    },
-    {
-      "path": "docs/sdlc/adrs/2026-09-02-local-development-studio-trust-and-lifecycle.md",
-      "id": "adr.local-development-studio-trust-and-lifecycle",
-      "status": "superseded",
-      "relationships": [
-        "rfc.seqlane-technical-architecture",
-        "adr.local-read-only-execution-studio"
-      ],
-      "referencedBy": [
-        "adr.local-mastra-operational-host",
-        "spec.local-development-studio-trust-and-lifecycle"
-      ]
-    },
-    {
-      "path": "docs/sdlc/adrs/2026-09-02-local-read-only-execution-studio.md",
-      "id": "adr.local-read-only-execution-studio",
-      "status": "superseded",
-      "relationships": ["rfc.seqlane-technical-architecture"],
-      "referencedBy": [
-        "adr.local-development-studio-trust-and-lifecycle",
-        "adr.local-mastra-operational-host",
-        "spec.local-read-only-execution-studio"
-      ]
-    },
-    {
-      "path": "docs/sdlc/adrs/2026-09-02-mastra-internal-workflow-engine.md",
-      "id": "adr.mastra-internal-workflow-engine",
-      "status": "superseded",
-      "relationships": ["rfc.seqlane-technical-architecture"],
-      "referencedBy": [
-        "adr.effect-private-runtime-engine",
-        "spec.mastra-runtime-integration"
-      ]
-    },
-    {
-      "path": "docs/sdlc/adrs/2026-09-02-opencode-executor-integration.md",
-      "id": "adr.opencode-executor-integration",
-      "status": "accepted",
-      "relationships": ["rfc.seqlane-technical-architecture"],
-      "referencedBy": [
-        "adr.engine-opaque-agent-adapter-contracts",
-        "adr.executor-neutral-workflow-authoring",
-        "spec.agent-adapter-boundary-and-capabilities",
-        "spec.opencode-executor-integration"
-      ]
-    },
-    {
-      "path": "docs/sdlc/adrs/2026-09-02-semantic-validation-gates.md",
-      "id": "adr.semantic-validation-gates",
-      "status": "accepted",
-      "relationships": ["rfc.seqlane-technical-architecture"],
-      "referencedBy": ["spec.semantic-validation-gates"]
-    },
-    {
-      "path": "docs/sdlc/adrs/2026-09-02-seqlane-plan-ir-and-typed-dataflow.md",
-      "id": "adr.seqlane-plan-ir-and-typed-dataflow",
-      "status": "superseded",
-      "relationships": ["rfc.seqlane-technical-architecture"],
-      "referencedBy": [
-        "adr.local-mechanical-tasks",
-        "adr.mastra-backed-seqlane-workflows",
-        "spec.seqlane-plan-ir-typed-dataflow"
-      ]
-    },
-    {
-      "path": "docs/sdlc/adrs/2026-09-02-studio-vite-development-and-isolated-replay.md",
-      "id": "adr.studio-vite-development-and-isolated-replay",
-      "status": "superseded",
-      "relationships": ["rfc.seqlane-technical-architecture"],
-      "referencedBy": [
-        "adr.local-mastra-operational-host",
-        "spec.studio-vite-development-and-isolated-replay"
-      ]
-    },
-    {
-      "path": "docs/sdlc/adrs/2026-09-03-local-mechanical-tasks.md",
-      "id": "adr.local-mechanical-tasks",
-      "status": "superseded",
-      "relationships": [
-        "adr.executor-neutral-workflow-authoring",
-        "adr.effect-private-runtime-engine",
-        "adr.seqlane-plan-ir-and-typed-dataflow",
-        "adr.invocation-admission-and-workspace-coordination",
-        "adr.autonomous-non-interactive-execution"
-      ],
-      "referencedBy": [
-        "adr.mastra-local-mechanical-tasks",
-        "adr.seqlane-action-library-boundary",
-        "spec.seqlane-action-merge-conflict-resolution"
-      ]
-    },
-    {
-      "path": "docs/sdlc/adrs/2026-09-04-mastra-local-mechanical-tasks.md",
-      "id": "adr.mastra-local-mechanical-tasks",
-      "status": "accepted",
-      "relationships": [
-        "adr.local-mechanical-tasks",
-        "spec.mastra-runtime-and-operational-integration",
-        "adr.local-mechanical-tasks"
-      ],
-      "referencedBy": [
-        "spec.local-mechanical-tasks",
-        "task.mastra-local-task-dispatch"
-      ]
-    },
-    {
-      "path": "docs/sdlc/adrs/2026-09-05-local-mastra-operational-host.md",
-      "id": "adr.local-mastra-operational-host",
-      "status": "superseded",
-      "relationships": [
-        "rfc.mastra-runtime-and-operational-foundation",
-        "adr.dedicated-runner-process",
-        "adr.local-read-only-execution-studio",
-        "adr.local-development-studio-trust-and-lifecycle",
-        "adr.studio-vite-development-and-isolated-replay"
-      ],
-      "referencedBy": ["adr.standalone-cli-runs"]
-    },
-    {
-      "path": "docs/sdlc/adrs/2026-09-07-mastra-native-agent-observability.md",
-      "id": "adr.mastra-native-agent-observability",
-      "status": "superseded",
-      "relationships": ["rfc.execution-observability-and-debugging"],
-      "referencedBy": ["adr.engine-opaque-agent-adapter-contracts"]
-    },
-    {
-      "path": "docs/sdlc/adrs/2026-09-08-mastra-backed-seqlane-workflows.md",
-      "id": "adr.mastra-backed-seqlane-workflows",
-      "status": "accepted",
-      "relationships": [
-        "rfc.seqlane-technical-architecture",
-        "rfc.execution-observability-and-debugging",
-        "adr.effect-private-runtime-engine",
-        "adr.fluent-seqlane-flow-dsl",
-        "adr.executor-neutral-workflow-authoring",
-        "adr.seqlane-plan-ir-and-typed-dataflow",
-        "adr.consumer-agnostic-seqlane-execution-events"
-      ],
-      "referencedBy": [
-        "adr.exclusive-flow-choice",
-        "adr.separate-seqlane-protocol-package",
-        "spec.mastra-backed-seqlane-workflows"
-      ]
-    },
-    {
-      "path": "docs/sdlc/adrs/2026-09-13-separate-seqlane-protocol-package.md",
-      "id": "adr.separate-seqlane-protocol-package",
-      "status": "accepted",
-      "relationships": [
-        "adr.mastra-backed-seqlane-workflows",
-        "spec.mastra-backed-seqlane-workflows"
-      ],
-      "referencedBy": [
-        "adr.run-terminal-presentation-boundary",
-        "spec.mastra-backed-seqlane-workflows"
-      ]
-    },
-    {
-      "path": "docs/sdlc/adrs/2026-09-15-run-terminal-presentation-boundary.md",
-      "id": "adr.run-terminal-presentation-boundary",
-      "status": "superseded",
-      "relationships": [
-        "prd.seqlane-on-mastra",
-        "rfc.execution-observability-and-debugging",
-        "adr.separate-seqlane-protocol-package",
-        "adr.dedicated-seqlane-output-package"
-      ],
-      "referencedBy": ["adr.passive-run-output", "spec.run-machine-output"]
-    },
-    {
-      "path": "docs/sdlc/adrs/2026-09-16-passive-run-output.md",
-      "id": "adr.passive-run-output",
-      "status": "accepted",
-      "relationships": [
-        "prd.seqlane-on-mastra",
-        "rfc.execution-observability-and-debugging",
-        "adr.run-terminal-presentation-boundary"
-      ],
-      "referencedBy": ["spec.run-terminal-rendering"]
-    },
-    {
-      "path": "docs/sdlc/adrs/2026-09-16-standalone-cli-runs.md",
-      "id": "adr.standalone-cli-runs",
-      "status": "accepted",
-      "relationships": [
-        "prd.seqlane-on-mastra",
-        "rfc.mastra-runtime-and-operational-foundation",
-        "adr.local-mastra-operational-host"
-      ],
-      "referencedBy": [
-        "adr.classifier-task-runtime-boundary",
-        "spec.mastra-runtime-and-operational-integration",
-        "spec.model-selection-and-session-model-semantics",
-        "spec.run-machine-output",
-        "spec.standalone-cli-runs"
-      ]
-    },
-    {
-      "path": "docs/sdlc/adrs/2026-09-18-engine-opaque-agent-adapter-contracts.md",
-      "id": "adr.engine-opaque-agent-adapter-contracts",
-      "status": "accepted",
-      "relationships": [
-        "rfc.execution-observability-and-debugging",
-        "adr.opencode-executor-integration",
-        "adr.mastra-native-agent-observability"
-      ],
-      "referencedBy": [
-        "spec.acp-mastra-observability-projection",
-        "spec.mastra-native-agent-observability",
-        "spec.opencode-mastra-observability-projection",
-        "task.decouple-runtime-adapter-composition"
-      ]
-    },
-    {
-      "path": "docs/sdlc/adrs/2026-09-21-public-npm-release.md",
-      "id": "adr.public-npm-release",
-      "status": "superseded",
-      "relationships": [
-        "prd.seqlane-on-mastra",
-        "rfc.mastra-runtime-and-operational-foundation"
-      ],
-      "referencedBy": ["adr.preserve-workspace-release-references"]
-    },
-    {
-      "path": "docs/sdlc/adrs/2026-09-22-preserve-workspace-release-references.md",
-      "id": "adr.preserve-workspace-release-references",
-      "status": "accepted",
-      "relationships": [
-        "prd.seqlane-on-mastra",
-        "rfc.mastra-runtime-and-operational-foundation",
-        "adr.public-npm-release"
-      ],
-      "referencedBy": ["spec.public-npm-distribution"]
-    },
-    {
-      "path": "docs/sdlc/adrs/2026-09-23-classifier-task-runtime-boundary.md",
-      "id": "adr.classifier-task-runtime-boundary",
-      "status": "accepted",
-      "relationships": [
-        "prd.seqlane-on-mastra",
-        "rfc.mastra-runtime-and-operational-foundation",
-        "adr.standalone-cli-runs"
-      ],
-      "referencedBy": ["spec.classifier-tasks"]
-    },
-    {
-      "path": "docs/sdlc/adrs/2026-09-26-exclusive-flow-choice.md",
-      "id": "adr.exclusive-flow-choice",
-      "status": "accepted",
-      "relationships": [
-        "prd.seqlane-on-mastra",
-        "adr.mastra-backed-seqlane-workflows"
-      ],
-      "referencedBy": [
-        "spec.mastra-backed-seqlane-workflows",
-        "task.deliver-exclusive-flow-choice"
-      ]
-    },
-    {
-      "path": "docs/sdlc/prd/2026-09-02-seqlane.md",
-      "id": "prd.seqlane",
-      "status": "superseded",
-      "relationships": ["brd.seqlane"],
-      "referencedBy": [
-        "prd.seqlane-on-mastra",
-        "rfc.seqlane-technical-architecture",
-        "spec.sdlc-documentation-system"
-      ]
-    },
-    {
-      "path": "docs/sdlc/prd/2026-09-03-seqlane-on-mastra.md",
-      "id": "prd.seqlane-on-mastra",
-      "status": "accepted",
-      "relationships": ["brd.seqlane", "prd.seqlane"],
-      "referencedBy": [
-        "adr.classifier-task-runtime-boundary",
-        "adr.exclusive-flow-choice",
-        "adr.passive-run-output",
-        "adr.preserve-workspace-release-references",
-        "adr.public-npm-release",
-        "adr.run-terminal-presentation-boundary",
-        "adr.standalone-cli-runs",
-        "rfc.execution-observability-and-debugging",
-        "rfc.high-fidelity-local-observability",
-        "rfc.mastra-runtime-and-operational-foundation",
-        "spec.classifier-tasks",
-        "spec.fluent-task-until-repeats",
-        "spec.run-machine-output",
-        "spec.run-terminal-rendering",
-        "spec.standalone-cli-runs",
-        "task.expand-public-documentation-navigation",
-        "task.public-documentation-site",
-        "task.support-package-manager-installation"
-      ]
-    },
-    {
-      "path": "docs/sdlc/rfcs/2026-09-02-execution-observability-and-debugging.md",
-      "id": "rfc.execution-observability-and-debugging",
-      "status": "proposed",
-      "relationships": ["prd.seqlane-on-mastra"],
-      "referencedBy": [
-        "adr.engine-opaque-agent-adapter-contracts",
-        "adr.mastra-backed-seqlane-workflows",
-        "adr.mastra-native-agent-observability",
-        "adr.passive-run-output",
-        "adr.run-terminal-presentation-boundary",
-        "rfc.high-fidelity-local-observability",
-        "spec.run-machine-output",
-        "spec.run-terminal-rendering"
-      ]
-    },
-    {
-      "path": "docs/sdlc/rfcs/2026-09-02-seqlane-technical-architecture.md",
-      "id": "rfc.seqlane-technical-architecture",
-      "status": "superseded",
-      "relationships": ["prd.seqlane"],
-      "referencedBy": [
-        "adr.autonomous-non-interactive-execution",
-        "adr.builtin-workflow-distribution",
-        "adr.consumer-agnostic-seqlane-execution-events",
-        "adr.decouple-executor-workspace-location",
-        "adr.dedicated-runner-process",
-        "adr.dedicated-seqlane-output-package",
-        "adr.effect-private-runtime-engine",
-        "adr.executor-neutral-workflow-authoring",
-        "adr.fluent-seqlane-flow-dsl",
-        "adr.invocation-admission-and-workspace-coordination",
-        "adr.local-development-studio-trust-and-lifecycle",
-        "adr.local-read-only-execution-studio",
-        "adr.mastra-backed-seqlane-workflows",
-        "adr.mastra-internal-workflow-engine",
-        "adr.model-selection-and-session-model-semantics",
-        "adr.opencode-executor-integration",
-        "adr.repository-user-workflow-discovery-and-composition",
-        "adr.runtime-resolved-execution-profiles",
-        "adr.semantic-validation-gates",
-        "adr.seqlane-plan-ir-and-typed-dataflow",
-        "adr.session-checkpoint-reuse-and-branching",
-        "adr.studio-vite-development-and-isolated-replay",
-        "adr.work-run-invocation-identity-model",
-        "rfc.mastra-runtime-and-operational-foundation"
-      ]
-    },
-    {
-      "path": "docs/sdlc/rfcs/2026-09-03-mastra-runtime-and-operational-foundation.md",
-      "id": "rfc.mastra-runtime-and-operational-foundation",
-      "status": "accepted",
-      "relationships": [
-        "prd.seqlane-on-mastra",
-        "rfc.seqlane-technical-architecture",
-        "adr.effect-private-runtime-engine"
-      ],
-      "referencedBy": [
-        "adr.classifier-task-runtime-boundary",
-        "adr.local-mastra-operational-host",
-        "adr.preserve-workspace-release-references",
-        "adr.public-npm-release",
-        "adr.standalone-cli-runs",
-        "spec.classifier-tasks",
-        "spec.mastra-runtime-and-operational-integration",
-        "spec.standalone-cli-runs"
-      ]
-    },
-    {
-      "path": "docs/sdlc/rfcs/2026-09-19-high-fidelity-local-observability.md",
-      "id": "rfc.high-fidelity-local-observability",
-      "status": "proposed",
-      "relationships": [
-        "prd.seqlane-on-mastra",
-        "rfc.execution-observability-and-debugging"
-      ],
-      "referencedBy": ["spec.otel-aligned-observation-contract"]
-    },
-    {
-      "path": "docs/sdlc/specs/2026-09-02-autonomous-non-interactive-execution.md",
-      "id": "spec.autonomous-non-interactive-execution",
-      "status": "active",
-      "relationships": ["adr.autonomous-non-interactive-execution"],
-      "referencedBy": [
-        "spec.codex-app-server-adapter",
-        "spec.local-mechanical-tasks",
-        "task.cancel-runner-preparation",
-        "task.define-non-interactive-failure-contract",
-        "task.map-interaction-requirements-to-task-failure",
-        "task.prove-autonomous-execution-through-cli",
-        "task.reject-opencode-interaction-requests"
-      ]
-    },
-    {
-      "path": "docs/sdlc/specs/2026-09-02-builtin-workflow-distribution.md",
-      "id": "spec.builtin-workflow-distribution",
-      "status": "superseded",
-      "relationships": ["adr.builtin-workflow-distribution"],
-      "referencedBy": [
-        "task.bootstrap-builtins-package",
-        "task.built-in-catalog-and-discovery",
-        "task.ship-builtins-through-cli",
-        "task.verify-boundaries-and-documentation"
-      ]
-    },
-    {
-      "path": "docs/sdlc/specs/2026-09-02-consumer-agnostic-seqlane-execution-events.md",
-      "id": "spec.consumer-agnostic-seqlane-execution-events",
-      "status": "superseded",
-      "relationships": ["adr.consumer-agnostic-seqlane-execution-events"],
-      "referencedBy": [
-        "spec.mastra-backed-seqlane-workflows",
-        "task.boundary-verification-and-documentation",
-        "task.canonical-execution-events-package",
-        "task.cli-consumer-fanout",
-        "task.recording-and-replay",
-        "task.runtime-plan-snapshot-events",
-        "task.studio-static-plan-projection"
-      ]
-    },
-    {
-      "path": "docs/sdlc/specs/2026-09-02-dedicated-runner-process.md",
-      "id": "spec.dedicated-runner-process",
-      "status": "superseded",
-      "relationships": ["adr.dedicated-runner-process"],
-      "referencedBy": [
-        "spec.direct-runtime-code-review-action",
-        "spec.mastra-runtime-and-operational-integration",
-        "task.cli-runner-boundary",
-        "task.execute-project-events",
-        "task.forward-cancellation",
-        "task.launch-runner-load-workflow",
-        "task.map-exit-status",
-        "task.prove-process-isolation",
-        "task.run-workflow-through-cli",
-        "task.runner-protocol",
-        "task.validate-mvp-runner-contract"
-      ]
-    },
-    {
-      "path": "docs/sdlc/specs/2026-09-02-effect-runtime-integration.md",
-      "id": "spec.effect-runtime-integration",
-      "status": "superseded",
-      "relationships": [
-        "adr.effect-private-runtime-engine",
-        "spec.mastra-runtime-integration"
-      ],
-      "referencedBy": [
-        "spec.direct-runtime-code-review-action",
-        "spec.mastra-backed-seqlane-workflows",
-        "spec.mastra-runtime-and-operational-integration",
-        "task.effect-boundaries-and-documentation",
-        "task.effect-cancellation-and-failures",
-        "task.effect-compiled-plan-runner",
-        "task.effect-workflow-surface"
-      ]
-    },
-    {
-      "path": "docs/sdlc/specs/2026-09-02-executor-neutral-workflow-authoring.md",
-      "id": "spec.executor-neutral-workflow-authoring",
-      "status": "superseded",
-      "relationships": ["adr.executor-neutral-workflow-authoring"],
-      "referencedBy": [
-        "spec.local-mechanical-tasks",
-        "spec.mastra-backed-seqlane-workflows",
-        "task.direct-run-cleanup",
-        "task.make-core-tasks-and-plans-executor-neutral",
-        "task.migrate-generic-workflow-fixtures",
-        "task.replace-opencode-authoring-with-private-binding",
-        "task.resolve-executors-in-private-runner",
-        "task.update-docs-and-enforce-boundary-checks",
-        "task.use-generic-runtime-profile-in-cli"
-      ]
-    },
-    {
-      "path": "docs/sdlc/specs/2026-09-02-fluent-seqlane-flow-dsl.md",
-      "id": "spec.fluent-seqlane-flow-dsl",
-      "status": "superseded",
-      "relationships": ["adr.fluent-seqlane-flow-dsl"],
-      "referencedBy": [
-        "spec.mastra-backed-seqlane-workflows",
-        "task.add-repeat-plan-validation",
-        "task.define-flow-builder-contracts",
-        "task.emit-render-loop-events",
-        "task.execute-conditioned-repeats",
-        "task.lower-task-flows-to-plans",
-        "task.migrate-examples-documentation",
-        "task.release-unused-results"
-      ]
-    },
-    {
-      "path": "docs/sdlc/specs/2026-09-02-local-development-studio-trust-and-lifecycle.md",
-      "id": "spec.local-development-studio-trust-and-lifecycle",
-      "status": "superseded",
-      "relationships": ["adr.local-development-studio-trust-and-lifecycle"],
-      "referencedBy": [
-        "spec.mastra-runtime-and-operational-integration",
-        "task.remove-browser-bootstrap",
-        "task.replace-descriptor-forwarding",
-        "task.simplify-studio-service-access"
-      ]
-    },
-    {
-      "path": "docs/sdlc/specs/2026-09-02-local-read-only-execution-studio.md",
-      "id": "spec.local-read-only-execution-studio",
-      "status": "superseded",
-      "relationships": ["adr.local-read-only-execution-studio"],
-      "referencedBy": [
-        "spec.mastra-runtime-and-operational-integration",
-        "task.bootstrap-foreground-studio",
-        "task.build-read-only-studio-browser-view",
-        "task.build-studio-registry-and-sse",
-        "task.document-and-verify-studio-boundary",
-        "task.extend-runner-events-for-graph-and-values",
-        "task.forward-runner-events-from-cli"
-      ]
-    },
-    {
-      "path": "docs/sdlc/specs/2026-09-02-mastra-runtime-integration.md",
-      "id": "spec.mastra-runtime-integration",
-      "status": "superseded",
-      "relationships": ["adr.mastra-internal-workflow-engine"],
-      "referencedBy": [
-        "spec.effect-runtime-integration",
-        "task.bootstrap-core-runtime",
-        "task.execute-static-plans",
-        "task.lifecycle-events-outcomes",
-        "task.preserve-input-output",
-        "task.propagate-cancellation",
-        "task.renovate-runtime-contract",
-        "task.stop-failures-without-retries",
-        "task.validate-static-plans"
-      ]
-    },
-    {
-      "path": "docs/sdlc/specs/2026-09-02-opencode-executor-integration.md",
-      "id": "spec.opencode-executor-integration",
-      "status": "superseded",
-      "relationships": ["adr.opencode-executor-integration"],
-      "referencedBy": [
-        "spec.agent-adapter-boundary-and-capabilities",
-        "task.account-opencode-invocation-metrics",
-        "task.bootstrap-opencode-adapter",
-        "task.connect-external-opencode-session",
-        "task.define-typed-opencode-tasks",
-        "task.execute-structured-opencode-tasks",
-        "task.propagate-cancellation-reject-interaction",
-        "task.prove-renovate-opencode-contract",
-        "task.wire-opencode-execution-into-runner"
-      ]
-    },
-    {
-      "path": "docs/sdlc/specs/2026-09-02-semantic-validation-gates.md",
-      "id": "spec.semantic-validation-gates",
-      "status": "active",
-      "relationships": ["adr.semantic-validation-gates"],
-      "referencedBy": [
-        "task.authoring-validation-and-task-output",
-        "task.runtime-validation-execution",
-        "task.validated-repeat-postconditions",
-        "task.validation-contracts-plan-nodes",
-        "task.validation-fixtures-and-coverage",
-        "task.validation-output-and-studio",
-        "task.validation-runner-protocol"
-      ]
-    },
-    {
-      "path": "docs/sdlc/specs/2026-09-02-seqlane-execution-output-package.md",
-      "id": "spec.seqlane-execution-output-package",
-      "status": "superseded",
-      "relationships": ["adr.dedicated-seqlane-output-package"],
-      "referencedBy": [
-        "spec.run-machine-output",
-        "spec.run-terminal-rendering",
-        "task.bootstrap-output-package",
-        "task.ci-and-json-renderers",
-        "task.cli-integration-and-verification",
-        "task.extend-execution-events",
-        "task.human-tty-renderer",
-        "task.human-view-model"
-      ]
-    },
-    {
-      "path": "docs/sdlc/specs/2026-09-02-seqlane-plan-ir-typed-dataflow.md",
-      "id": "spec.seqlane-plan-ir-typed-dataflow",
-      "status": "superseded",
-      "relationships": ["adr.seqlane-plan-ir-and-typed-dataflow"],
-      "referencedBy": [
-        "spec.local-mechanical-tasks",
-        "spec.mastra-backed-seqlane-workflows",
-        "task.build-static-plans",
-        "task.load-authored-workflows",
-        "task.prove-renovate-typed-dataflow",
-        "task.public-authoring-contracts",
-        "task.typed-references-bindings"
-      ]
-    },
-    {
-      "path": "docs/sdlc/specs/2026-09-02-studio-vite-development-and-isolated-replay.md",
-      "id": "spec.studio-vite-development-and-isolated-replay",
-      "status": "superseded",
-      "relationships": ["adr.studio-vite-development-and-isolated-replay"],
-      "referencedBy": [
-        "spec.mastra-runtime-and-operational-integration",
-        "task.load-and-validate-replay-files",
-        "task.pause-and-resume-isolated-replay",
-        "task.self-contained-browser-bundle",
-        "task.verify-and-document-studio-workflows",
-        "task.vite-development-and-hmr"
-      ]
-    },
-    {
-      "path": "docs/sdlc/specs/2026-09-02-work-run-invocation-identity-model.md",
-      "id": "spec.work-run-invocation-identity-model",
-      "status": "active",
-      "relationships": ["adr.work-run-invocation-identity-model"],
-      "referencedBy": [
-        "spec.otel-aligned-observation-contract",
-        "task.identity-lifecycle-runner-contracts",
-        "task.plan-node-addresses",
-        "task.runner-cli-correlation",
-        "task.runtime-identity-allocation"
-      ]
-    },
-    {
-      "path": "docs/sdlc/specs/2026-09-03-local-mechanical-tasks.md",
-      "id": "spec.local-mechanical-tasks",
-      "status": "active",
-      "relationships": [
-        "adr.mastra-local-mechanical-tasks",
-        "spec.mastra-backed-seqlane-workflows",
-        "spec.executor-neutral-workflow-authoring",
-        "spec.mastra-runtime-and-operational-integration",
-        "spec.seqlane-plan-ir-typed-dataflow",
-        "spec.invocation-admission-and-workspace-coordination",
-        "spec.autonomous-non-interactive-execution"
-      ],
-      "referencedBy": [
-        "task.effect-local-task-execution",
-        "task.effect-v3-subprocess-gate",
-        "task.git-diff-summary-example",
-        "task.integration-documentation",
-        "task.local-task-contracts",
-        "task.local-task-plan-validation",
-        "task.mastra-deterministic-shell",
-        "task.mastra-local-task-dispatch"
-      ]
-    },
-    {
-      "path": "docs/sdlc/specs/2026-09-03-mastra-runtime-and-operational-integration.md",
-      "id": "spec.mastra-runtime-and-operational-integration",
-      "status": "active",
-      "relationships": [
-        "rfc.mastra-runtime-and-operational-foundation",
-        "adr.standalone-cli-runs",
-        "spec.effect-runtime-integration",
-        "spec.local-development-studio-trust-and-lifecycle",
-        "spec.local-read-only-execution-studio",
-        "spec.studio-vite-development-and-isolated-replay",
-        "spec.dedicated-runner-process"
-      ],
-      "referencedBy": [
-        "adr.mastra-local-mechanical-tasks",
-        "spec.local-mechanical-tasks",
-        "task.cli-run-status-and-cancel",
-        "task.direct-run-cleanup",
-        "task.investigate-mastra-mcp-runtime-reuse",
-        "task.mastra-agent-acp",
-        "task.mastra-architectural-cleanup",
-        "task.mastra-community-dependencies",
-        "task.mastra-community-studio",
-        "task.mastra-deterministic-shell",
-        "task.mastra-identity-events",
-        "task.mastra-local-task-dispatch",
-        "task.mastra-mcp-transports",
-        "task.mastra-migration-foundation",
-        "task.mastra-operational-end-to-end",
-        "task.mastra-operational-host",
-        "task.mastra-plan-compiler",
-        "task.mastra-runtime-spine",
-        "task.mastra-server-mcp",
-        "task.mastra-session-semantics",
-        "task.mastra-storage-tracing",
-        "task.mastra-studio-run-inspection",
-        "task.mastra-workspace-constraints",
-        "task.operational-data-bounds",
-        "task.operational-workflow-registration-boundary",
-        "task.remove-task-observability",
-        "task.workflow-discovery-and-plan-cli",
-        "task.workflow-discovery-bounds"
-      ]
-    },
-    {
-      "path": "docs/sdlc/specs/2026-09-04-agent-adapter-boundary-and-capabilities.md",
-      "id": "spec.agent-adapter-boundary-and-capabilities",
-      "status": "active",
-      "relationships": [
-        "adr.executor-neutral-workflow-authoring",
-        "adr.opencode-executor-integration",
-        "adr.session-checkpoint-reuse-and-branching",
-        "spec.opencode-executor-integration"
-      ],
-      "referencedBy": [
-        "spec.adapter-cli-flags",
-        "spec.codex-app-server-adapter",
-        "spec.otel-aligned-observation-contract",
-        "task.agent-adapter-integration-cleanup",
-        "task.agent-task-execution-deadline",
-        "task.decouple-runtime-adapter-composition",
-        "task.explicit-runtime-adapter-selection",
-        "task.opencode-sdk-only-adapter",
-        "task.protocol-agnostic-acp-adapter",
-        "task.session-checkpoint-fork-capabilities"
-      ]
-    },
-    {
-      "path": "docs/sdlc/specs/2026-09-07-acp-mastra-observability-projection.md",
-      "id": "spec.acp-mastra-observability-projection",
-      "status": "active",
-      "relationships": [
-        "adr.engine-opaque-agent-adapter-contracts",
-        "spec.mastra-native-agent-observability"
-      ],
-      "referencedBy": [
-        "task.correct-mastra-observability-tool-semantics",
-        "task.project-acp-v1-observations-into-mastra"
-      ]
-    },
-    {
-      "path": "docs/sdlc/specs/2026-09-07-mastra-native-agent-observability.md",
-      "id": "spec.mastra-native-agent-observability",
-      "status": "active",
-      "relationships": ["adr.engine-opaque-agent-adapter-contracts"],
-      "referencedBy": [
-        "spec.acp-mastra-observability-projection",
-        "spec.opencode-mastra-observability-projection",
-        "spec.otel-aligned-observation-contract",
-        "task.correct-mastra-observability-tool-semantics",
-        "task.propagate-mastra-observability-context"
-      ]
-    },
-    {
-      "path": "docs/sdlc/specs/2026-09-08-mastra-backed-seqlane-workflows.md",
-      "id": "spec.mastra-backed-seqlane-workflows",
-      "status": "active",
-      "relationships": [
-        "adr.mastra-backed-seqlane-workflows",
-        "adr.exclusive-flow-choice",
-        "adr.separate-seqlane-protocol-package",
-        "spec.effect-runtime-integration",
-        "spec.fluent-seqlane-flow-dsl",
-        "spec.executor-neutral-workflow-authoring",
-        "spec.seqlane-plan-ir-typed-dataflow",
-        "spec.consumer-agnostic-seqlane-execution-events"
-      ],
-      "referencedBy": [
-        "adr.separate-seqlane-protocol-package",
-        "spec.fluent-task-until-repeats",
-        "spec.local-mechanical-tasks",
-        "task.add-mastra-observability",
-        "task.add-mastra-plan-compiler",
-        "task.agent-task-execution-deadline",
-        "task.centralize-workflow-directories",
-        "task.compose-workflows-as-runnables",
-        "task.cut-over-to-mastra-runtime",
-        "task.deliver-exclusive-flow-choice",
-        "task.deliver-fluent-task-until-repeats",
-        "task.git-diff-summary-example",
-        "task.migrate-execution-event-consumers",
-        "task.nested-workflow-compilation-lifecycle",
-        "task.nested-workflow-workspace-admission",
-        "task.reject-nested-workflows-in-repeats",
-        "task.remove-effect-subprocess-runtime",
-        "task.remove-seqlane-events",
-        "task.session-fork-naming",
-        "task.unify-executable-task-contract",
-        "task.unify-flow-authoring-and-minimal-plan",
-        "task.unify-runnable-construction-and-input-preparation"
-      ]
-    },
-    {
-      "path": "docs/sdlc/specs/2026-09-08-opencode-mastra-observability-projection.md",
-      "id": "spec.opencode-mastra-observability-projection",
-      "status": "active",
-      "relationships": [
-        "adr.engine-opaque-agent-adapter-contracts",
-        "spec.mastra-native-agent-observability"
-      ],
-      "referencedBy": [
-        "spec.otel-aligned-observation-contract",
-        "task.code-review-skill-policy",
-        "task.correct-mastra-observability-tool-semantics",
-        "task.project-opencode-observations-into-mastra"
-      ]
-    },
-    {
-      "path": "docs/sdlc/specs/2026-09-12-codex-app-server-adapter.md",
-      "id": "spec.codex-app-server-adapter",
-      "status": "draft",
-      "relationships": [
-        "spec.agent-adapter-boundary-and-capabilities",
-        "spec.autonomous-non-interactive-execution",
-        "spec.session-checkpoint-reuse-and-branching",
-        "spec.model-selection-and-session-model-semantics"
-      ],
-      "referencedBy": [
-        "task.agent-task-execution-deadline",
-        "task.implement-codex-app-server-adapter",
-        "task.integrate-codex-runtime-adapter",
-        "task.prove-codex-app-server-protocol"
-      ]
-    },
-    {
-      "path": "docs/sdlc/specs/2026-09-14-fluent-task-until-repeats.md",
-      "id": "spec.fluent-task-until-repeats",
-      "status": "active",
-      "relationships": [
-        "prd.seqlane-on-mastra",
-        "spec.mastra-backed-seqlane-workflows"
-      ],
-      "referencedBy": ["task.deliver-fluent-task-until-repeats"]
-    },
-    {
-      "path": "docs/sdlc/specs/2026-09-15-run-machine-output.md",
-      "id": "spec.run-machine-output",
-      "status": "active",
-      "relationships": [
-        "prd.seqlane-on-mastra",
-        "rfc.execution-observability-and-debugging",
-        "adr.run-terminal-presentation-boundary",
-        "adr.standalone-cli-runs",
-        "spec.seqlane-execution-output-package"
-      ],
-      "referencedBy": [
-        "task.deliver-standalone-cli-runs",
-        "task.integrate-run-rendering-modes",
-        "task.separate-run-machine-output"
-      ]
-    },
-    {
-      "path": "docs/sdlc/specs/2026-09-15-run-terminal-rendering.md",
-      "id": "spec.run-terminal-rendering",
-      "status": "active",
-      "relationships": [
-        "prd.seqlane-on-mastra",
-        "rfc.execution-observability-and-debugging",
-        "adr.passive-run-output",
-        "spec.seqlane-execution-output-package"
-      ],
-      "referencedBy": [
-        "task.build-interactive-run-tui",
-        "task.deliver-standalone-cli-runs",
-        "task.integrate-run-rendering-modes",
-        "task.remove-task-observability",
-        "task.rename-output-package-to-tui"
-      ]
-    },
-    {
-      "path": "docs/sdlc/specs/2026-09-16-standalone-cli-runs.md",
-      "id": "spec.standalone-cli-runs",
-      "status": "active",
-      "relationships": [
-        "prd.seqlane-on-mastra",
-        "rfc.mastra-runtime-and-operational-foundation",
-        "adr.standalone-cli-runs"
-      ],
-      "referencedBy": [
-        "task.deliver-standalone-cli-runs",
-        "task.retire-plan-factory-workflow-loading",
-        "task.standalone-adapter-lifecycle",
-        "task.standalone-cli-cutover",
-        "task.standalone-cli-parity",
-        "task.standalone-run-execution",
-        "task.standalone-workflow-loading"
-      ]
-    },
-    {
-      "path": "docs/sdlc/specs/2026-09-19-otel-aligned-observation-contract.md",
-      "id": "spec.otel-aligned-observation-contract",
-      "status": "draft",
-      "relationships": [
-        "rfc.high-fidelity-local-observability",
-        "spec.agent-adapter-boundary-and-capabilities",
-        "spec.work-run-invocation-identity-model",
-        "spec.opencode-mastra-observability-projection",
-        "spec.mastra-native-agent-observability"
-      ],
-      "referencedBy": ["task.implement-otel-aligned-opencode-observations"]
-    },
-    {
-      "path": "docs/sdlc/specs/2026-09-23-classifier-tasks.md",
-      "id": "spec.classifier-tasks",
-      "status": "active",
-      "relationships": [
-        "prd.seqlane-on-mastra",
-        "rfc.mastra-runtime-and-operational-foundation",
-        "adr.classifier-task-runtime-boundary"
-      ],
-      "referencedBy": [
-        "task.classifier-dynamic-questions",
-        "task.classifier-example-and-documentation",
-        "task.classifier-reliability-and-observation",
-        "task.classifier-system-one-tracer",
-        "task.standalone-cli-parity"
-      ]
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-02-bootstrap-core-runtime.md",
-      "id": "task.bootstrap-core-runtime",
-      "status": "completed",
-      "relationships": ["spec.mastra-runtime-integration"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-02-bootstrap-output-package.md",
-      "id": "task.bootstrap-output-package",
-      "status": "completed",
-      "relationships": ["spec.seqlane-execution-output-package"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-02-boundary-verification-and-documentation.md",
-      "id": "task.boundary-verification-and-documentation",
-      "status": "completed",
-      "relationships": ["spec.consumer-agnostic-seqlane-execution-events"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-02-canonical-execution-events-package.md",
-      "id": "task.canonical-execution-events-package",
-      "status": "completed",
-      "relationships": ["spec.consumer-agnostic-seqlane-execution-events"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-02-cli-integration-and-verification.md",
-      "id": "task.cli-integration-and-verification",
-      "status": "completed",
-      "relationships": ["spec.seqlane-execution-output-package"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-02-cli-runner-boundary.md",
-      "id": "task.cli-runner-boundary",
-      "status": "completed",
-      "relationships": ["spec.dedicated-runner-process"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-02-connect-external-opencode-session.md",
-      "id": "task.connect-external-opencode-session",
-      "status": "completed",
-      "relationships": ["spec.opencode-executor-integration"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-02-define-non-interactive-failure-contract.md",
-      "id": "task.define-non-interactive-failure-contract",
-      "status": "completed",
-      "relationships": ["spec.autonomous-non-interactive-execution"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-02-document-and-verify-studio-boundary.md",
-      "id": "task.document-and-verify-studio-boundary",
-      "status": "completed",
-      "relationships": ["spec.local-read-only-execution-studio"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-02-effect-boundaries-and-documentation.md",
-      "id": "task.effect-boundaries-and-documentation",
-      "status": "completed",
-      "relationships": ["spec.effect-runtime-integration"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-02-effect-compiled-plan-runner.md",
-      "id": "task.effect-compiled-plan-runner",
-      "status": "completed",
-      "relationships": ["spec.effect-runtime-integration"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-02-effect-workflow-surface.md",
-      "id": "task.effect-workflow-surface",
-      "status": "completed",
-      "relationships": ["spec.effect-runtime-integration"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-02-execute-conditioned-repeats.md",
-      "id": "task.execute-conditioned-repeats",
-      "status": "completed",
-      "relationships": ["spec.fluent-seqlane-flow-dsl"],
-      "referencedBy": ["task.deliver-fluent-task-until-repeats"]
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-02-execute-project-events.md",
-      "id": "task.execute-project-events",
-      "status": "completed",
-      "relationships": ["spec.dedicated-runner-process"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-02-execute-static-plans.md",
-      "id": "task.execute-static-plans",
-      "status": "completed",
-      "relationships": ["spec.mastra-runtime-integration"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-02-execute-structured-opencode-tasks.md",
-      "id": "task.execute-structured-opencode-tasks",
-      "status": "completed",
-      "relationships": ["spec.opencode-executor-integration"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-02-forward-cancellation.md",
-      "id": "task.forward-cancellation",
-      "status": "completed",
-      "relationships": ["spec.dedicated-runner-process"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-02-identity-lifecycle-runner-contracts.md",
-      "id": "task.identity-lifecycle-runner-contracts",
-      "status": "completed",
-      "relationships": ["spec.work-run-invocation-identity-model"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-02-lifecycle-events-outcomes.md",
-      "id": "task.lifecycle-events-outcomes",
-      "status": "completed",
-      "relationships": ["spec.mastra-runtime-integration"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-02-load-authored-workflows.md",
-      "id": "task.load-authored-workflows",
-      "status": "completed",
-      "relationships": ["spec.seqlane-plan-ir-typed-dataflow"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-02-map-interaction-requirements-to-task-failure.md",
-      "id": "task.map-interaction-requirements-to-task-failure",
-      "status": "completed",
-      "relationships": ["spec.autonomous-non-interactive-execution"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-02-migrate-examples-documentation.md",
-      "id": "task.migrate-examples-documentation",
-      "status": "completed",
-      "relationships": ["spec.fluent-seqlane-flow-dsl"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-02-plan-node-addresses.md",
-      "id": "task.plan-node-addresses",
-      "status": "completed",
-      "relationships": ["spec.work-run-invocation-identity-model"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-02-preserve-input-output.md",
-      "id": "task.preserve-input-output",
-      "status": "completed",
-      "relationships": ["spec.mastra-runtime-integration"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-02-propagate-cancellation.md",
-      "id": "task.propagate-cancellation",
-      "status": "completed",
-      "relationships": ["spec.mastra-runtime-integration"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-02-prove-process-isolation.md",
-      "id": "task.prove-process-isolation",
-      "status": "completed",
-      "relationships": ["spec.dedicated-runner-process"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-02-public-authoring-contracts.md",
-      "id": "task.public-authoring-contracts",
-      "status": "completed",
-      "relationships": ["spec.seqlane-plan-ir-typed-dataflow"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-02-renovate-runtime-contract.md",
-      "id": "task.renovate-runtime-contract",
-      "status": "completed",
-      "relationships": ["spec.mastra-runtime-integration"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-02-resolve-executors-in-private-runner.md",
-      "id": "task.resolve-executors-in-private-runner",
-      "status": "completed",
-      "relationships": ["spec.executor-neutral-workflow-authoring"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-02-run-workflow-through-cli.md",
-      "id": "task.run-workflow-through-cli",
-      "status": "completed",
-      "relationships": ["spec.dedicated-runner-process"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-02-runner-protocol.md",
-      "id": "task.runner-protocol",
-      "status": "completed",
-      "relationships": ["spec.dedicated-runner-process"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-02-runtime-validation-execution.md",
-      "id": "task.runtime-validation-execution",
-      "status": "completed",
-      "relationships": ["spec.semantic-validation-gates"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-02-stop-failures-without-retries.md",
-      "id": "task.stop-failures-without-retries",
-      "status": "completed",
-      "relationships": ["spec.mastra-runtime-integration"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-02-update-docs-and-enforce-boundary-checks.md",
-      "id": "task.update-docs-and-enforce-boundary-checks",
-      "status": "completed",
-      "relationships": ["spec.executor-neutral-workflow-authoring"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-02-validate-mvp-runner-contract.md",
-      "id": "task.validate-mvp-runner-contract",
-      "status": "completed",
-      "relationships": ["spec.dedicated-runner-process"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-02-validate-static-plans.md",
-      "id": "task.validate-static-plans",
-      "status": "completed",
-      "relationships": ["spec.mastra-runtime-integration"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-02-validation-contracts-plan-nodes.md",
-      "id": "task.validation-contracts-plan-nodes",
-      "status": "completed",
-      "relationships": ["spec.semantic-validation-gates"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-03-mastra-agent-acp.md",
-      "id": "task.mastra-agent-acp",
-      "status": "completed",
-      "relationships": ["spec.mastra-runtime-and-operational-integration"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-03-mastra-architectural-cleanup.md",
-      "id": "task.mastra-architectural-cleanup",
-      "status": "completed",
-      "relationships": ["spec.mastra-runtime-and-operational-integration"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-03-mastra-community-dependencies.md",
-      "id": "task.mastra-community-dependencies",
-      "status": "completed",
-      "relationships": ["spec.mastra-runtime-and-operational-integration"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-03-mastra-community-studio.md",
-      "id": "task.mastra-community-studio",
-      "status": "completed",
-      "relationships": ["spec.mastra-runtime-and-operational-integration"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-03-mastra-deterministic-shell.md",
-      "id": "task.mastra-deterministic-shell",
-      "status": "completed",
-      "relationships": [
-        "spec.mastra-runtime-and-operational-integration",
-        "spec.local-mechanical-tasks"
-      ],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-03-mastra-identity-events.md",
-      "id": "task.mastra-identity-events",
-      "status": "completed",
-      "relationships": ["spec.mastra-runtime-and-operational-integration"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-03-mastra-migration-foundation.md",
-      "id": "task.mastra-migration-foundation",
-      "status": "completed",
-      "relationships": ["spec.mastra-runtime-and-operational-integration"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-03-mastra-plan-compiler.md",
-      "id": "task.mastra-plan-compiler",
-      "status": "completed",
-      "relationships": ["spec.mastra-runtime-and-operational-integration"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-03-mastra-runtime-spine.md",
-      "id": "task.mastra-runtime-spine",
-      "status": "completed",
-      "relationships": ["spec.mastra-runtime-and-operational-integration"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-03-mastra-server-mcp.md",
-      "id": "task.mastra-server-mcp",
-      "status": "completed",
-      "relationships": ["spec.mastra-runtime-and-operational-integration"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-03-mastra-session-semantics.md",
-      "id": "task.mastra-session-semantics",
-      "status": "completed",
-      "relationships": ["spec.mastra-runtime-and-operational-integration"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-03-mastra-storage-tracing.md",
-      "id": "task.mastra-storage-tracing",
-      "status": "completed",
-      "relationships": ["spec.mastra-runtime-and-operational-integration"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-03-mastra-workspace-constraints.md",
-      "id": "task.mastra-workspace-constraints",
-      "status": "completed",
-      "relationships": ["spec.mastra-runtime-and-operational-integration"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-04-agent-adapter-integration-cleanup.md",
-      "id": "task.agent-adapter-integration-cleanup",
-      "status": "completed",
-      "relationships": ["spec.agent-adapter-boundary-and-capabilities"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-04-cli-run-status-and-cancel.md",
-      "id": "task.cli-run-status-and-cancel",
-      "status": "completed",
-      "relationships": ["spec.mastra-runtime-and-operational-integration"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-04-mastra-local-task-dispatch.md",
-      "id": "task.mastra-local-task-dispatch",
-      "status": "completed",
-      "relationships": [
-        "spec.local-mechanical-tasks",
-        "spec.mastra-runtime-and-operational-integration",
-        "adr.mastra-local-mechanical-tasks"
-      ],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-04-mastra-mcp-transports.md",
-      "id": "task.mastra-mcp-transports",
-      "status": "completed",
-      "relationships": ["spec.mastra-runtime-and-operational-integration"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-04-mastra-operational-end-to-end.md",
-      "id": "task.mastra-operational-end-to-end",
-      "status": "planned",
-      "relationships": ["spec.mastra-runtime-and-operational-integration"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-04-mastra-operational-host.md",
-      "id": "task.mastra-operational-host",
-      "status": "completed",
-      "relationships": ["spec.mastra-runtime-and-operational-integration"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-04-mastra-studio-run-inspection.md",
-      "id": "task.mastra-studio-run-inspection",
-      "status": "completed",
-      "relationships": ["spec.mastra-runtime-and-operational-integration"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-04-opencode-sdk-only-adapter.md",
-      "id": "task.opencode-sdk-only-adapter",
-      "status": "completed",
-      "relationships": ["spec.agent-adapter-boundary-and-capabilities"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-04-protocol-agnostic-acp-adapter.md",
-      "id": "task.protocol-agnostic-acp-adapter",
-      "status": "completed",
-      "relationships": ["spec.agent-adapter-boundary-and-capabilities"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-04-session-checkpoint-fork-capabilities.md",
-      "id": "task.session-checkpoint-fork-capabilities",
-      "status": "completed",
-      "relationships": ["spec.agent-adapter-boundary-and-capabilities"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-04-workflow-discovery-and-plan-cli.md",
-      "id": "task.workflow-discovery-and-plan-cli",
-      "status": "completed",
-      "relationships": ["spec.mastra-runtime-and-operational-integration"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-05-investigate-mastra-mcp-runtime-reuse.md",
-      "id": "task.investigate-mastra-mcp-runtime-reuse",
-      "status": "planned",
-      "relationships": ["spec.mastra-runtime-and-operational-integration"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-05-operational-data-bounds.md",
-      "id": "task.operational-data-bounds",
-      "status": "planned",
-      "relationships": ["spec.mastra-runtime-and-operational-integration"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-05-workflow-discovery-bounds.md",
-      "id": "task.workflow-discovery-bounds",
-      "status": "planned",
-      "relationships": ["spec.mastra-runtime-and-operational-integration"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-06-operational-workflow-registration-boundary.md",
-      "id": "task.operational-workflow-registration-boundary",
-      "status": "planned",
-      "relationships": ["spec.mastra-runtime-and-operational-integration"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-08-add-mastra-observability.md",
-      "id": "task.add-mastra-observability",
-      "status": "in-progress",
-      "relationships": ["spec.mastra-backed-seqlane-workflows"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-08-add-mastra-plan-compiler.md",
-      "id": "task.add-mastra-plan-compiler",
-      "status": "completed",
-      "relationships": ["spec.mastra-backed-seqlane-workflows"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-08-compose-workflows-as-runnables.md",
-      "id": "task.compose-workflows-as-runnables",
-      "status": "completed",
-      "relationships": ["spec.mastra-backed-seqlane-workflows"],
-      "referencedBy": [
-        "task.nested-workflow-compilation-lifecycle",
-        "task.nested-workflow-workspace-admission",
-        "task.reject-nested-workflows-in-repeats"
-      ]
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-08-cut-over-to-mastra-runtime.md",
-      "id": "task.cut-over-to-mastra-runtime",
-      "status": "completed",
-      "relationships": ["spec.mastra-backed-seqlane-workflows"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-08-migrate-execution-event-consumers.md",
-      "id": "task.migrate-execution-event-consumers",
-      "status": "completed",
-      "relationships": ["spec.mastra-backed-seqlane-workflows"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-08-project-acp-v1-observations-into-mastra.md",
-      "id": "task.project-acp-v1-observations-into-mastra",
-      "status": "completed",
-      "relationships": [
-        "spec.acp-mastra-observability-projection",
-        "task.propagate-mastra-observability-context"
-      ],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-08-project-opencode-observations-into-mastra.md",
-      "id": "task.project-opencode-observations-into-mastra",
-      "status": "completed",
-      "relationships": [
-        "spec.opencode-mastra-observability-projection",
-        "task.propagate-mastra-observability-context"
-      ],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-08-propagate-mastra-observability-context.md",
-      "id": "task.propagate-mastra-observability-context",
-      "status": "completed",
-      "relationships": ["spec.mastra-native-agent-observability"],
-      "referencedBy": [
-        "task.project-acp-v1-observations-into-mastra",
-        "task.project-opencode-observations-into-mastra"
-      ]
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-08-remove-effect-subprocess-runtime.md",
-      "id": "task.remove-effect-subprocess-runtime",
-      "status": "completed",
-      "relationships": ["spec.mastra-backed-seqlane-workflows"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-08-remove-seqlane-events.md",
-      "id": "task.remove-seqlane-events",
-      "status": "completed",
-      "relationships": ["spec.mastra-backed-seqlane-workflows"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-08-unify-executable-task-contract.md",
-      "id": "task.unify-executable-task-contract",
-      "status": "completed",
-      "relationships": ["spec.mastra-backed-seqlane-workflows"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-08-unify-flow-authoring-and-minimal-plan.md",
-      "id": "task.unify-flow-authoring-and-minimal-plan",
-      "status": "completed",
-      "relationships": ["spec.mastra-backed-seqlane-workflows"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-09-correct-mastra-observability-tool-semantics.md",
-      "id": "task.correct-mastra-observability-tool-semantics",
-      "status": "completed",
-      "relationships": [
-        "spec.mastra-native-agent-observability",
-        "spec.opencode-mastra-observability-projection",
-        "spec.acp-mastra-observability-projection"
-      ],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-10-code-review-skill-policy.md",
-      "id": "task.code-review-skill-policy",
-      "status": "completed",
-      "relationships": [
-        "spec.direct-runtime-code-review-action",
-        "spec.opencode-mastra-observability-projection"
-      ],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-11-nested-workflow-compilation-lifecycle.md",
-      "id": "task.nested-workflow-compilation-lifecycle",
-      "status": "planned",
-      "relationships": [
-        "task.compose-workflows-as-runnables",
-        "spec.mastra-backed-seqlane-workflows"
-      ],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-11-nested-workflow-workspace-admission.md",
-      "id": "task.nested-workflow-workspace-admission",
-      "status": "planned",
-      "relationships": [
-        "task.compose-workflows-as-runnables",
-        "spec.mastra-backed-seqlane-workflows",
-        "spec.invocation-admission-and-workspace-coordination"
-      ],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-11-reject-nested-workflows-in-repeats.md",
-      "id": "task.reject-nested-workflows-in-repeats",
-      "status": "cancelled",
-      "relationships": [
-        "task.compose-workflows-as-runnables",
-        "spec.mastra-backed-seqlane-workflows"
-      ],
-      "referencedBy": ["task.deliver-fluent-task-until-repeats"]
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-12-integrate-codex-runtime-adapter.md",
-      "id": "task.integrate-codex-runtime-adapter",
-      "status": "completed",
-      "relationships": ["spec.codex-app-server-adapter"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-14-deliver-fluent-task-until-repeats.md",
-      "id": "task.deliver-fluent-task-until-repeats",
-      "status": "completed",
-      "relationships": [
-        "spec.fluent-task-until-repeats",
-        "spec.mastra-backed-seqlane-workflows",
-        "task.add-repeat-plan-validation",
-        "task.validated-repeat-postconditions",
-        "task.emit-render-loop-events",
-        "task.execute-conditioned-repeats",
-        "task.reject-nested-workflows-in-repeats"
-      ],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-16-centralize-workflow-directories.md",
-      "id": "task.centralize-workflow-directories",
-      "status": "completed",
-      "relationships": [
-        "spec.mastra-backed-seqlane-workflows",
-        "spec.direct-runtime-code-review-action",
-        "spec.seqlane-action-merge-conflict-resolution"
-      ],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-16-decouple-runtime-adapter-composition.md",
-      "id": "task.decouple-runtime-adapter-composition",
-      "status": "completed",
-      "relationships": [
-        "spec.agent-adapter-boundary-and-capabilities",
-        "adr.engine-opaque-agent-adapter-contracts",
-        "task.deliver-standalone-cli-runs"
-      ],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-16-deliver-standalone-cli-runs.md",
-      "id": "task.deliver-standalone-cli-runs",
-      "status": "in-progress",
-      "relationships": [
-        "spec.standalone-cli-runs",
-        "spec.run-machine-output",
-        "spec.run-terminal-rendering"
-      ],
-      "referencedBy": ["task.decouple-runtime-adapter-composition"]
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-16-standalone-adapter-lifecycle.md",
-      "id": "task.standalone-adapter-lifecycle",
-      "status": "completed",
-      "relationships": [
-        "spec.standalone-cli-runs",
-        "task.standalone-workflow-loading"
-      ],
-      "referencedBy": ["task.standalone-run-execution"]
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-16-standalone-run-execution.md",
-      "id": "task.standalone-run-execution",
-      "status": "completed",
-      "relationships": [
-        "spec.standalone-cli-runs",
-        "task.standalone-adapter-lifecycle"
-      ],
-      "referencedBy": ["task.standalone-cli-cutover"]
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-17-direct-run-cleanup.md",
-      "id": "task.direct-run-cleanup",
-      "status": "in-progress",
-      "relationships": [
-        "spec.mastra-runtime-and-operational-integration",
-        "spec.executor-neutral-workflow-authoring"
-      ],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-18-expand-public-documentation-navigation.md",
-      "id": "task.expand-public-documentation-navigation",
-      "status": "completed",
-      "relationships": ["prd.seqlane-on-mastra"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-18-public-documentation-site.md",
-      "id": "task.public-documentation-site",
-      "status": "completed",
-      "relationships": ["prd.seqlane-on-mastra"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-18-support-package-manager-installation.md",
-      "id": "task.support-package-manager-installation",
-      "status": "completed",
-      "relationships": ["prd.seqlane-on-mastra"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-19-implement-otel-aligned-opencode-observations.md",
-      "id": "task.implement-otel-aligned-opencode-observations",
-      "status": "in-progress",
-      "relationships": ["spec.otel-aligned-observation-contract"],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-20-git-diff-summary-example.md",
-      "id": "task.git-diff-summary-example",
-      "status": "completed",
-      "relationships": [
-        "spec.mastra-backed-seqlane-workflows",
-        "spec.local-mechanical-tasks"
-      ],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-22-agent-task-execution-deadline.md",
-      "id": "task.agent-task-execution-deadline",
-      "status": "in-progress",
-      "relationships": [
-        "spec.agent-adapter-boundary-and-capabilities",
-        "spec.mastra-backed-seqlane-workflows",
-        "spec.codex-app-server-adapter"
-      ],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-23-classifier-example-and-documentation.md",
-      "id": "task.classifier-example-and-documentation",
-      "status": "in-progress",
-      "relationships": [
-        "spec.classifier-tasks",
-        "task.classifier-reliability-and-observation"
-      ],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-23-classifier-reliability-and-observation.md",
-      "id": "task.classifier-reliability-and-observation",
-      "status": "completed",
-      "relationships": [
-        "spec.classifier-tasks",
-        "task.classifier-dynamic-questions"
-      ],
-      "referencedBy": ["task.classifier-example-and-documentation"]
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-23-classifier-system-one-tracer.md",
-      "id": "task.classifier-system-one-tracer",
-      "status": "completed",
-      "relationships": ["spec.classifier-tasks"],
-      "referencedBy": ["task.classifier-dynamic-questions"]
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-24-remove-task-observability.md",
-      "id": "task.remove-task-observability",
-      "status": "completed",
-      "relationships": [
-        "spec.mastra-runtime-and-operational-integration",
-        "spec.run-terminal-rendering"
-      ],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-09-26-deliver-exclusive-flow-choice.md",
-      "id": "task.deliver-exclusive-flow-choice",
-      "status": "completed",
-      "relationships": [
-        "spec.mastra-backed-seqlane-workflows",
-        "adr.exclusive-flow-choice"
-      ],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-10-05-session-fork-naming.md",
-      "id": "task.session-fork-naming",
-      "status": "in-progress",
-      "relationships": [
-        "spec.session-checkpoint-reuse-and-branching",
-        "spec.model-selection-and-session-model-semantics",
-        "spec.mastra-backed-seqlane-workflows"
-      ],
-      "referencedBy": []
-    },
-    {
-      "path": "docs/sdlc/tasks/2026-10-05-unify-runnable-construction-and-input-preparation.md",
-      "id": "task.unify-runnable-construction-and-input-preparation",
-      "status": "completed",
-      "relationships": ["spec.mastra-backed-seqlane-workflows"],
-      "referencedBy": []
+  },
+  "deltas": {
+    "trackedCodeFiles": 97,
+    "trackedCodeLines": 27369,
+    "trackedCodeBytes": 920117,
+    "lockPackageCount": -380,
+    "lockBytes": -146132,
+    "productionDependencyNodes": -463,
+    "actionRunnableJavaScriptBytes": {
+      "baseline": 32411171,
+      "final": 13683463,
+      "change": -18727708
     }
-  ],
-  "performanceBaseline": {
-    "runtime": "Node v24.16.0",
-    "packageManager": "pnpm10.33.0",
-    "workload": "compiled CLI runs one deterministic Node process that prints baseline; empty Zod input and shell result output",
-    "command": "node apps/cli/bin/run.js run <temporary-workflow.mjs> --workspace <checkout> --json",
-    "trials": [
+  },
+  "matchedPerformance": {
+    "baseline": {
+      "node": "v24.16.0",
+      "trials": [
+        {
+          "trial": 1,
+          "cliWallMs": 1685.4810830000001,
+          "stdoutBytes": 587
+        },
+        {
+          "trial": 2,
+          "cliWallMs": 1209.2607500000004,
+          "stdoutBytes": 587
+        },
+        {
+          "trial": 3,
+          "cliWallMs": 1208.449083,
+          "stdoutBytes": 586
+        }
+      ],
+      "limits": "Local sequential measurements; three trials. Peak RSS from Darwin time -l is not aggregate process-tree RSS. No model or remote exporter.",
+      "peakRssBytes": 305168384,
+      "graphTrials": [
+        {
+          "wallMs": 578.527083,
+          "peakActiveBodies": 24,
+          "events": 242
+        },
+        {
+          "wallMs": 207.00695799999994,
+          "peakActiveBodies": 24,
+          "events": 242
+        },
+        {
+          "wallMs": 202.859375,
+          "peakActiveBodies": 24,
+          "events": 242
+        }
+      ],
+      "readyTrials": [
+        {
+          "latencyMs": 110.67050000000017
+        },
+        {
+          "latencyMs": 111.33016700000007
+        },
+        {
+          "latencyMs": 112.22749999999996
+        }
+      ],
+      "serialization": {
+        "events": 1000,
+        "payloadBytes": 65536,
+        "encodedBytes": 65738000,
+        "wallMs": 142.29120799999964
+      },
+      "shutdownTrials": [
+        30.86633299999994, 30.978541999998924, 30.34808400000111
+      ],
+      "shutdownMs": 30.86633299999994,
+      "medians": {
+        "cliWallMs": 1209.2607500000004,
+        "graphWallMs": 207.00695799999994,
+        "readyLatencyMs": 111.33016700000007
+      }
+    },
+    "final": {
+      "node": "v24.16.0",
+      "trials": [
+        {
+          "trial": 1,
+          "cliWallMs": 831.5724169999999,
+          "stdoutBytes": 587
+        },
+        {
+          "trial": 2,
+          "cliWallMs": 791.2692910000001,
+          "stdoutBytes": 587
+        },
+        {
+          "trial": 3,
+          "cliWallMs": 767.5003750000001,
+          "stdoutBytes": 587
+        }
+      ],
+      "limits": "Local sequential measurements; three trials. Peak RSS from Darwin time -l is not aggregate process-tree RSS. No model or remote exporter.",
+      "peakRssBytes": 145276928,
+      "graphTrials": [
+        {
+          "wallMs": 32.06966700000021,
+          "peakActiveBodies": 8,
+          "events": 242
+        },
+        {
+          "wallMs": 23.373499999999694,
+          "peakActiveBodies": 8,
+          "events": 242
+        },
+        {
+          "wallMs": 25.74737499999992,
+          "peakActiveBodies": 8,
+          "events": 242
+        }
+      ],
+      "readyTrials": [
+        {
+          "latencyMs": 0.41116699999975026
+        },
+        {
+          "latencyMs": 0.4930420000000595
+        },
+        {
+          "latencyMs": 0.7013329999999769
+        }
+      ],
+      "serialization": {
+        "events": 1000,
+        "payloadBytes": 65536,
+        "encodedBytes": 65738000,
+        "wallMs": 147.1842499999998
+      },
+      "shutdownTrials": [
+        145.46679099999983, 133.2530829999996, 132.91525000000001
+      ],
+      "shutdownMs": 133.2530829999996,
+      "medians": {
+        "cliWallMs": 791.2692910000001,
+        "graphWallMs": 25.74737499999992,
+        "readyLatencyMs": 0.4930420000000595
+      }
+    }
+  },
+  "releaseDryRun": {
+    "version": "0.3.0",
+    "packages": [
+      "seqlane",
+      "@seqlane/core",
+      "@seqlane/tui",
+      "@seqlane/codex-adapter",
+      "@seqlane/runtime",
+      "@seqlane/agent-adapter",
+      "@seqlane/protocol",
+      "@seqlane/opencode-adapter"
+    ],
+    "results": [
       {
-        "trial": 1,
+        "check": "packages",
         "exit": 0,
-        "wallMs": 2133.04,
-        "stdoutBytes": 511,
-        "stderrBytes": 0
+        "seconds": 17.63
       },
       {
-        "trial": 2,
+        "check": "publish-dry-run",
         "exit": 0,
-        "wallMs": 2314.78,
-        "stdoutBytes": 511,
-        "stderrBytes": 0
-      },
-      {
-        "trial": 3,
-        "exit": 0,
-        "wallMs": 1544.91,
-        "stdoutBytes": 511,
-        "stderrBytes": 0
+        "seconds": 11.75
       }
     ],
-    "medianWallMs": 2133.04,
-    "measurementLimits": "Local three-run wall time, not a regression threshold; no model/adapter needed. Peak memory and concurrent graph throughput require later measurements."
+    "scope": "Isolated snapshot of current sources and clean outputs; no repository versions, tags, remote Git state, or registry data changed."
   },
-  "initialVerification": [
-    {
-      "check": "mapping",
-      "exit": 0,
-      "seconds": 0.79
+  "localVerification": {
+    "fullGate": [
+      {
+        "check": "install",
+        "exit": 0,
+        "seconds": 0.57
+      },
+      {
+        "check": "docs",
+        "exit": 0,
+        "seconds": 0.9
+      },
+      {
+        "check": "mapping",
+        "exit": 0,
+        "seconds": 0.7
+      },
+      {
+        "check": "typecheck",
+        "exit": 0,
+        "seconds": 21.73
+      },
+      {
+        "check": "test",
+        "exit": 0,
+        "seconds": 219.21
+      },
+      {
+        "check": "lint",
+        "exit": 0,
+        "seconds": 10.25
+      },
+      {
+        "check": "build",
+        "exit": 0,
+        "seconds": 14.44
+      },
+      {
+        "check": "format",
+        "exit": 0,
+        "seconds": 6.34
+      },
+      {
+        "check": "nx-sync",
+        "exit": 0,
+        "seconds": 1.24
+      },
+      {
+        "check": "diff",
+        "exit": 0,
+        "seconds": 0.08
+      }
+    ],
+    "documentationDocuments": 350,
+    "compiledCli": {
+      "files": 9,
+      "passed": 116,
+      "optionalLiveProviderSkipped": 1
     },
-    {
-      "check": "typecheck",
-      "exit": 2,
-      "seconds": 21.72
+    "installedPackages": 8,
+    "generatedFiles": 1365,
+    "auditedArchives": 8,
+    "workspacePackages": 23,
+    "retiredEvidence": 0,
+    "hostedCI": {
+      "implementationSourceCheckpoint": "4ae36416120bbe3e81405b06903b1f7a93681c21",
+      "run": "https://github.com/marcolink/seqlane/actions/runs/39751001939",
+      "quality": "success",
+      "hostedActions": "success",
+      "publish": "skipped",
+      "finalBranchHistory": "https://github.com/marcolink/seqlane/actions/workflows/ci.yml?query=branch%3Afeat%2Feffect-v4-migration",
+      "scope": "The checkpoint verifies executable code before documentation-only reconciliation. Final delivery is the reachable S12 task commit plus successful CI for its exact published head; the earlier checkpoint is not the final reachability identity."
     },
-    {
-      "check": "test",
-      "exit": 1,
-      "seconds": 52.94
-    },
-    {
-      "check": "lint",
-      "exit": 0,
-      "seconds": 14.75
-    },
-    {
-      "check": "build",
-      "exit": 0,
-      "seconds": 5.83
-    },
-    {
-      "check": "format",
-      "exit": 1,
-      "seconds": 5.08
-    },
-    {
-      "check": "nx-sync",
-      "exit": 1,
-      "seconds": 2.46
-    },
-    {
-      "check": "diff",
-      "exit": 0,
-      "seconds": 0.17
-    }
-  ],
-  "baselineRepairs": [
-    "Parse two test results with owning codeReviewReportSchema; preserve status checks",
-    "Add existing libs/opencode -> libs/protocol TypeScript project reference",
-    "Run process identity integration tests with ps access; no production behavior repair"
-  ],
-  "s0Verification": [
-    {
-      "check": "install",
-      "exit": 0,
-      "seconds": 0.55
-    },
-    {
-      "check": "docs",
-      "exit": 0,
-      "seconds": 1.09
-    },
-    {
-      "check": "mapping",
-      "exit": 0,
-      "seconds": 0.69
-    },
-    {
-      "check": "typecheck",
-      "exit": 0,
-      "seconds": 10.24
-    },
-    {
-      "check": "test",
-      "exit": 0,
-      "seconds": 47.85
-    },
-    {
-      "check": "lint",
-      "exit": 0,
-      "seconds": 1.48
-    },
-    {
-      "check": "build",
-      "exit": 0,
-      "seconds": 5.14
-    },
-    {
-      "check": "format",
-      "exit": 0,
-      "seconds": 5.8
-    },
-    {
-      "check": "nx-sync",
-      "exit": 0,
-      "seconds": 0.74
-    },
-    {
-      "check": "diff",
-      "exit": 0,
-      "seconds": 0.03
-    }
-  ]
+    "sourceFiles": 1281
+  },
+  "performanceInterpretation": {
+    "measurementScope": "Same workload definitions and Node24.16.0 on verified S0 snapshot7eb36b6 and migrated compiled code. Three CLI, graph, ready-node, and process shutdown trials; one serialization and RSS sample per build. No remote export or model call.",
+    "graph": "24 independent 5ms callbacks with shared workspace; baseline peak24 active bodies, target peak8. Both emit242 events. Separate 120ms/10ms graph proves ready dependent starts without a whole-level barrier.",
+    "shutdown": "Median30.87ms to133.25ms. Target adds acknowledged ownership handoff, native identity and process-group confirmation, and finite50ms termination polling. This explicit cleanup cost is retained; both versions prove the owned process is absent before measurement ends.",
+    "serialization": "1000 validated events carrying64KiB JSON; identical65738000 encoded bytes. Single samples142.29ms and147.18ms are diagnostic, not a regression threshold.",
+    "limits": "Local measurements, no throughput SLO or memory target. Darwin time -l peakRSS is not aggregate process-tree RSS. Tracked code counts include tests; code grew while dependencies and bundled JavaScript shrank."
+  },
+  "codeCountDefinition": "Recomputed from the original source commit and final tree using .ts, .tsx, .mts, .cts, .js, .mjs, .cjs. Includes tests, tooling, and declaration sources; excludes generated/ignored outputs."
 }

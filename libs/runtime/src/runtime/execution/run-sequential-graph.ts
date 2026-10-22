@@ -77,6 +77,14 @@ function executeStep(
       dependencyResults[index]?.status === "failed" ? [id] : [],
     );
     const completion = requiredCompletion(completionById, step.id);
+    if (abortSignal.aborted) {
+      step.onCancel?.();
+      yield* Deferred.succeed(completion, {
+        status: "failed",
+        error: cancellationReason(abortSignal),
+      });
+      return;
+    }
     if (failedDependencies.length > 0) {
       const firstFailure = dependencyResults.find(
         (result) => result.status === "failed",
@@ -92,14 +100,6 @@ function executeStep(
       return;
     }
 
-    if (abortSignal.aborted) {
-      step.onCancel?.();
-      yield* Deferred.succeed(completion, {
-        status: "failed",
-        error: cancellationReason(abortSignal),
-      });
-      return;
-    }
     const body = Effect.suspend(() => {
       if (abortSignal.aborted) {
         return Effect.try({

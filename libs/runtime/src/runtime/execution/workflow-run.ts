@@ -117,3 +117,36 @@ export function emitInvocationTopology(
     });
   }
 }
+
+/** Close created choice arms when their enclosing node cannot execute them. */
+export function settleUnstartedChoiceArms(
+  context: ExecutionContext,
+  node: PlanNode,
+  outcome: "skipped" | "cancelled",
+  dependencyIds: readonly InvocationId[] = [],
+): void {
+  if (node.type !== "choice") return;
+  for (const arm of [node.then, node.else]) {
+    const invocationId = invocationIdForNode(context, arm);
+    if (context.terminalInvocationIds.has(invocationId)) continue;
+    const identity = {
+      workId: context.workId,
+      runId: context.runId,
+      invocationId,
+    };
+    context.events.emit(
+      outcome === "cancelled"
+        ? {
+            type: "invocation.cancelled",
+            ...identity,
+            reason: "Choice cancelled before arm execution",
+          }
+        : {
+            type: "invocation.skipped",
+            ...identity,
+            reason: "Choice failed before arm execution",
+            dependencyIds,
+          },
+    );
+  }
+}

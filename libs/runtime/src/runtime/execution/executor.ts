@@ -8,8 +8,6 @@ import type {
 import type { AgentRuntimeModelCapabilities } from "@seqlane/agent-adapter";
 import type { SeqlaneObservation } from "@seqlane/protocol";
 
-type LegacyTaskNode = TaskNode & { readonly executor?: string };
-
 export interface SeqlaneExecutorActivity {
   readonly activityId: string;
   readonly kind: "tool" | "skill";
@@ -119,7 +117,7 @@ export interface ExecutorResolvers {
   readonly modelCapabilities?: ExecutorModelCapabilities;
 }
 
-/** Temporary internal union while callers migrate from executor-name maps. */
+/** Private callers can resolve task executors from a factory or registry. */
 export type ExecutorRegistry =
   ExecutorResolvers | ReadonlyMap<string, SeqlaneExecutor>;
 
@@ -141,15 +139,11 @@ export function getExecutor<Input, Output>(
     return registry.agent(task);
   }
 
-  const legacyExecutor = (node as LegacyTaskNode).executor;
   const executor =
-    (legacyExecutor && registry.get(legacyExecutor)) ??
     registry.get(node.taskId) ??
     (registry.size === 1 ? registry.values().next().value : undefined);
   if (!executor) {
-    throw new Error(
-      `No executor registered for "${legacyExecutor ?? node.taskId}"`,
-    );
+    throw new Error(`No executor registered for "${node.taskId}"`);
   }
   return executor;
 }
@@ -162,7 +156,7 @@ export interface ResolvedExecutorModelCapabilities {
 /** Resolves model capabilities without creating a session. */
 export function getExecutorModelCapabilities(
   registry: ExecutorRegistry,
-  node: Pick<TaskNode, "taskId"> & { readonly executor?: string },
+  node: Pick<TaskNode, "taskId">,
 ): ResolvedExecutorModelCapabilities | undefined {
   if (isExecutorResolvers(registry)) {
     if (registry.modelCapabilities !== undefined) {
@@ -174,13 +168,7 @@ export function getExecutorModelCapabilities(
     return undefined;
   }
 
-  const legacyExecutor = (node as LegacyTaskNode).executor;
-  const registeredLegacyExecutor =
-    legacyExecutor === undefined || legacyExecutor.length === 0
-      ? undefined
-      : registry.get(legacyExecutor);
   const executor =
-    registeredLegacyExecutor ??
     registry.get(node.taskId) ??
     (registry.size === 1 ? registry.values().next().value : undefined);
   if (executor === undefined) return undefined;

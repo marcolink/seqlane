@@ -5,13 +5,17 @@ status: completed
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-03
+updated: 2026-10-22
 upstream:
   - spec.work-run-invocation-identity-model
 supersedes: []
 ---
 
 # Establish core and runtime execution identity
+
+> Historical task record. Scope and outcomes describe work before the current migration.
+> Current execution authority: [Effect v4 execution and operations](../specs/2026-10-21-effect-v4-execution-and-operations.md).
+> Current-owner links record the later contract transfer. They do not establish historical Effect v4 use or current delivery.
 
 > Migrated from implementation story `TS-007-01`.
 
@@ -41,32 +45,36 @@ Wire identities are non-empty Seqlane-owned strings. Protocol guards must use ex
 
 ## Acceptance Criteria
 
-**Scenario:** *Lifecycle events carry the canonical hierarchy*
+**Scenario:** _Lifecycle events carry the canonical hierarchy_
+
 - **Given:** a Seqlane run or task invocation lifecycle transition
 - **When:** core represents the transition
 - **Then:** run events include `workId` and `runId`, while invocation events additionally include `invocationId`
 
-**Scenario:** *Runner IPC rejects incomplete correlation data*
+**Scenario:** _Runner IPC rejects incomplete correlation data_
+
 - **Given:** an encoded runner event missing, empty, unknown, or non-string identity data
 - **When:** the protocol decodes it
 - **Then:** it rejects the event before it reaches the runner client
 
-**Scenario:** *A client cannot select Work in the MVP*
+**Scenario:** _A client cannot select Work in the MVP_
+
 - **Given:** a `run.start` command with a Work selector or execution identity field
 - **When:** the protocol validates it
 - **Then:** it rejects the command
 
-**Scenario:** *Runtime allocation distinguishes static and concrete identity*
+**Scenario:** _Runtime allocation distinguishes static and concrete identity_
+
 - **Given:** a runner executes a static Plan containing repeated Task definitions
 - **When:** each Plan node executes
 - **Then:** every event shares one distinct Work/Run pair, each node has a distinct runtime Invocation ID, and bindings still use only Plan-node addresses
 
-## Source
+## Source and current owners
 
 - [rfc.seqlane-technical-architecture — Seqlane Technical Architecture](../rfcs/2026-09-02-seqlane-technical-architecture.md)
 - [adr.work-run-invocation-identity-model — Distinguish Work, Run, and Invocation Identity](../adrs/2026-09-02-work-run-invocation-identity-model.md)
 - [spec.work-run-invocation-identity-model — Work, Run, and Invocation Identity Model](../specs/2026-09-02-work-run-invocation-identity-model.md)
-- [spec.mastra-runtime-integration — Mastra Runtime Integration](../specs/2026-09-02-mastra-runtime-integration.md)
+- [spec.effect-v4-execution-and-operations: Effect v4 Execution and Operations](../specs/2026-10-21-effect-v4-execution-and-operations.md)
 - [spec.dedicated-runner-process — Dedicated Runner Process and CLI IPC](../specs/2026-09-02-dedicated-runner-process.md)
 
 ## Traceability

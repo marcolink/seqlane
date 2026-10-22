@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import { z } from "zod";
 import type { ChoiceNode, WorkflowNode } from "@seqlane/core";
 import type { ExecutionContext } from "./context.js";
 import { resolveBinding, planNodeResult } from "../plan/binding-resolution.js";
@@ -9,11 +10,12 @@ import { toSeqlaneDisplayValue } from "./display-value.js";
 import { completeValidatedTaskEffect } from "../invocation/deferred-task-completion.js";
 import { validateRunnableOutputEffect } from "../validation/output-validation-effect.js";
 import { terminalizeDynamicInvocation } from "../invocation/invocation-support.js";
-import { materializeDeferredSessionConsumer } from "../session/session-resolution.js";
 import { getTaskSchema } from "../plan/task-schema.js";
 import { prepareTaskInput } from "../invocation/invocation-execution.js";
-import { preflightSelectedChoiceSessionCapabilities } from "../session/session-preflight.js";
+import { prepareSelectedChoiceSession } from "../session/choice-session.js";
 import type { TaskNode } from "@seqlane/core";
+
+const choiceConditionSchema = z.boolean();
 
 export function executeChoiceNodeEffect(
   context: ExecutionContext,
@@ -25,13 +27,18 @@ export function executeChoiceNodeEffect(
 ): Effect.Effect<unknown, unknown> {
   return Effect.gen(function* () {
     const invocationId = invocationIdForNode(context, node);
-    const selected = resolveBinding(
-      node.condition,
-      context.workflowInput,
-      context.results,
-    )
-      ? node.then
-      : node.else;
+    const condition = yield* Effect.try({
+      try: () =>
+        choiceConditionSchema.parse(
+          resolveBinding(
+            node.condition,
+            context.workflowInput,
+            context.results,
+          ),
+        ),
+      catch: (cause) => cause,
+    });
+    const selected = condition ? node.then : node.else;
     context.events.emit({
       type: "invocation.started",
       workId: context.workId,
@@ -67,8 +74,6 @@ export function executeChoiceNodeEffect(
           taskId: selected.type === "task" ? selected.taskId : selected.nodeId,
         });
       }).pipe(Effect.andThen(Effect.fail(cause)));
-    const sessionPolicy =
-      selected.type === "task" ? selected.session : undefined;
     const selectedInput =
       selected.type === "task"
         ? yield* Effect.catch(
@@ -79,7 +84,6 @@ export function executeChoiceNodeEffect(
                   selected,
                   {
                     invocationId: selectedInvocationId,
-                    observability: {},
                     results: context.results,
                     remainingConsumers: context.remainingConsumers,
                     subject: { type: "task", taskId: selected.taskId },
@@ -104,56 +108,13 @@ export function executeChoiceNodeEffect(
         }),
         failSelected,
       );
-      const effectiveSelection = context.effectiveModelSelectionsByNode.get(
-        selected.nodeId,
-      );
-      if (effectiveSelection !== undefined) {
-        context.effectiveModelSelections.set(
+      yield* Effect.catch(
+        prepareSelectedChoiceSession(
+          context,
+          selected,
           selectedInvocationId,
-          effectiveSelection,
-        );
-      }
-    }
-    if (
-      selected.type === "task" &&
-      (sessionPolicy?.type === "reuse" || sessionPolicy?.type === "fork")
-    ) {
-      yield* Effect.catch(
-        Effect.try({
-          try: () =>
-            preflightSelectedChoiceSessionCapabilities(context, selected),
-          catch: (cause) => cause,
-        }),
-        failSelected,
-      );
-      yield* Effect.catch(
-        context.choiceSourceGate.waitEffect(sessionPolicy.from, abortSignal),
-        failSelected,
-      );
-      const consumer = context.sessionConsumers
-        .get(sessionPolicy.from)
-        ?.find((entry) => entry.invocationId === selectedInvocationId);
-      if (consumer === undefined) {
-        return yield* Effect.fail(
-          new Error(`No session consumer for choice arm "${selected.nodeId}"`),
-        );
-      }
-      yield* Effect.catch(
-        Effect.tryPromise({
-          try: () =>
-            materializeDeferredSessionConsumer({
-              sourceNodeId: sessionPolicy.from,
-              source: context.deferredSessionSources.get(sessionPolicy.from),
-              consumer: {
-                ...consumer,
-                effectiveSelection: context.effectiveModelSelectionsByNode.get(
-                  selected.nodeId,
-                ),
-              },
-              resolvedSessions: context.resolvedSessions,
-            }),
-          catch: (cause) => cause,
-        }),
+          abortSignal,
+        ),
         failSelected,
       );
     }
@@ -182,7 +143,6 @@ export function executeChoiceNodeEffect(
           abortSignal,
           {
             invocationId: selectedInvocationId,
-            observability: {},
             results: context.results,
             remainingConsumers: context.remainingConsumers,
             subject: { type: "task", taskId: selected.taskId },

@@ -1,6 +1,5 @@
 import type {
   InvocationId,
-  PlanNode,
   SeqlaneInvocationSubject,
   TaskNode,
   ValueBinding,
@@ -21,8 +20,6 @@ import type { JointAdmission } from "./joint-admission.js";
 import type { PreparedInvocationInput } from "./prepared-input.js";
 import type { Tracer } from "effect";
 
-export type LegacyTaskNode = PlanNode & { readonly executor?: string };
-
 export interface TaskExecutionOptions {
   readonly preparedInput?: PreparedInvocationInput;
   readonly invocationId: InvocationId;
@@ -31,8 +28,6 @@ export interface TaskExecutionOptions {
     readonly tracer: Tracer.Tracer;
     readonly parentSpan: Tracer.AnySpan;
   };
-  /** Legacy compiler metadata; concrete adapters receive no engine context. */
-  readonly observability?: unknown;
   readonly results: Map<string, unknown>;
   readonly remainingConsumers: Map<string, number>;
   readonly subject: SeqlaneInvocationSubject;
@@ -59,7 +54,6 @@ export type ValidationExecutionOptions = Pick<
   TaskExecutionOptions,
   | "preparedInput"
   | "invocationId"
-  | "observability"
   | "results"
   | "remainingConsumers"
   | "workspaceAdmission"

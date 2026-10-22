@@ -5,13 +5,17 @@ status: completed
 owners:
   - core
 created: 2026-09-04
-updated: 2026-09-07
+updated: 2026-10-22
 upstream:
   - spec.agent-adapter-boundary-and-capabilities
 supersedes: []
 ---
 
 # Map Session, Checkpoint, and Fork Capabilities
+
+> Historical task record. Scope and outcomes describe work before the current migration.
+> Current execution authority: [Effect v4 execution and operations](../specs/2026-10-21-effect-v4-execution-and-operations.md).
+> Current-owner links record the later contract transfer. They do not establish historical Effect v4 use or current delivery.
 
 ## Objective
 
@@ -98,8 +102,7 @@ Post-review repairs make OpenCode session UI capability detection depend on
 the prepared endpoint. They validate adapter operations and capabilities for
 new and forked sessions. Capability admission now occurs before model work.
 
-Follow-up repairs preserve the actual Seqlane run ID and Mastra request context
-through profile resolution. Adapter instances are now created and validated
+Follow-up repairs preserved the actual Seqlane run ID through profile resolution. Adapter instances are now created and validated
 only for the session that uses them, and capability admission has one
 orchestration owner per execution entry point.
 

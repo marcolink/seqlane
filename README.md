@@ -344,6 +344,12 @@ options.
 
 ## Verify distribution changes
 
+Use Node.js 24 or later. Before building, run the runtime audit:
+
+```sh
+pnpm verify:runtime
+```
+
 After a build, run `pnpm verify:installed` to pack all eight release packages.
 The check installs those tarballs outside this checkout and verifies declarations,
 direct execution, and the production Oclif commands. Private test helpers and
@@ -357,6 +363,20 @@ isolated Git and HTTP fixtures. Ripwire uses its pinned public release.
 CI also invokes the local Actions with `uses:` on a hosted runner. Fixtures
 exercise service handoff, a stale review, and clean Git integration without
 model prompts or publication writes. The runner then invokes each service post.
+
+For the complete distribution gate, build and materialize the verified artifacts:
+
+```sh
+pnpm build
+pnpm verify:installed
+pnpm verify:actions
+pnpm verify:runtime --distributions
+```
+
+The audit requires zero retired-runtime evidence in tracked filenames, contents,
+production dependencies, and rebuilt distributions. Documentation and tests have
+no exceptions. The distribution gate requires all eight package archives and
+all six Actions' entrypoint assets.
 
 ## License
 

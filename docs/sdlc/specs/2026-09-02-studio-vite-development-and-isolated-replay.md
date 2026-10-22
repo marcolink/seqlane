@@ -5,7 +5,7 @@ status: superseded
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-04
+updated: 2026-10-22
 upstream:
   - adr.studio-vite-development-and-isolated-replay
 supersedes: []
@@ -13,7 +13,7 @@ supersedes: []
 
 # Studio Vite Development and Isolated Replay
 
-> Superseded by [spec.mastra-runtime-and-operational-integration](./2026-09-03-mastra-runtime-and-operational-integration.md).
+> Superseded by [spec.effect-v4-execution-and-operations](./2026-10-21-effect-v4-execution-and-operations.md).
 
 > Migrated from legacy technical specification `TS-017`.
 
@@ -230,7 +230,7 @@ render the replay projection without replay-specific duplicate components.
 
 - Browser code can import only browser-safe package exports.
 - Browser code must not import CLI recording or Node filesystem modules.
-- `seqlane-core` and serialized Plans remain free of Mastra and executors.
+- `seqlane-core` and serialized Plans remain free of runtime-engine and executors.
 - `seqlane-studio` remains the owner of browser-facing Studio types.
 - The canonical event decoder remains in `@seqlane/events`.
 - No relative source or `dist` import crosses a package boundary.

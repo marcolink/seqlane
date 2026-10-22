@@ -8,6 +8,7 @@ import {
 } from "@seqlane/protocol/private/owned-process";
 import {
   captureOwnedProcessIdentity,
+  confirmOwnedProcessGroupStopped,
   confirmOwnedProcessStopped,
   terminateOwnedProcess,
 } from "../private/owned-process/index.js";
@@ -47,7 +48,17 @@ export class OwnedProcessRegistry {
   }
 
   private async registerOwnedProcess(pid: number): Promise<void> {
-    const identity = await captureOwnedProcessIdentity(pid);
+    let identity: OwnedProcessIdentity;
+    try {
+      identity = await captureOwnedProcessIdentity(pid);
+    } catch (cause) {
+      // A short-lived child can exit after acquisition but before this handoff.
+      if (!(await confirmOwnedProcessGroupStopped(pid))) throw cause;
+      if (this.disconnectController.signal.aborted) {
+        throw this.disconnectController.signal.reason;
+      }
+      return;
+    }
     const frame: OwnedProcessFrame = {
       type: "runner.owned-process",
       action: "register",

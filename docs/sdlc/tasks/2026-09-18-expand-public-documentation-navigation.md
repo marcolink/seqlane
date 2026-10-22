@@ -5,13 +5,17 @@ status: completed
 owners:
   - core
 created: 2026-09-18
-updated: 2026-09-18
+updated: 2026-10-22
 upstream:
-  - prd.seqlane-on-mastra
+  - prd.seqlane-runtime
 supersedes: []
 ---
 
 # Expand Public Documentation Navigation
+
+> Historical task record. Scope and outcomes describe work before the current migration.
+> Current execution authority: [Effect v4 execution and operations](../specs/2026-10-21-effect-v4-execution-and-operations.md).
+> Current-owner links record the later contract transfer. They do not establish historical Effect v4 use or current delivery.
 
 ## Objective
 
@@ -22,7 +26,7 @@ internal SDLC content or unshipped claims.
 ## Upstream requirements
 
 Use the current workflow and runtime behavior defined in
-[prd.seqlane-on-mastra](../prd/2026-09-03-seqlane-on-mastra.md). This task
+[prd.seqlane-runtime](../prd/2026-10-21-seqlane-runtime.md). This task
 adds presentation and navigation only. It does not change product behavior.
 
 ## Scope
@@ -101,7 +105,7 @@ Checks passed:
 - `pnpm exec prettier --check` for format-supported changed files
 - `pnpm test:mapping`
 
-## Delivery state
+## Historical delivery state
 
 Implemented in the current worktree. The change is uncommitted and is not
 reachable from the target branch, so it does not establish public-site
@@ -109,6 +113,6 @@ delivery.
 
 ## Traceability
 
-- [prd.seqlane-on-mastra: Seqlane on Mastra](../prd/2026-09-03-seqlane-on-mastra.md)
+- [prd.seqlane-runtime: Seqlane Runtime Product Requirements](../prd/2026-10-21-seqlane-runtime.md)
 - [task.public-documentation-site: Publish a Minimal Public Documentation Site](./2026-09-18-public-documentation-site.md)
 - [SDLC documentation system](../specs/2026-09-03-sdlc-documentation-system.md)

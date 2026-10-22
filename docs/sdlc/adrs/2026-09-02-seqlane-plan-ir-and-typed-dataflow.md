@@ -5,13 +5,16 @@ status: superseded
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-08
+updated: 2026-10-22
 upstream:
   - rfc.seqlane-technical-architecture
 supersedes: []
 ---
 
 # Use a Seqlane-Owned Plan IR with Typed Dataflow
+
+> Superseded by [the current runtime architecture](../rfcs/2026-10-21-effect-v4-migration.md).
+> Typed Plan ownership is retained by the current workflow specification.
 
 ## Context
 
@@ -21,7 +24,7 @@ A workflow author should be able to wire one task's output into another task's i
 
 Seqlane also needs a representation that can later support structured branching, loops, parallel policies, observability, and deterministic inspection.
 
-Using Mastra workflow objects directly as Seqlane's canonical representation would couple the public programming model to an implementation dependency and make Seqlane semantics dependent on Mastra's API and state model.
+Using runtime-library objects as the canonical workflow would couple the public programming model to an implementation API and state model.
 
 ## Decision
 
@@ -79,9 +82,9 @@ Seqlane Plan IR
        ↓
 Seqlane validation
        ↓
-Seqlane → Mastra compiler
+Private Plan execution boundary
        ↓
-Mastra execution
+Seqlane execution
 ```
 
 ## Plan Ownership
@@ -90,7 +93,7 @@ The Plan contains Seqlane concepts only.
 
 It must not contain:
 
-- Mastra workflow or step objects;
+- runtime-library workflow or step objects;
 - OpenCode SDK objects;
 - runtime callbacks;
 - raw executor state;
@@ -139,7 +142,7 @@ Runtime schema validation remains mandatory for external values.
 
 ### Positive
 
-- Workflow structure is independent of Mastra.
+- Workflow structure is independent of runtime engines.
 - Dependencies are derived from the data authors actually wire.
 - The Plan can be serialized, inspected, tested, and observed.
 - Parallelism can later be inferred from graph independence.
@@ -153,11 +156,11 @@ Runtime schema validation remains mandatory for external values.
 - `ValueRef<T>` and recursive input binding types are non-trivial.
 - Nested property references likely require a Proxy or equivalent mechanism.
 - Structured control-flow types require careful graph-aware inference.
-- A compiler layer must translate Seqlane semantics into Mastra semantics.
+- The private runtime must interpret Seqlane Plan semantics.
 
 ## Alternatives Considered
 
-### Mastra workflow objects as the canonical workflow
+### Runtime-library objects as the canonical workflow
 
 Reduces compiler work but exposes implementation semantics and prevents Seqlane from owning a stable public model.
 
@@ -179,7 +182,7 @@ Convenient for cross-step access, but hides semantic dependencies and weakens gr
 - Plan-building callbacks may construct structured nodes but may not become arbitrary runtime callbacks.
 - External values are typed only after Seqlane runtime validation.
 - The MVP may execute an independent DAG serially, but the Plan retains the true dependency graph.
-- Seqlane's Plan remains the source of workflow semantics even when Mastra executes it.
+- Seqlane's Plan remains the source of workflow semantics through every private runtime implementation.
 
 ## Decision Test
 
@@ -187,5 +190,8 @@ Reconsider this ADR if the required type system cannot remain ergonomic, seriali
 
 ## Traceability
 
+- [Replacement runtime architecture](../rfcs/2026-10-21-effect-v4-migration.md)
+- [Current workflow semantics](../specs/2026-10-22-workflow-execution-semantics.md)
+
 - [rfc.seqlane-technical-architecture: Seqlane Technical Architecture](../rfcs/2026-09-02-seqlane-technical-architecture.md)
-- [adr.mastra-backed-seqlane-workflows: Center Seqlane Workflows on a Mastra-Backed Executable DSL](./2026-09-08-mastra-backed-seqlane-workflows.md)
+- [rfc.effect-v4-migration: Full Effect v4 Migration](../rfcs/2026-10-21-effect-v4-migration.md)

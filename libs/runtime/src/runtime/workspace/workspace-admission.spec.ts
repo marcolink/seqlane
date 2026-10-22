@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 // @test-scope ../execution/context.ts
 // @test-scope ../session/child-session.ts
 // @test-scope ../execution/executor.ts
@@ -118,9 +119,8 @@ describe("workspace admission", () => {
       taskDefinitions: new Map([["writer", writeTaskDefinition("writer")]]),
       workspaceResources: new Map([["writer", workspace]]),
     });
-    const externalLease = await context.workspaceLocks.acquire(
-      workspace,
-      "exclusive",
+    const externalLease = await Effect.runPromise(
+      context.workspaceLocks.acquireEffect(workspace, "exclusive"),
     );
 
     const execution = executeTaskNode(
@@ -129,7 +129,6 @@ describe("workspace admission", () => {
       new AbortController().signal,
       {
         invocationId: "writer",
-        observability: {},
         results: context.results,
         remainingConsumers: context.remainingConsumers,
         subject: { type: "task", taskId: "writer" },
@@ -173,7 +172,6 @@ describe("workspace admission", () => {
       new AbortController().signal,
       {
         invocationId: "write",
-        observability: {},
         results: context.results,
         remainingConsumers: context.remainingConsumers,
         subject: { type: "task", taskId: "write" },
@@ -234,7 +232,6 @@ describe("workspace admission", () => {
       new AbortController().signal,
       {
         invocationId: "first",
-        observability: {},
         results: context.results,
         remainingConsumers: context.remainingConsumers,
         subject: { type: "task", taskId: "first" },
@@ -247,7 +244,6 @@ describe("workspace admission", () => {
       new AbortController().signal,
       {
         invocationId: "second",
-        observability: {},
         results: context.results,
         remainingConsumers: context.remainingConsumers,
         subject: { type: "task", taskId: "second" },
@@ -255,9 +251,8 @@ describe("workspace admission", () => {
     );
     await secondStarted.promise;
 
-    const waitingWriter = context.workspaceLocks.acquire(
-      workspace,
-      "exclusive",
+    const waitingWriter = Effect.runPromise(
+      context.workspaceLocks.acquireEffect(workspace, "exclusive"),
     );
     await expectPending(waitingWriter);
 
@@ -327,7 +322,6 @@ describe("workspace admission", () => {
 
     const first = executeTaskNode(context, writeTask("first"), abortSignal, {
       invocationId: "first",
-      observability: {},
       results: context.results,
       remainingConsumers: context.remainingConsumers,
       subject: { type: "task", taskId: "first" },
@@ -336,7 +330,6 @@ describe("workspace admission", () => {
 
     const second = executeTaskNode(context, writeTask("second"), abortSignal, {
       invocationId: "second",
-      observability: {},
       results: context.results,
       remainingConsumers: context.remainingConsumers,
       subject: { type: "task", taskId: "second" },
@@ -404,7 +397,6 @@ describe("workspace admission", () => {
 
     const writer = executeTaskNode(context, writeTask("writer"), signal, {
       invocationId: "writer",
-      observability: {},
       results: context.results,
       remainingConsumers: context.remainingConsumers,
       subject: { type: "task", taskId: "writer" },
@@ -412,7 +404,6 @@ describe("workspace admission", () => {
     await writerStarted.promise;
     const reader = executeTaskNode(context, readTask("reader"), signal, {
       invocationId: "reader",
-      observability: {},
       results: context.results,
       remainingConsumers: context.remainingConsumers,
       subject: { type: "task", taskId: "reader" },
@@ -479,7 +470,6 @@ describe("workspace admission", () => {
     const signal = new AbortController().signal;
     const writer = executeTaskNode(context, writeTask("writer"), signal, {
       invocationId: "writer",
-      observability: {},
       results: context.results,
       remainingConsumers: context.remainingConsumers,
       subject: { type: "task", taskId: "writer" },
@@ -488,7 +478,6 @@ describe("workspace admission", () => {
     await writerStarted.promise;
     const reader = executeTaskNode(context, readTask("reader"), signal, {
       invocationId: "reader",
-      observability: {},
       results: context.results,
       remainingConsumers: context.remainingConsumers,
       subject: { type: "task", taskId: "reader" },
@@ -542,7 +531,6 @@ describe("workspace admission", () => {
       new AbortController().signal,
       {
         invocationId: "failing-writer",
-        observability: {},
         results: context.results,
         remainingConsumers: context.remainingConsumers,
         subject: { type: "task", taskId: "failing-writer" },
@@ -556,7 +544,6 @@ describe("workspace admission", () => {
       new AbortController().signal,
       {
         invocationId: "next-writer",
-        observability: {},
         results: context.results,
         remainingConsumers: context.remainingConsumers,
         subject: { type: "task", taskId: "next-writer" },
@@ -611,7 +598,6 @@ describe("workspace admission", () => {
         new AbortController().signal,
         {
           invocationId: "writer",
-          observability: {},
           results: context.results,
           remainingConsumers: context.remainingConsumers,
           subject: { type: "task", taskId: "writer" },
@@ -625,7 +611,9 @@ describe("workspace admission", () => {
     });
 
     await expect(
-      context.workspaceLocks.acquire(workspace, "exclusive"),
+      Effect.runPromise(
+        context.workspaceLocks.acquireEffect(workspace, "exclusive"),
+      ),
     ).rejects.toMatchObject({
       name: "QuarantinedWorkspaceError",
       cause: expect.any(UnconfirmedInvocationTerminationError),
@@ -660,7 +648,6 @@ describe("workspace admission", () => {
         new AbortController().signal,
         {
           invocationId: "writer",
-          observability: {},
           results: context.results,
           remainingConsumers: context.remainingConsumers,
           subject: { type: "task", taskId: "writer" },
@@ -706,7 +693,6 @@ describe("workspace admission", () => {
     const signal = new AbortController().signal;
     const writer = executeTaskNode(context, writeTask("writer"), signal, {
       invocationId: "writer",
-      observability: {},
       results: context.results,
       remainingConsumers: context.remainingConsumers,
       subject: { type: "task", taskId: "writer" },
@@ -719,7 +705,6 @@ describe("workspace admission", () => {
       signal,
       {
         invocationId: "next-writer",
-        observability: {},
         results: context.results,
         remainingConsumers: context.remainingConsumers,
         subject: { type: "task", taskId: "next-writer" },
@@ -773,7 +758,6 @@ describe("workspace admission", () => {
       new AbortController().signal,
       {
         invocationId: "failing-writer",
-        observability: {},
         results: context.results,
         remainingConsumers: context.remainingConsumers,
         subject: { type: "task", taskId: "failing-writer" },
@@ -787,7 +771,6 @@ describe("workspace admission", () => {
       new AbortController().signal,
       {
         invocationId: "reader",
-        observability: {},
         results: context.results,
         remainingConsumers: context.remainingConsumers,
         subject: { type: "task", taskId: "reader" },
@@ -821,9 +804,8 @@ describe("workspace admission", () => {
       taskDefinitions: new Map([["writer", writeTaskDefinition("writer")]]),
       workspaceResources: new Map([["writer", workspace]]),
     });
-    const readerLease = await context.workspaceLocks.acquire(
-      workspace,
-      "shared",
+    const readerLease = await Effect.runPromise(
+      context.workspaceLocks.acquireEffect(workspace, "shared"),
     );
 
     const writer = executeTaskNode(
@@ -832,7 +814,6 @@ describe("workspace admission", () => {
       new AbortController().signal,
       {
         invocationId: "writer",
-        observability: {},
         results: context.results,
         remainingConsumers: context.remainingConsumers,
         subject: { type: "task", taskId: "writer" },
@@ -884,9 +865,8 @@ describe("workspace admission", () => {
       "writer",
       "writer",
     );
-    const readerLease = await context.workspaceLocks.acquire(
-      workspace,
-      "shared",
+    const readerLease = await Effect.runPromise(
+      context.workspaceLocks.acquireEffect(workspace, "shared"),
     );
 
     const writer = executeTaskNode(
@@ -895,7 +875,6 @@ describe("workspace admission", () => {
       new AbortController().signal,
       {
         invocationId: "writer",
-        observability: {},
         results: context.results,
         remainingConsumers: context.remainingConsumers,
         subject: { type: "task", taskId: "writer" },
@@ -937,12 +916,14 @@ describe("workspace admission", () => {
       workspaceResources: new Map([["writer", workspace]]),
       events: { emit: (event) => events.push(event) },
     });
-    const readerLease = await context.workspaceLocks.acquire(
-      workspace,
-      "shared",
-      undefined,
-      0,
-      "reader",
+    const readerLease = await Effect.runPromise(
+      context.workspaceLocks.acquireEffect(
+        workspace,
+        "shared",
+        undefined,
+        0,
+        "reader",
+      ),
     );
     const writer = executeTaskNode(
       context,
@@ -950,7 +931,6 @@ describe("workspace admission", () => {
       new AbortController().signal,
       {
         invocationId: "writer",
-        observability: {},
         results: context.results,
         remainingConsumers: context.remainingConsumers,
         subject: { type: "task", taskId: "writer" },
@@ -985,12 +965,14 @@ describe("workspace admission", () => {
       taskDefinitions: new Map([["local", localWriteTaskDefinition("local")]]),
       workspaceResources: new Map([["local", workspace]]),
     });
-    const holder = await context.workspaceLocks.acquire(
-      workspace,
-      "exclusive",
-      undefined,
-      0,
-      "holder",
+    const holder = await Effect.runPromise(
+      context.workspaceLocks.acquireEffect(
+        workspace,
+        "exclusive",
+        undefined,
+        0,
+        "holder",
+      ),
     );
     const controller = new AbortController();
     const cancelled = executeTaskNode(
@@ -999,7 +981,6 @@ describe("workspace admission", () => {
       controller.signal,
       {
         invocationId: "cancelled",
-        observability: {},
         results: context.results,
         remainingConsumers: context.remainingConsumers,
         subject: { type: "task", taskId: "local" },
@@ -1017,7 +998,6 @@ describe("workspace admission", () => {
       new AbortController().signal,
       {
         invocationId: "replacement",
-        observability: {},
         results: context.results,
         remainingConsumers: context.remainingConsumers,
         subject: { type: "task", taskId: "local" },
@@ -1070,15 +1050,13 @@ describe("workspace admission", () => {
       "independent",
       "independent",
     );
-    const readerLease = await context.workspaceLocks.acquire(
-      workspace,
-      "shared",
+    const readerLease = await Effect.runPromise(
+      context.workspaceLocks.acquireEffect(workspace, "shared"),
     );
     const signal = new AbortController().signal;
 
     const writer = executeTaskNode(context, writeTask("writer"), signal, {
       invocationId: "writer",
-      observability: {},
       results: context.results,
       remainingConsumers: context.remainingConsumers,
       subject: { type: "task", taskId: "writer" },
@@ -1091,7 +1069,6 @@ describe("workspace admission", () => {
       signal,
       {
         invocationId: "independent",
-        observability: {},
         results: context.results,
         remainingConsumers: context.remainingConsumers,
         subject: { type: "task", taskId: "independent" },
@@ -1142,7 +1119,6 @@ describe("workspace admission", () => {
 
     const first = executeTaskNode(context, writeTask("first"), signal, {
       invocationId: "first",
-      observability: {},
       results: context.results,
       remainingConsumers: context.remainingConsumers,
       subject: { type: "task", taskId: "first" },
@@ -1151,7 +1127,6 @@ describe("workspace admission", () => {
 
     const second = executeTaskNode(context, writeTask("second"), signal, {
       invocationId: "second",
-      observability: {},
       results: context.results,
       remainingConsumers: context.remainingConsumers,
       subject: { type: "task", taskId: "second" },
@@ -1191,7 +1166,6 @@ describe("workspace admission", () => {
         new AbortController().signal,
         {
           invocationId: "writer",
-          observability: {},
           results: context.results,
           remainingConsumers: context.remainingConsumers,
           subject: { type: "task", taskId: "writer" },
@@ -1228,7 +1202,6 @@ describe("workspace admission", () => {
       new AbortController().signal,
       {
         invocationId: "writer",
-        observability: {},
         results: context.results,
         remainingConsumers: context.remainingConsumers,
         subject: { type: "task", taskId: "writer" },
@@ -1282,7 +1255,6 @@ describe("workspace admission", () => {
       new AbortController().signal,
       {
         invocationId: "writer",
-        observability: {},
         results: context.results,
         remainingConsumers: context.remainingConsumers,
         subject: { type: "task", taskId: "writer" },
@@ -1296,7 +1268,6 @@ describe("workspace admission", () => {
       new AbortController().signal,
       {
         invocationId: "reader",
-        observability: {},
         results: context.results,
         remainingConsumers: context.remainingConsumers,
         subject: { type: "task", taskId: "reader" },

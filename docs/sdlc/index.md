@@ -23,10 +23,10 @@ and tasks.
 
 ## Next implementation deliverable
 
-[Demonstrate Classifier Tasks in Git Diff Summary](./tasks/2026-09-23-classifier-example-and-documentation.md)
-is next. Its prerequisite, [classifier retries and observations](./tasks/2026-09-23-classifier-reliability-and-observation.md),
-is on `main` at `ae11ebf` (PR #165).
-Static Choice, Score, and Noul support are on `main` at `1e3b915`.
+[Complete removal and release gate](./tasks/2026-10-21-effect-v4-complete-removal-and-release.md)
+is the current implementation task. It owns final tracked-tree removal,
+dependency and distribution checks, and CI on the final migration head.
+Its Outcome records remaining delivery evidence.
 
 ## Authority
 
@@ -73,13 +73,13 @@ documents or clauses.
 
 Allowed statuses are:
 
-| Type | Statuses |
-| --- | --- |
-| BRD | `draft`, `review`, `accepted`, `superseded` |
-| PRD | `draft`, `review`, `accepted`, `superseded` |
-| RFC | `proposed`, `accepted`, `rejected`, `superseded` |
-| ADR | `proposed`, `accepted`, `rejected`, `superseded` |
-| SPEC | `draft`, `active`, `superseded` |
+| Type | Statuses                                                      |
+| ---- | ------------------------------------------------------------- |
+| BRD  | `draft`, `review`, `accepted`, `superseded`                   |
+| PRD  | `draft`, `review`, `accepted`, `superseded`                   |
+| RFC  | `proposed`, `accepted`, `rejected`, `superseded`              |
+| ADR  | `proposed`, `accepted`, `rejected`, `superseded`              |
+| SPEC | `draft`, `active`, `superseded`                               |
 | TASK | `planned`, `in-progress`, `blocked`, `completed`, `cancelled` |
 
 Superseded and rejected documents remain at their original canonical path. A

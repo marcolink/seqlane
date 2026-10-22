@@ -5,9 +5,9 @@ status: superseded
 owners:
   - core
 created: 2026-09-15
-updated: 2026-09-16
+updated: 2026-10-22
 upstream:
-  - prd.seqlane-on-mastra
+  - prd.seqlane-runtime
   - rfc.execution-observability-and-debugging
   - adr.separate-seqlane-protocol-package
 supersedes:
@@ -123,7 +123,7 @@ interactive terminal design.
 
 ## Traceability
 
-- [prd.seqlane-on-mastra: Seqlane on Mastra](../prd/2026-09-03-seqlane-on-mastra.md)
+- [prd.seqlane-runtime: Seqlane Runtime Product Requirements](../prd/2026-10-21-seqlane-runtime.md)
 - [rfc.execution-observability-and-debugging: Seqlane Execution Observability and Debugging](../rfcs/2026-09-02-execution-observability-and-debugging.md)
 - [adr.separate-seqlane-protocol-package: Separate Seqlane Protocol Contracts from Core Authoring](./2026-09-13-separate-seqlane-protocol-package.md)
 - Supersedes [adr.dedicated-seqlane-output-package: Isolate Seqlane Execution Output in a Dedicated Package](./2026-09-02-dedicated-seqlane-output-package.md).

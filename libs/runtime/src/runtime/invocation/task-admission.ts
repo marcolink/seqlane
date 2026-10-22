@@ -58,7 +58,7 @@ export function settleOwnedPromise<A>(
 
 /**
  * Acquire joint eligibility before taking a bounded task-body permit.
- * Promise interpreter/checkpoint bridges remain until the S9 Plan cutover.
+ * Task callbacks and checkpoint hooks remain owned Promise integration edges.
  */
 export function executeTaskNodeEffect(
   context: ExecutionContext,

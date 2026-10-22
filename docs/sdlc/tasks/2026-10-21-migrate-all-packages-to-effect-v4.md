@@ -1,7 +1,7 @@
 ---
 id: task.migrate-all-packages-to-effect-v4
 title: Migrate All Packages to Effect v4
-status: in-progress
+status: completed
 owners:
   - core
 created: 2026-10-21
@@ -55,7 +55,7 @@ Each slice task owns its implementation scope and evidence. Dependencies are exp
 - [x] [S9 — CLI and direct Action cutover](./2026-10-21-effect-v4-cli-and-action-cutover.md)
 - [x] [S10 — Hosted history, HTTP, MCP, and inspection](./2026-10-21-effect-v4-hosted-history-and-inspection.md)
 - [x] [S11 — Remaining Actions and distribution](./2026-10-21-effect-v4-remaining-actions-and-distribution.md)
-- [ ] [S12 — Complete removal and release gate](./2026-10-21-effect-v4-complete-removal-and-release.md)
+- [x] [S12 — Complete removal and release gate](./2026-10-21-effect-v4-complete-removal-and-release.md)
 
 ### Dependencies and recovery
 
@@ -106,11 +106,11 @@ Every temporary bridge is removed, all required checks pass, and delivery is rec
 
 ## Outcome
 
-S0–S11 completed with full verification: authority, baseline, Effect process ownership, dependency graphs, sessions, workspace admission, nested workflows, choices, repeats, validation, native adapters, direct ACP transport, classifier HTTP with retries and deadlines, and full observations through the CLI worker and direct facade. Native trace correlation, complete observations, native metrics and logs, bounded required-event delivery, and isolated OTLP export are verified. CLI and direct workflow Action callers now use the sole common Effect program. Native process ownership, supervisor cleanup, plan/replay orchestration, classifier correlation, and original failure causes pass the full gate and compiled CLI suite. HTTP and MCP now use the same program with versioned inspection, native SQL history, bounded admission, cancellation, and retained observations and traces. Compiled host restart and crash recovery preserve completed results and never replay external actions. All six Actions, three Action libraries, installed distributions, and hosted Action entry/post verification pass S11. S12 complete removal and release verification remain. Codex live verification passed. The installed ACP handshake passed without a model prompt. OpenCode live model verification is unavailable after provider HTTP 401.
+S0–S12 completed with full verification: authority, baseline, Effect process ownership, dependency graphs, sessions, workspace admission, nested workflows, choices, repeats, validation, native adapters, direct ACP transport, classifier HTTP with retries and deadlines, and full observations through the CLI worker and direct facade. Native trace correlation, complete observations, native metrics and logs, bounded required-event delivery, and isolated OTLP export are verified. CLI and direct workflow Action callers now use the sole common Effect program. Native process ownership, supervisor cleanup, plan/replay orchestration, classifier correlation, and original failure causes pass the full gate and compiled CLI suite. HTTP and MCP now use the same program with versioned inspection, native SQL history, bounded admission, cancellation, and retained observations and traces. Compiled host restart and crash recovery preserve completed results and never replay external actions. All six Actions, three Action libraries, installed distributions, and hosted Action entry/post verification pass S11. S12 completes requirement transfer, retired-path removal, all 23 package audits, rebuilt distribution inspection, eight installed packages, release dry runs, and hosted CI. Oclif and public/wire Zod remain. Canonical observations, telemetry, terminal output, and hosted inspection retain replacement evidence. Codex live verification passed. The installed ACP handshake passed without a model prompt. OpenCode live model verification is unavailable after provider HTTP 401.
 
 ## Delivery state
 
-In progress on one migration branch. S0–S11 have verified task-commit evidence in their task commits. The accepted architecture and active target spec record authority, not migration delivery.
+Completed on `feat/effect-v4-migration` with one commit per S0–S12 task, 13 commits in total. This branch's reachable S12 task commit is the delivery identity. [Branch CI history](https://github.com/marcolink/seqlane/actions/workflows/ci.yml?query=branch%3Afeat%2Feffect-v4-migration) records exact published heads. [Implementation-checkpoint CI](https://github.com/marcolink/seqlane/actions/runs/39751001939) passes before the final documentation-only reconciliation. Default-branch merge and registry publication are outside this delivery.
 
 ## Traceability
 

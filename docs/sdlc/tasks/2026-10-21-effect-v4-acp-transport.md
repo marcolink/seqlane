@@ -16,7 +16,7 @@ supersedes: []
 
 ## Objective
 
-Replace `@mastra/acp` with an exact checked official ACP SDK version.
+Replace the historical engine integration with an exact checked official ACP SDK version.
 
 ## Upstream requirements
 
@@ -32,7 +32,7 @@ Changes to product behavior, public authoring contracts, or wire contracts beyon
 
 ## Implementation plan
 
-- Replace `@mastra/acp` with an exact checked official ACP SDK version.
+- Replace the historical engine integration with an exact checked official ACP SDK version.
 - Use the selected version's supported client API, not remembered connection classes.
 - Run ACP v1 initialization, model selection, prompt updates, tools, denied interaction, structured-output repair, and cancellation.
 - Preserve explicit persistence configuration and report unsupported checkpoint/fork capabilities truthfully.

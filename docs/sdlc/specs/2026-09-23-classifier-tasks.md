@@ -5,17 +5,17 @@ status: active
 owners:
   - core
 created: 2026-09-23
-updated: 2026-10-21
+updated: 2026-10-22
 upstream:
-  - prd.seqlane-on-mastra
-  - rfc.mastra-runtime-and-operational-foundation
+  - prd.seqlane-runtime
+  - rfc.effect-v4-migration
   - adr.classifier-task-runtime-boundary
 supersedes: []
 ---
 
 # Classifier Task Contract
 
-> Runtime authority: Classifier authoring, question/result validation, connection handling, retry policy, and output semantics remain active. Mastra step/runtime integration requirements are superseded by the Effect v4 execution and operations spec. See [spec.effect-v4-execution-and-operations](./2026-10-21-effect-v4-execution-and-operations.md).
+> Runtime authority: Classifier authoring, question/result validation, connection handling, retry policy, and output semantics remain active. Effect owns execution, deadlines, retries, and HTTP resource lifetimes under the runtime spec. See [spec.effect-v4-execution-and-operations](./2026-10-21-effect-v4-execution-and-operations.md).
 
 ## Summary
 
@@ -27,7 +27,7 @@ connection without an agent adapter or configuration file.
 
 ## Goals
 
-- Preserve the existing `createFlow().task()` binding, Plan, Mastra step,
+- Preserve the existing `createFlow().task()` binding, Plan, invocation lifecycle,
   validation, cancellation, and workflow-output paths.
 - Support static Choice, Score, and Noul questions in one request over a state
   selected from parsed input.
@@ -297,7 +297,7 @@ The existing bounded invocation.output channel remains unchanged. Hosted
 tracing and local event consumers use the existing observation path; no new
 protocol event or Seqlane trace store is required. Standalone runs release the
 client and retain no Seqlane-owned saved copy. Cancellation aborts fetch and
-backoff, then the task settles before its Mastra step closes.
+backoff, then the task settles before its invocation scope closes.
 
 ## Failure and edge cases
 
@@ -339,7 +339,7 @@ when implementation lands. Do not reclassify existing agent tasks silently.
    and backoff, and cancellation precedence.
 4. Runner and direct API tests: classifier-only flow under `local`, classifier
    plus agent flow, lazy missing configuration failure, unchanged IPC/Plan, and
-   `--dry` without credentials. Check the public package boundary for Mastra
+   `--dry` without credentials. Check the public package boundary for runtime-library
    and provider SDK type leaks.
 5. Example test: the existing Git diff example sends its bounded evidence to
    the local HTTP fixture and returns full Choice, Score, and Noul answers.
@@ -371,11 +371,11 @@ must record tested behavior and target-branch evidence before completion.
 
 ## Traceability
 
-- [prd.seqlane-on-mastra, classifier requirement](../prd/2026-09-03-seqlane-on-mastra.md#requirement-classifier-tasks)
-- [rfc.mastra-runtime-and-operational-foundation](../rfcs/2026-09-03-mastra-runtime-and-operational-foundation.md#classifier-tasks)
+- [prd.seqlane-runtime, classifier requirement](../prd/2026-10-21-seqlane-runtime.md)
+- [rfc.effect-v4-migration](../rfcs/2026-10-21-effect-v4-migration.md)
 - [adr.classifier-task-runtime-boundary](../adrs/2026-09-23-classifier-task-runtime-boundary.md)
 - [spec.standalone-cli-runs](./2026-09-16-standalone-cli-runs.md)
-- [spec.mastra-backed-seqlane-workflows](./2026-09-08-mastra-backed-seqlane-workflows.md)
+- [spec.workflow-execution-semantics](./2026-10-22-workflow-execution-semantics.md)
 - [spec.otel-aligned-observation-contract](./2026-09-19-otel-aligned-observation-contract.md)
 - [TypeSafe API reference](https://docs.typesafe.ai/api)
 - [Jevais inspiration](https://github.com/ivo-toby/jevais)

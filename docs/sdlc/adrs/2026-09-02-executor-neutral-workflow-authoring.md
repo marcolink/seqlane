@@ -5,7 +5,7 @@ status: superseded
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-08
+updated: 2026-10-22
 upstream:
   - rfc.seqlane-technical-architecture
 supersedes:
@@ -41,7 +41,7 @@ This ADR supersedes only the workflow-authoring portion of
 [adr.opencode-executor-integration](2026-09-02-opencode-executor-integration.md);
 its runtime integration and repository harness decisions remain in force.
 
-Mastra remains a private runtime implementation under adr.mastra-internal-workflow-engine. This ADR applies
+The current Effect runtime remains private under rfc.effect-v4-migration. This ADR applies
 the same boundary rule to OpenCode and to any future executor.
 
 ## Decision
@@ -57,7 +57,7 @@ executor-neutral task metadata.
 They must not expose:
 
 - executor names or selectors;
-- OpenCode, Mastra, or provider-specific types;
+- OpenCode, runtime-library, or provider-specific types;
 - executor connection details;
 - executor-specific prompts, sessions, messages, models, tools, or permissions.
 
@@ -111,7 +111,7 @@ runtime indirection. This option is chosen.
 
 - Workflow definitions remain portable across executor implementations.
 - Plans remain stable when an executor changes.
-- OpenCode and Mastra can evolve behind private boundaries.
+- OpenCode and runtime libraries can evolve behind private boundaries.
 - Runtime configuration can select or replace an executor without changing
   workflow source.
 - Public API and documentation no longer promise OpenCode as a platform
@@ -144,13 +144,13 @@ surfaces together:
   flags, and examples;
 - `AGENTS.md` — keep the executor-neutral boundary explicit for future changes.
 
-The implementation must add boundary tests that fail if OpenCode or Mastra
+The implementation must add boundary tests that fail if OpenCode or runtime-library
 details appear in core exports, workflow source, serialized Plans, runner IPC,
 or public CLI/configuration.
 
 ## Constraints
 
-- `seqlane-core` remains independent of Mastra and OpenCode.
+- `seqlane-core` remains independent of runtime engines and OpenCode.
 - OpenCode adapter code may depend on OpenCode SDK/runtime details privately.
 - Cross-package consumers use declared package exports.
 - Breaking changes are allowed for this migration.
@@ -165,4 +165,4 @@ cannot represent the required task semantics without backend leakage.
 ## Traceability
 
 - [rfc.seqlane-technical-architecture: Seqlane Technical Architecture](../rfcs/2026-09-02-seqlane-technical-architecture.md)
-- [adr.mastra-backed-seqlane-workflows: Center Seqlane Workflows on a Mastra-Backed Executable DSL](./2026-09-08-mastra-backed-seqlane-workflows.md)
+- [rfc.effect-v4-migration: Full Effect v4 Migration](../rfcs/2026-10-21-effect-v4-migration.md)

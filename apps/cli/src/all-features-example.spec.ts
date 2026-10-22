@@ -14,7 +14,7 @@ const { default: allFeaturesWorkflow } = await import(
 );
 
 describe("all-features workflow example", () => {
-  it("uses the Mastra-supported Flow authoring surface", () => {
+  it("uses the supported Flow authoring surface", () => {
     const built = buildWorkflow(allFeaturesWorkflow);
     const taskNodes = built.plan.nodes.filter((node) => node.type === "task");
     const context = taskNodes.find(
@@ -160,7 +160,7 @@ describe("all-features workflow example", () => {
     ]);
   });
 
-  it("compiles the feature tour through the Mastra adapter", () => {
+  it("registers the feature tour for hosted execution", () => {
     const built = buildWorkflow(allFeaturesWorkflow);
 
     expect(() =>

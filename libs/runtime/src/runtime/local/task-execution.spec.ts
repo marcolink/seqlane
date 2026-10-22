@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 // @test-scope ./task-execution.ts
 // @test-scope ./effect-process.ts
 // @test-scope ../invocation/invocation-execution.ts
@@ -295,9 +296,11 @@ describe("local task execution", () => {
       await expect(activeRun.outcome).resolves.toEqual({ status: "cancelled" });
       await waitForProcessExit(pid);
 
-      const lease = await compiled.context.workspaceLocks.acquire(
-        { key: workspace },
-        "exclusive",
+      const lease = await Effect.runPromise(
+        compiled.context.workspaceLocks.acquireEffect(
+          { key: workspace },
+          "exclusive",
+        ),
       );
       lease.release();
     } finally {

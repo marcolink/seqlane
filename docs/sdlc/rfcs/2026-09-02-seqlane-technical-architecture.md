@@ -5,7 +5,7 @@ status: superseded
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-03
+updated: 2026-10-22
 upstream:
   - prd.seqlane
 supersedes: []
@@ -13,11 +13,15 @@ supersedes: []
 
 # Seqlane Technical Architecture
 
-> Superseded by [rfc.mastra-runtime-and-operational-foundation](./2026-09-03-mastra-runtime-and-operational-foundation.md).
+> Superseded by [rfc.effect-v4-migration](./2026-10-21-effect-v4-migration.md).
 
 ## 1. Purpose
 
-This RFC defines the technical architecture for Seqlane. The PRD defines what users must be able to do; this RFC defines the system model and technical contracts required to support those requirements.
+This historical RFC proposed Seqlane's original system model. Its neutral
+concepts explain typed dataflow, Plan ownership, executor isolation, identity,
+and process supervision. Current contracts belong to the replacement runtime
+RFC and its linked active specifications; the original MVP profile below is
+not current delivery evidence.
 
 ## 2. Architecture
 
@@ -30,7 +34,7 @@ Seqlane Plan IR
         ▼
 Seqlane Runtime
         │
-        ├── private workflow engine: Mastra
+        ├── private execution boundary
         │
         ▼
 Executor
@@ -50,7 +54,7 @@ dedicated runner process
    │
    ├── workflow loading
    ├── Plan construction
-   ├── Mastra runtime
+   ├── private workflow execution
    └── Executors
 ```
 
@@ -71,7 +75,7 @@ Seqlane owns:
 - runtime events;
 - results/errors.
 
-Mastra and OpenCode remain implementation dependencies behind Seqlane-owned contracts. Neither may leak into the public workflow API.
+Runtime and native SDK dependencies stay behind Seqlane-owned contracts. Their types do not enter the public workflow API.
 
 ## 4. Package Boundaries
 
@@ -86,15 +90,15 @@ seqlane
 
 ### `@seqlane/core`
 
-Contains task/workflow contracts, schema abstraction, `ValueRef<T>`, input bindings, expression IR, Plan IR, executor interfaces, execution identities, and Seqlane errors/results/events. It must have no Mastra dependency.
+Contains task/workflow contracts, schema abstraction, `ValueRef<T>`, input bindings, expression IR, Plan IR, executor interfaces, execution identities, and Seqlane errors/results/events. It must have no runtime-engine dependency.
 
 ### `@seqlane/runtime`
 
-Contains workflow loading, Plan construction and validation, dependency analysis, Mastra compiler, run lifecycle, runner entry point, executor routing, cancellation, and later resource admission. Mastra is a private dependency here.
+Contains workflow loading, Plan construction and validation, dependency analysis, execution, run lifecycle, runner entry point, executor routing, cancellation, and resource admission. Current execution mechanisms belong to the replacement runtime contract.
 
 ### `@seqlane/opencode`
 
-Contains OpenCode executor, client/runtime integration, session management, structured output integration, Harness Overlay implementation, cancellation, and OpenCode event translation. It depends on Seqlane contracts rather than Mastra contracts.
+Contains OpenCode executor, client/runtime integration, session management, structured output integration, Harness Overlay implementation, cancellation, and OpenCode event translation. It depends on Seqlane contracts rather than a runtime implementation API.
 
 ### `seqlane`
 
@@ -250,7 +254,7 @@ The meaning of `ValueRef<T>` is that Seqlane has validated the runtime value as 
 
 ## 12. Plan IR
 
-Seqlane owns a serializable Plan representation independent of Mastra.
+Seqlane owns a serializable Plan representation independent of runtime engines.
 
 ```ts
 interface Plan {
@@ -278,7 +282,7 @@ They are part of the full architecture but not the MVP.
 
 ## 14. Internal Workflow Engine
 
-Mastra is Seqlane's foundational internal workflow engine.
+The original workflow compilation layer is retired. Current execution is defined by [the Effect runtime contract](../specs/2026-10-21-effect-v4-execution-and-operations.md). The retained boundary is:
 
 ```text
 Seqlane workflow
@@ -287,16 +291,16 @@ Seqlane Plan
       ↓
 Seqlane validation
       ↓
-Seqlane → Mastra compiler
+Private execution boundary
       ↓
-Mastra execution
+Seqlane Plan execution
       ↓
 Seqlane executor wrapper
       ↓
 Executor
 ```
 
-Seqlane consumers must not encounter Mastra workflow objects, result types, errors, configuration, or terminology.
+Seqlane consumers use domain contracts, not runtime-library objects, errors, or configuration.
 
 ## 15. Executor Abstraction
 
@@ -453,7 +457,7 @@ Seqlane runner
     │
     ├── workflow import
     ├── Plan construction
-    ├── Mastra
+    ├── private execution
     ├── executors
     └── run state
 ```
@@ -464,7 +468,7 @@ The runner is foreground, child-owned by the CLI, not detached, not persistent, 
 
 The oclif process is limited to command parsing, workflow resolution, runner launching, event rendering, signal forwarding, and exit status.
 
-It must not contain Mastra run state, executor state, workflow orchestration decisions, or agent interaction decisions.
+It must not contain worker execution state, executor state, workflow orchestration decisions, or agent interaction decisions.
 
 ## 26. Runner Protocol
 
@@ -478,7 +482,7 @@ type RunnerCommand =
   | CancelRun
 ```
 
-Runner-to-CLI communication uses structured Seqlane lifecycle events. No Mastra or OpenCode event types cross the process boundary directly.
+Runner-to-CLI communication uses structured Seqlane lifecycle events. No runtime-library or OpenCode event types cross the process boundary directly.
 
 The protocol is transport-independent semantically; Node IPC is the initial transport.
 
@@ -616,7 +620,7 @@ CLI output is merely a projection of these structured runtime events.
 - dedicated Node runner;
 - static typed DAG;
 - ValueRef-based dataflow;
-- Mastra internally;
+- private runtime execution;
 - OpenCode-only executor;
 - externally running OpenCode server;
 - single OpenCode session;
@@ -700,7 +704,7 @@ investigate
  verify
 ```
 
-The workflow source contains no Mastra or OpenCode SDK objects.
+The workflow source contains no runtime-engine or OpenCode SDK objects.
 
 ## 38. Locked Technical Decisions
 
@@ -717,8 +721,8 @@ The workflow source contains no Mastra or OpenCode SDK objects.
 
 ### Runtime
 
-- **T9** — Mastra is the internal workflow engine.
-- **T10** — Mastra remains invisible to consumers.
+- **T9** — Runtime execution stays behind a private boundary; the replacement RFC selects its current mechanisms.
+- **T10** — Runtime-library types remain invisible to consumers.
 - **T11** — Executor is a Seqlane-owned abstraction.
 - **T12** — `seqlane run` executes in a dedicated Node process.
 - **T13** — oclif is launcher/supervisor/renderer only.
@@ -755,7 +759,7 @@ The first implementation spikes must resolve:
 3. Proxy vs alternative nested-ref mechanism;
 4. workflow output inference;
 5. schema abstraction;
-6. Seqlane Plan → Mastra compiler;
+6. private Plan execution;
 7. workflow module loading;
 8. TypeScript execution strategy inside the runner;
 9. IPC serialization/error handling;
@@ -770,9 +774,9 @@ Post-MVP work must additionally resolve branch and repeat typing, resource admis
 
 ## Technical Architecture Statement
 
-> **Seqlane is a TypeScript-native orchestration framework built around typed dataflow and a Seqlane-owned serializable Plan. Plans execute through an isolated runner using Mastra as a private workflow engine and Seqlane-owned executors, initially OpenCode. The runtime is autonomous, non-interactive, observable through structured events, and designed to evolve from single-run workflows toward bounded loops and multi-run logical Work without exposing its underlying execution engines to workflow authors.**
+> **Seqlane is a TypeScript-native orchestration framework built around typed dataflow and a Seqlane-owned serializable Plan. Plans execute through an isolated runner using a private runtime and Seqlane-owned executors, initially OpenCode. The runtime is autonomous, non-interactive, observable through structured events, and designed to evolve from single-run workflows toward bounded loops and multi-run logical Work without exposing its underlying execution engines to workflow authors.**
 
 ## Traceability
 
 - [prd.seqlane: Seqlane](../prd/2026-09-02-seqlane.md)
-- Replaced by [rfc.mastra-runtime-and-operational-foundation: Mastra as Seqlane's Runtime and Operational Foundation](./2026-09-03-mastra-runtime-and-operational-foundation.md).
+- Replaced by [rfc.effect-v4-migration: Full Effect v4 Migration](./2026-10-21-effect-v4-migration.md).

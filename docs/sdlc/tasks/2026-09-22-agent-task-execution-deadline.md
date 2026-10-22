@@ -5,10 +5,10 @@ status: in-progress
 owners:
   - core
 created: 2026-09-22
-updated: 2026-09-22
+updated: 2026-10-22
 upstream:
   - spec.agent-adapter-boundary-and-capabilities
-  - spec.mastra-backed-seqlane-workflows
+  - spec.workflow-execution-semantics
   - spec.codex-app-server-adapter
 supersedes: []
 ---
@@ -23,7 +23,7 @@ it per task without adapter-specific configuration.
 ## Upstream requirements
 
 - [requirement-agent-task-execution-deadline](../specs/2026-09-04-agent-adapter-boundary-and-capabilities.md#requirement-agent-task-execution-deadline)
-- [REQ-TASK-001](../specs/2026-09-08-mastra-backed-seqlane-workflows.md#req-task-001-use-one-executable-task-contract)
+- [REQ-TASK-001](../specs/2026-10-22-workflow-execution-semantics.md#req-task-001-use-one-executable-task-contract)
 
 ## Scope
 
@@ -81,5 +81,5 @@ No target-branch delivery evidence recorded yet.
 ## Traceability
 
 - [spec.agent-adapter-boundary-and-capabilities](../specs/2026-09-04-agent-adapter-boundary-and-capabilities.md)
-- [spec.mastra-backed-seqlane-workflows](../specs/2026-09-08-mastra-backed-seqlane-workflows.md)
+- [spec.workflow-execution-semantics](../specs/2026-10-22-workflow-execution-semantics.md)
 - [spec.codex-app-server-adapter](../specs/2026-09-12-codex-app-server-adapter.md)

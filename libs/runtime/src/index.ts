@@ -1,10 +1,5 @@
-export { compilePlan } from "./runtime/compile/compile-plan.js";
-export { PlanCompiler } from "./runtime/compile/compile-plan.js";
-export type {
-  CompiledPlan,
-  PreparedPlan,
-} from "./runtime/compile/compile-plan.js";
-export type { CompileWorkflowOptions } from "./runtime/compile/compile-plan.js";
+export { compilePlan } from "./runtime/compile/prepare-plan.js";
+export type { PreparedPlan } from "./runtime/compile/prepare-plan.js";
 export { orderPlanNodes } from "./runtime/plan/plan-ordering.js";
 export {
   PlanValidationError,

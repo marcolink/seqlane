@@ -5,13 +5,17 @@ status: planned
 owners:
   - core
 created: 2026-09-05
-updated: 2026-09-05
+updated: 2026-10-22
 upstream:
-  - spec.mastra-runtime-and-operational-integration
+  - spec.effect-v4-execution-and-operations
 supersedes: []
 ---
 
 # Bound Operational Data Retention and Queries
+
+> Historical task record. Scope and outcomes describe work before the current migration.
+> Current execution authority: [Effect v4 execution and operations](../specs/2026-10-21-effect-v4-execution-and-operations.md).
+> Current-owner links record the later contract transfer. They do not establish historical Effect v4 use or current delivery.
 
 ## Objective
 
@@ -24,8 +28,6 @@ Keep local durable operational data finite and its read paths bounded.
 ## Delivery
 
 - Stack order: 15
-- Branch: `mastra-15-operational-data-bounds`
-- Pull request base: `mastra-14-workflow-discovery-plan`
 - Implementation agent: a fresh `gpt-5.6-luna` subagent with `high` reasoning
 - Delivery unit: exactly one task branch and one pull request
 
@@ -60,7 +62,7 @@ Keep local durable operational data finite and its read paths bounded.
 
 ## Affected areas
 
-- private Mastra storage and tracing integration
+- private runtime storage and tracing integration
 - operational server query adapters
 - runtime contract tests
 - local operation documentation
@@ -74,7 +76,7 @@ Keep local durable operational data finite and its read paths bounded.
 
 ## Completion criteria
 
-The local operational host can retain and query canonical Mastra data without
+The local operational host can retain and query canonical Seqlane data without
 unbounded storage growth or unbounded response projections.
 
 ## Outcome
@@ -83,5 +85,5 @@ Not started.
 
 ## Traceability
 
-- [spec.mastra-runtime-and-operational-integration](../specs/2026-09-03-mastra-runtime-and-operational-integration.md)
-- [adr.local-mastra-operational-host](../adrs/2026-09-05-local-mastra-operational-host.md)
+- [spec.effect-v4-execution-and-operations](../specs/2026-10-21-effect-v4-execution-and-operations.md)
+- [rfc.effect-v4-migration](../rfcs/2026-10-21-effect-v4-migration.md)

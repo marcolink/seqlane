@@ -5,13 +5,18 @@ status: completed
 owners:
   - core
 created: 2026-09-07
-updated: 2026-09-08
+updated: 2026-10-22
 upstream:
   - spec.opencode-executor-integration
+  - spec.adapter-observation-projection
 supersedes: []
 ---
 
 # Account for all OpenCode model responses per invocation
+
+> Historical task record. Scope and outcomes describe work before the current migration.
+> Current execution authority: [Effect v4 execution and operations](../specs/2026-10-21-effect-v4-execution-and-operations.md).
+> Current-owner links record the later contract transfer. They do not establish historical Effect v4 use or current delivery.
 
 ## Objective
 
@@ -21,8 +26,9 @@ responses or a terminal failure after a paid response.
 
 ## Upstream requirements
 
-Implement [invocation metrics accounting](../specs/2026-09-02-opencode-executor-integration.md#invocation-metrics-accounting)
-from [spec.opencode-executor-integration](../specs/2026-09-02-opencode-executor-integration.md).
+Implement [invocation metrics accounting](../specs/2026-10-22-adapter-observation-projection.md#requirement-opencode-source)
+from the later [adapter observation contract](../specs/2026-10-22-adapter-observation-projection.md#requirement-opencode-source).
+The original integration is recorded in [spec.opencode-executor-integration](../specs/2026-09-02-opencode-executor-integration.md).
 
 ## Scope
 
@@ -92,3 +98,5 @@ aggregation, terminal failure accounting, and cancellation accounting.
 ## Traceability
 
 - Contract: [spec.opencode-executor-integration](../specs/2026-09-02-opencode-executor-integration.md)
+
+- [spec.adapter-observation-projection: Current accounting owner](../specs/2026-10-22-adapter-observation-projection.md#requirement-opencode-source)

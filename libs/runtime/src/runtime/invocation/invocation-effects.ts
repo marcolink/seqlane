@@ -91,7 +91,7 @@ export class InvocationEffects {
     });
   }
 
-  /** Temporary interop for the Promise executor path, removed with S9 cutover. */
+  /** Promise task callbacks await managed SDK activity at their owned edge. */
   waitForTermination(timeoutMs = this.#terminationTimeoutMs): Promise<void> {
     return Effect.runPromise(this.waitForTerminationEffect(timeoutMs));
   }

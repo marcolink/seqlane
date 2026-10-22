@@ -34,7 +34,7 @@ export class SessionLockRegistry {
     return () => this.#changeListeners.delete(listener);
   }
 
-  /** Promise compatibility boundary for legacy runtime callers. */
+  /** Promise task callbacks enter the native admission queue at this edge. */
   acquire(
     session: ResolvedExecutorSession,
     onWaiting?: () => void,

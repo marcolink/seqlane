@@ -82,9 +82,4 @@ export class ChoiceSourceGate {
       ),
     );
   }
-
-  /** Promise bridge for the legacy caller while it remains in production. */
-  wait(sourceNodeId: string, signal: AbortSignal): Promise<void> {
-    return Effect.runPromise(this.waitEffect(sourceNodeId, signal));
-  }
 }

@@ -6,13 +6,17 @@ owners:
   - core
   - runtime
 created: 2026-10-05
-updated: 2026-10-05
+updated: 2026-10-22
 upstream:
-  - spec.mastra-backed-seqlane-workflows
+  - spec.workflow-execution-semantics
 supersedes: []
 ---
 
 # Unify Runnable Construction and Input Preparation
+
+> Historical task record. Scope and outcomes describe work before the current migration.
+> Current execution authority: [Effect v4 execution and operations](../specs/2026-10-21-effect-v4-execution-and-operations.md).
+> Current-owner links record the later contract transfer. They do not establish historical Effect v4 use or current delivery.
 
 ## Objective
 
@@ -21,8 +25,8 @@ repeat attempts and exclusive choices. Parse runnable input once per invocation.
 
 ## Upstream requirements
 
-- [REQ-RUNTIME-001](../specs/2026-09-08-mastra-backed-seqlane-workflows.md#req-runtime-001-compile-to-mastra)
-- [REQ-CHOICE-001](../specs/2026-09-08-mastra-backed-seqlane-workflows.md#req-choice-001-route-one-runnable)
+- [REQ-RUNTIME-001](../specs/2026-10-22-workflow-execution-semantics.md#req-runtime-001-compile-behind-a-private-boundary)
+- [REQ-CHOICE-001](../specs/2026-10-22-workflow-execution-semantics.md#req-choice-001-route-one-runnable)
 
 ## Scope
 
@@ -42,7 +46,7 @@ payload limits, a second scheduler and unrelated review findings.
 
 ## Implementation plan
 
-1. **Tracer bullet:** Execute one transformed-input task through real Mastra.
+1. **Tracer bullet:** Execute one transformed-input task through a runtime integration test.
    Prove one parse, correct input delivery and rejection before execution.
    Then extend preparation to choice, repeat, child workflow and validation paths.
 2. Unify private option types and DSL resolution. Verify output inference and
@@ -55,11 +59,11 @@ payload limits, a second scheduler and unrelated review findings.
 ## Affected areas
 
 Core authoring contracts and builder; private runtime compiler, invocation kernel
-and Mastra validation integration.
+and validation integration.
 
 ## Verification
 
-Run test mapping before tests. Run focused core and real-Mastra integration
+Run test mapping before tests. Run focused core and real-runtime integration
 cases, production and spec typechecks, lint, formatting, documentation validation,
 public runtime-boundary checks and the full suite.
 
@@ -75,7 +79,7 @@ builder options. One resolver serves ordinary, repeat and choice declarations.
 One runnable constructor preserves each topology's dependency policy. Shared
 output validation uses a schema-derived descriptor and generic helper names.
 
-Real-Mastra tests prove one input parse for ordinary tasks, selected choice arms,
+Runtime integration tests prove one input parse for ordinary tasks, selected choice arms,
 each repeat attempt, child workflows and mechanical validators. They also prove
 that `null` and `undefined` transform results reach task execution and that
 deterministic tasks make zero model calls. Existing lifecycle tests preserve
@@ -94,7 +98,7 @@ Ripwire contract checks found no incompatible callers. Quality findings were
 reviewed: churn reflects earlier edits; moved helpers retain their existing
 parameter counts; type-only references are reported as dead code.
 
-## Delivery state
+## Historical delivery state
 
 Implementation is on `feat/exclusive-flow-choice` for
 [PR #170](https://github.com/marcolink/seqlane/pull/170). Default-branch delivery
@@ -103,4 +107,4 @@ implementation; no additional rebase was needed.
 
 ## Traceability
 
-- [spec.mastra-backed-seqlane-workflows](../specs/2026-09-08-mastra-backed-seqlane-workflows.md)
+- [spec.workflow-execution-semantics](../specs/2026-10-22-workflow-execution-semantics.md)

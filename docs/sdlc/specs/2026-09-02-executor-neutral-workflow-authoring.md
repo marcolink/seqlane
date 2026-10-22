@@ -5,7 +5,7 @@ status: superseded
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-08
+updated: 2026-10-22
 upstream:
   - adr.executor-neutral-workflow-authoring
 supersedes: []
@@ -51,7 +51,7 @@ OpenCode remains an initial private adapter. It does not remain a workflow-autho
 - A workflow cannot choose a runtime profile, executor, or connection.
 - `@seqlane/opencode` remains private and contains only adapter code. It exports no workflow-authoring factory or documented user-facing API.
 - Fixtures and examples define generic tasks. Test-only private bindings can use fake executors or OpenCode adapters outside workflow source.
-- Core and runtime public exports, serialized Plans, runner IPC, CLI help, and supported documentation contain no OpenCode, Mastra, provider, or executor implementation detail.
+- Core and runtime public exports, serialized Plans, runner IPC, CLI help, and supported documentation contain no OpenCode, runtime-library, provider, or executor implementation detail.
 - Breaking changes are allowed. Compatibility aliases for executor-bearing task definitions, Plans, protocol fields, and CLI flags are not added.
 
 ## 3. Generic Authoring Contract
@@ -121,7 +121,7 @@ private agent executor resolver
 private execution implementation
 ```
 
-The runtime resolves bindings and validates input before it calls the resolved implementation. It validates output after the call as spec.mastra-runtime-integration defines.
+The runtime resolves bindings and validates input before it calls the resolved implementation. It validates output after the call as spec.effect-v4-execution-and-operations defines.
 
 ## 5. Private Runtime Profile Resolution
 
@@ -177,7 +177,7 @@ Tests must prove:
 
 - generic agent and operation authoring preserve input, output, `ValueRef`, and input-binding type inference
 - Plans serialize without executor identity or adapter configuration
-- core and public runtime exports contain no OpenCode, Mastra, SDK, provider, or executor implementation type
+- core and public runtime exports contain no OpenCode, runtime-library, SDK, provider, or executor implementation type
 - private resolution maps agent work and operation capabilities separately, and reports missing mappings as executor failures
 - the runner request accepts a generic runtime profile and rejects OpenCode-specific fields
 - CLI help and parsing expose `--runtime` but not `--opencode-url`
@@ -199,7 +199,7 @@ spec.executor-neutral-workflow-authoring is complete when:
 - OpenCode remains functional as a private adapter for generic workflows
 - generic workflows run with a fake binding and the private OpenCode binding
 - fixtures, examples, package exports, and supported documentation contain no executor implementation detail at public boundaries
-- static boundary tests prevent future OpenCode or Mastra leakage
+- static boundary tests prevent future OpenCode or runtime-library leakage
 - all workspace quality gates pass
 
 ## 10. Explicitly Deferred
@@ -227,4 +227,4 @@ spec.executor-neutral-workflow-authoring does not implement:
 ## Traceability
 
 - [adr.executor-neutral-workflow-authoring](../adrs/2026-09-02-executor-neutral-workflow-authoring.md)
-- [spec.mastra-backed-seqlane-workflows: Mastra-Backed Seqlane Workflow Contracts](./2026-09-08-mastra-backed-seqlane-workflows.md)
+- [spec.workflow-execution-semantics: Workflow Authoring and Execution Semantics](./2026-10-22-workflow-execution-semantics.md)

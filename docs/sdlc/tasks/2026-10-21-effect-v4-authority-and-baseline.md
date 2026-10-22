@@ -5,7 +5,7 @@ status: completed
 owners:
   - core
 created: 2026-10-21
-updated: 2026-10-21
+updated: 2026-10-22
 upstream:
   - spec.effect-v4-execution-and-operations
 supersedes: []
@@ -27,7 +27,14 @@ Reconcile the PRD, RFC, active specs, `AGENTS.md`, and runtime skill with the ac
 
 ### Initial inventory and baseline
 
-The [pre-migration inventory](./2026-10-21-effect-v4-inventory.json) records snapshot `51249b721a340959702e550fb84e7a3bd51ed59f`: 23 workspace packages, 255 engine-matched tracked paths, 166 canonical Markdown documents, package dependency ownership, and inbound legacy-document references. Counts are historical; regenerate the inventory before the final removal gate.
+The original S0 inventory recorded snapshot `51249b721a340959702e550fb84e7a3bd51ed59f`:
+23 workspace packages, 255 engine-matched tracked paths, 166 canonical Markdown
+documents, dependency ownership, and inbound document references. That full
+historical inventory remains in S0 commit `7eb36b6`. The current
+[baseline and disposition artifact](./2026-10-21-effect-v4-inventory.json)
+retains measurements and current package dispositions. Its retired path and
+dependency lists were removed during S12 to satisfy complete tracked-tree removal.
+Baseline counts describe their original snapshot, not the current tree.
 
 Baseline repair evidence: install, mapped tests, tests, typecheck, lint, build, formatting, Nx sync, and `git diff --check` pass after the documented test-fixture and project-reference corrections. Registry checks recorded `effect`, `@effect/platform-node`, and `@effect/platform-node-shared` 4.0.5; Snyk reported no direct vulnerabilities. No dependency changes are part of S0. The compiled deterministic CLI `--json` baseline passed three runs (wall time 2133.04, 2314.78, and 1544.91 ms; 511 stdout bytes; zero stderr bytes). These are baseline results, not migration delivery evidence. The finalized S0 gate passed frozen installation, SDLC validation, test mapping, typecheck, tests, lint, build, formatting, Nx sync, and whitespace checks.
 

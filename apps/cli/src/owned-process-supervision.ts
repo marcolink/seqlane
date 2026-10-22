@@ -90,6 +90,11 @@ export function createOwnedProcessSupervision(
           !(yield* Effect.tryPromise({
             try: () => os.isCurrent(frame.identity),
             catch: (cause) => cause,
+          })) &&
+          // Worker identity capture may precede the exit of a short-lived child.
+          !(yield* Effect.tryPromise({
+            try: () => os.confirmStopped(frame.identity),
+            catch: (cause) => cause,
           }))
         ) {
           return yield* Effect.fail(

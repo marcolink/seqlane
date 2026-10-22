@@ -5,9 +5,9 @@ status: proposed
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-16
+updated: 2026-10-22
 upstream:
-  - prd.seqlane-on-mastra
+  - prd.seqlane-runtime
 supersedes: []
 ---
 
@@ -30,7 +30,7 @@ It specifies the structured execution information Seqlane must retain and expose
    defined by
    [rfc.high-fidelity-local-observability](./2026-09-19-high-fidelity-local-observability.md)
    and does not redact or truncate captured values.
-6. **The observability model is Seqlane-owned.** Mastra and OpenCode events are translated into Seqlane concepts.
+6. **The observability model is Seqlane-owned.** Runtime and native adapter observations are translated into Seqlane concepts.
 
 ## 3. Questions the Model Must Answer
 
@@ -198,7 +198,7 @@ For shared sessions, Seqlane's serialization allows top-level correlation throug
 The dedicated Seqlane runner emits structured Seqlane lifecycle events across the process boundary.
 
 ```text
-Mastra / Executors / OpenCode
+Runtime / Executors / OpenCode
              ↓
        Seqlane runtime
              ↓
@@ -294,7 +294,7 @@ Local debugging must not require an external observability service.
 Task inputs, outputs, prompts, model activity, shell output, environment data, and artifacts may contain sensitive information.
 
 The historical persistence/export rule remains outside the local live
-observation path. Local protocol observations and their configured Mastra
+observation path. Local canonical observations and their derived telemetry
 projection follow
 [spec.otel-aligned-observation-contract](../specs/2026-09-19-otel-aligned-observation-contract.md).
 This change adds no recording file, replay store, or new persistence API.
@@ -317,11 +317,12 @@ Any future replay mechanism must obey effect safety and distinguish reused upstr
 
 Comparing runs and experimentation are post-V1 capabilities. The observability model should not prevent future comparison of Plans, outputs, models, durations, costs, and execution paths.
 
-## 22. Mastra Tooling
+## 22. External tooling
 
-Mastra Studio or Mastra tracing may be useful implementation accelerators. They must remain implementation details.
-
-Seqlane observability contracts and source workflows must not depend on them.
+Optional telemetry viewers consume the runtime's explicitly configured export.
+They do not own canonical events or define the Seqlane inspection contract.
+Hosted run and trace inspection belongs to the current runtime specification.
+Standalone execution does not require a viewer or exporter.
 
 ## 23. Locked Decisions
 
@@ -336,7 +337,7 @@ Seqlane observability contracts and source workflows must not depend on them.
   explicitly selected policy. This decision does not constrain the local live
   high-fidelity observation path.
 - **O9** — Historical runs retain the actual executed Plan.
-- **O10** — Mastra tooling remains implementation-only.
+- **O10** — External telemetry viewers remain optional implementation tools.
 - **O11** — Replay must obey effect semantics.
 - **O12** — Local debugging must work without an external observability service.
 - **O13** — Structured Seqlane events cross the runner boundary.
@@ -382,7 +383,7 @@ the high-fidelity RFC.
 
 - [adr.standalone-cli-runs](../adrs/2026-09-16-standalone-cli-runs.md)
 
-- [prd.seqlane-on-mastra: Seqlane on Mastra](../prd/2026-09-03-seqlane-on-mastra.md)
+- [prd.seqlane-runtime: Seqlane Runtime Product Requirements](../prd/2026-10-21-seqlane-runtime.md)
 - [adr.run-terminal-presentation-boundary: Separate Run Terminal Presentation from Machine Results](../adrs/2026-09-15-run-terminal-presentation-boundary.md)
 - [spec.run-terminal-rendering: Run Terminal Rendering](../specs/2026-09-15-run-terminal-rendering.md)
 - [spec.run-machine-output: Run Machine Output and Command Errors](../specs/2026-09-15-run-machine-output.md)

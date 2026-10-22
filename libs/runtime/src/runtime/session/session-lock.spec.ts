@@ -186,7 +186,6 @@ describe("exclusive session locks", () => {
     const abortSignal = new AbortController().signal;
     const first = executeTaskNode(context, task("first"), abortSignal, {
       invocationId: "first",
-      observability: {},
       results: context.results,
       remainingConsumers: context.remainingConsumers,
       subject: { type: "task", taskId: "first" },
@@ -195,7 +194,6 @@ describe("exclusive session locks", () => {
 
     const second = executeTaskNode(context, task("second"), abortSignal, {
       invocationId: "second",
-      observability: {},
       results: context.results,
       remainingConsumers: context.remainingConsumers,
       subject: { type: "task", taskId: "second" },
@@ -260,7 +258,6 @@ describe("exclusive session locks", () => {
     const abortSignal = new AbortController().signal;
     const first = executeTaskNode(context, task("first"), abortSignal, {
       invocationId: "first",
-      observability: {},
       results: context.results,
       remainingConsumers: context.remainingConsumers,
       subject: { type: "task", taskId: "first" },
@@ -269,7 +266,6 @@ describe("exclusive session locks", () => {
 
     const second = executeTaskNode(context, task("second"), abortSignal, {
       invocationId: "second",
-      observability: {},
       results: context.results,
       remainingConsumers: context.remainingConsumers,
       subject: { type: "task", taskId: "second" },
@@ -339,7 +335,6 @@ describe("exclusive session locks", () => {
     const controller = new AbortController();
     const first = executeTaskNode(context, task("first"), controller.signal, {
       invocationId: "first",
-      observability: {},
       results: context.results,
       remainingConsumers: context.remainingConsumers,
       subject: { type: "task", taskId: "first" },
@@ -354,7 +349,6 @@ describe("exclusive session locks", () => {
       new AbortController().signal,
       {
         invocationId: "second",
-        observability: {},
         results: context.results,
         remainingConsumers: context.remainingConsumers,
         subject: { type: "task", taskId: "second" },
@@ -412,7 +406,6 @@ describe("exclusive session locks", () => {
     await expect(
       executeTaskNode(context, task("first"), new AbortController().signal, {
         invocationId: "first",
-        observability: {},
         results: context.results,
         remainingConsumers: context.remainingConsumers,
         subject: { type: "task", taskId: "first" },
@@ -425,7 +418,6 @@ describe("exclusive session locks", () => {
       new AbortController().signal,
       {
         invocationId: "second",
-        observability: {},
         results: context.results,
         remainingConsumers: context.remainingConsumers,
         subject: { type: "task", taskId: "second" },

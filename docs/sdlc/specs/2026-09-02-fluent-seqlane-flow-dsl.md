@@ -5,13 +5,16 @@ status: superseded
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-08
+updated: 2026-10-22
 upstream:
   - adr.fluent-seqlane-flow-dsl
 supersedes: []
 ---
 
 # Fluent Seqlane Flow DSL and Conditioned Repeat
+
+> Superseded by [workflow authoring and execution semantics](./2026-10-22-workflow-execution-semantics.md).
+> This record describes the earlier authoring proposal, not the current API.
 
 > Migrated from legacy technical specification `TS-012`.
 
@@ -22,7 +25,7 @@ Seqlane-owned Plan IR. It adds one structured control-flow node: a bounded,
 post-condition repeat.
 
 The public API remains executor-neutral. The runtime owns repeat execution and
-uses Mastra only behind the existing private compiler boundary.
+keeps its execution mechanisms behind the private compiler boundary.
 
 The MVP has one public task model: an agent-oriented `TaskDefinition` created
 with `defineTask`. `goal` is the task objective; `instructions` are static
@@ -34,7 +37,7 @@ types to core.
 ## Invariants
 
 - `@seqlane/core` owns Flow DSL and `RepeatNode` contracts.
-- Core exports no Mastra, executor, process, or runtime callback types.
+- Core exports no runtime-engine, executor, process, or runtime callback types.
 - `createFlow(...).define()` returns a normal `WorkflowDefinition`.
 - `defineWorkflow` and `buildWorkflow` remain supported.
 - Task and repeat names are unique string literals.
@@ -242,8 +245,8 @@ authority for the referenced value.
 
 ### Repeat execution
 
-The runtime lowers each `RepeatNode` behind the private Mastra boundary. The
-public Plan does not contain Mastra control-flow objects or callbacks.
+The runtime lowers each `RepeatNode` behind the private runtime boundary. The
+public Plan does not contain runtime-library control-flow objects or callbacks.
 
 The repeat mechanism follows this sequence:
 
@@ -352,13 +355,13 @@ map.
 - Result lifetime retains a final-output value until final output resolution.
 - A repeat retains no prior body output after the next iteration starts.
 - Core, Plan, runner IPC, fixtures, and public documentation remain free of
-  Mastra and executor details.
+  runtime-library and executor details.
 
 ## Out of Scope
 
 - `parallel`, `branch`, `foreach`, dynamic scheduling, and nested repeat.
 - Nested workflow invocation through the Flow DSL.
-- Public Mastra APIs, state, suspension, resumption, or persistence.
+- Public runtime-library APIs, state, suspension, resumption, or persistence.
 - Executor selection, executor configuration, and executor-specific metadata.
 - Repeat-level retry or repair policy.
 - Persistent workflow history or replay.
@@ -378,7 +381,7 @@ map.
 ## Sources
 
 - [adr.fluent-seqlane-flow-dsl — Fluent Seqlane Flow DSL](../adrs/2026-09-02-fluent-seqlane-flow-dsl.md)
-- [adr.mastra-internal-workflow-engine — Internal workflow engine](../adrs/2026-09-02-mastra-internal-workflow-engine.md)
+- [rfc.effect-v4-migration — Internal workflow engine](../rfcs/2026-10-21-effect-v4-migration.md)
 - [adr.seqlane-plan-ir-and-typed-dataflow — Plan IR and typed dataflow](../adrs/2026-09-02-seqlane-plan-ir-and-typed-dataflow.md)
 - [adr.repository-user-workflow-discovery-and-composition — Repository and user composition](../adrs/2026-09-02-repository-user-workflow-discovery-and-composition.md)
 - [adr.executor-neutral-workflow-authoring — Executor-neutral authoring](../adrs/2026-09-02-executor-neutral-workflow-authoring.md)
@@ -388,4 +391,4 @@ map.
 ## Traceability
 
 - [adr.fluent-seqlane-flow-dsl](../adrs/2026-09-02-fluent-seqlane-flow-dsl.md)
-- [spec.mastra-backed-seqlane-workflows: Mastra-Backed Seqlane Workflow Contracts](./2026-09-08-mastra-backed-seqlane-workflows.md)
+- [spec.workflow-execution-semantics: Workflow Authoring and Execution Semantics](./2026-10-22-workflow-execution-semantics.md)

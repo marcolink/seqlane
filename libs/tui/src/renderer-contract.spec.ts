@@ -66,6 +66,8 @@ describe("seqlane tui package", () => {
     expect(
       source("libs/tui/src/index.ts") +
         source("libs/tui/src/renderer-contract.ts"),
-    ).not.toMatch(/Mastra|OpenCode|seqlane-runtime/i);
+    ).not.toMatch(
+      /(?:from|import\()[\s"']+(?:effect|@seqlane\/(?:runtime|[\w-]+-adapter))(?=[/"'])/,
+    );
   });
 });

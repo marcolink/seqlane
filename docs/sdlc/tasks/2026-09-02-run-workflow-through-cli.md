@@ -5,7 +5,7 @@ status: completed
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-03
+updated: 2026-10-22
 upstream:
   - spec.dedicated-runner-process
 supersedes: []
@@ -13,35 +13,46 @@ supersedes: []
 
 # Run a selected workflow through the installed and development CLI
 
+> Historical task record. Scope and outcomes describe work before the current migration.
+> Current execution authority: [Effect v4 execution and operations](../specs/2026-10-21-effect-v4-execution-and-operations.md).
+> Current-owner links record the later contract transfer. They do not establish historical Effect v4 use or current delivery.
+
 > Migrated from implementation story `TS-002-08`.
 
 ## Use Case
+
 **As a** Seqlane workflow operator, **I want to** invoke `seqlane run` from an installed CLI or a repository checkout, **so that** I can start an isolated workflow run and see its outcome without calling internal TypeScript APIs.
 
 ## Acceptance Criteria
-**Scenario:** *Installed CLI starts one selected workflow*
+
+**Scenario:** _Installed CLI starts one selected workflow_
+
 - **Given:** `seqlane` has been built and installed with its `seqlane` executable
 - **and Given:** I supply a resolvable workflow reference, JSON input, and an OpenCode connection configuration
 - **When:** I run `seqlane run <workflow>` with the documented required options
 - **Then:** oclif parses the command, the CLI creates one `RunRequest`, launches one foreground runner, renders the structured lifecycle projection, and exits with the runner outcome status (`0`, `1`, or `130`)
 
-**Scenario:** *Development CLI runs source commands without a prior build*
+**Scenario:** _Development CLI runs source commands without a prior build_
+
 - **Given:** I have installed workspace dependencies in a repository checkout
 - **and Given:** the CLI has not been built after my latest source change
 - **When:** I invoke the documented development entry point with `run <workflow>`
 - **Then:** it discovers and executes `src/commands` in oclif development mode, auto-transpiles TypeScript without requiring `dist`, preserves the installed command's parsing, runner, rendering, and exit-status behaviour, and shows development diagnostics on failure
 
-**Scenario:** *Invalid command input does not start a runner*
+**Scenario:** _Invalid command input does not start a runner_
+
 - **Given:** I omit a required workflow or connection option, or provide invalid JSON input
 - **When:** I invoke `seqlane run`
 - **Then:** oclif reports a command-validation error and exits non-zero without forking a runner or importing a workflow
 
-**Scenario:** *The command remains a supervisor*
+**Scenario:** _The command remains a supervisor_
+
 - **Given:** `seqlane run` accepts a valid request
 - **When:** the selected workflow succeeds, fails, or is cancelled
-- **Then:** the command awaits the runner result before returning, uses only Seqlane-owned protocol data and rendered events, and never imports the workflow for execution or owns Mastra, executor, OpenCode, or run-scoped state
+- **Then:** the command awaits the runner result before returning, uses only Seqlane-owned protocol data and rendered events, and never imports the workflow for execution or owns runtime-engine, executor, OpenCode, or run-scoped state
 
 ## Technical Details
+
 Use the oclif 4 ESM starter pattern already selected by `@oclif/core@4.13.5`:
 
 ```text
@@ -70,12 +81,14 @@ pnpm exec nx build seqlane-runtime && pnpm exec nx build seqlane-fixtures
 The production entry point uses the same arguments after `pnpm exec nx build seqlane-cli`; an installed package exposes it as `seqlane run <module-specifier>#<export-name>`.
 
 ## Out of Scope
+
 - Repository/user workflow discovery, `list`, and `plan` commands; adr.repository-user-workflow-discovery-and-composition owns discovery and ambiguity rules.
 - Managed OpenCode startup, shutdown, or real-server integration.
 - A persistent runner, daemon, detached/background execution, or interactive runtime protocol.
 - Publishing, installers, and release packaging beyond the local executable entry points.
 
-## Source
+## Source and current owners
+
 - [rfc.seqlane-technical-architecture — Seqlane Technical Architecture](../rfcs/2026-09-02-seqlane-technical-architecture.md)
 - [spec.dedicated-runner-process — Dedicated Runner Process and CLI IPC](../specs/2026-09-02-dedicated-runner-process.md)
 - [adr.dedicated-runner-process — Execute Each Seqlane Run in a Dedicated Node Process](../adrs/2026-09-02-dedicated-runner-process.md)

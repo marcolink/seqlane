@@ -5,7 +5,7 @@ status: superseded
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-15
+updated: 2026-10-22
 upstream:
   - adr.dedicated-seqlane-output-package
 supersedes: []
@@ -45,7 +45,7 @@ and event emission.
 - The package depends on @seqlane/protocol for canonical serialized
   event contracts and on @seqlane/core only for shared Seqlane
   primitives.
-- The package does not depend on Mastra, OpenCode, seqlane-runtime, or
+- The package does not depend on runtime libraries, OpenCode, seqlane-runtime, or
   workflow-authoring implementation details.
 - Canonical execution events remain the source of truth. View models and
   terminal output are projections.
@@ -400,7 +400,7 @@ forbidden.
 Tests must prove:
 
 - package build and exports work from compiled output;
-- the package has no Mastra, OpenCode, or runtime dependency;
+- the package has no runtime-engine, OpenCode, or runtime dependency;
 - event metadata and topology fields round-trip through the runner protocol;
 - nested workflow relationships render with correct indentation and collapse;
 - dependency relationships explain parallel waiting without changing
@@ -429,7 +429,7 @@ Tests must prove:
 
 spec.seqlane-execution-output-package does not implement:
 
-- Mastra Studio, Mastra tracing, or external observability storage;
+- runtime telemetry viewers or external observability storage;
 - persistent run records or local run inspection;
 - token-level or unrestricted executor transcript streaming;
 - keyboard navigation or a full-screen interactive inspector;

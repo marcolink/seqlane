@@ -5,13 +5,17 @@ status: completed
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-03
+updated: 2026-10-22
 upstream:
   - spec.seqlane-plan-ir-typed-dataflow
 supersedes: []
 ---
 
 # Define public authoring contracts
+
+> Historical task record. Scope and outcomes describe work before the current migration.
+> Current execution authority: [Effect v4 execution and operations](../specs/2026-10-21-effect-v4-execution-and-operations.md).
+> Current-owner links record the later contract transfer. They do not establish historical Effect v4 use or current delivery.
 
 > Migrated from implementation story `TS-003-00`.
 
@@ -21,7 +25,7 @@ supersedes: []
 
 ## Scope
 
-- Add Mastra-independent core types and factories for task definitions, workflow definitions, invocation results, and task schema registries.
+- Add engine-independent core types and factories for task definitions, workflow definitions, invocation results, and task schema registries.
 - Keep definitions and schemas in memory; do not add them to `Plan`.
 - Export only intentional public API from `@seqlane/core`.
 
@@ -29,7 +33,7 @@ supersedes: []
 
 - Proxy-backed nested references.
 - Plan construction or runtime loader changes.
-- Any Mastra, OpenCode, or executor implementation API.
+- Any runtime-engine, OpenCode, or executor implementation API.
 
 ## Implementation Notes
 
@@ -37,17 +41,19 @@ Reuse `SeqlaneSchema<T>` as the schema boundary. A task has stable task and exec
 
 ## Acceptance Criteria
 
-**Scenario:** *Public authoring contracts are core-owned*
+**Scenario:** _Public authoring contracts are core-owned_
+
 - **Given:** A consumer imports `@seqlane/core`
 - **When:** It defines a typed task and workflow
-- **Then:** The definitions preserve input and output generic types and the core package remains free of Mastra dependencies and types
+- **Then:** The definitions preserve input and output generic types and the core package remains free of runtime-engine dependencies and types
 
-**Scenario:** *Plans remain serializable data*
+**Scenario:** _Plans remain serializable data_
+
 - **Given:** A task or workflow definition contains schemas and callbacks
 - **When:** A Plan is produced later
 - **Then:** The Plan contains neither schemas nor callbacks and has no runtime-engine field
 
-## Source
+## Source and current owners
 
 - [rfc.seqlane-technical-architecture — Seqlane Technical Architecture](../rfcs/2026-09-02-seqlane-technical-architecture.md)
 - [adr.seqlane-plan-ir-and-typed-dataflow — Use a Seqlane-Owned Plan IR with Typed Dataflow](../adrs/2026-09-02-seqlane-plan-ir-and-typed-dataflow.md)

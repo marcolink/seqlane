@@ -1,10 +1,11 @@
-// @test-scope ./effect-process.ts
+// @test-scope ./effect-process.ts ../../runner/owned-process-registry.ts
 
-import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { OwnedProcessRegistry } from "../../runner/owned-process-registry.js";
 import {
   LocalProcessCancelledError,
   LocalProcessOutputLimitError,
@@ -62,6 +63,53 @@ async function waitForProcessToExit(pid: number): Promise<boolean> {
 }
 
 describe("Effect deterministic process integration", () => {
+  it.skipIf(process.platform === "win32")(
+    "keeps output when the process exits before supervisor registration captures its identity",
+    async () => {
+      const workspace = await mkdtemp(
+        join(tmpdir(), "seqlane-effect-process-"),
+      );
+      const exitGate = join(workspace, "exit");
+      const sent: string[] = [];
+      const registry = new OwnedProcessRegistry({
+        send(message, callback) {
+          sent.push(message);
+          callback?.();
+          return true;
+        },
+      });
+      let registrationReached = false;
+      try {
+        const result = await runLocalProcess(
+          request({
+            args: [
+              "-e",
+              "const fs = require('node:fs'); const timer = setInterval(() => { if (fs.existsSync(process.argv[1])) { clearInterval(timer); process.stdout.write('short output'); } }, 1)",
+              exitGate,
+            ],
+            onOwnedProcessAcquired: async (pid) => {
+              registrationReached = true;
+              await writeFile(exitGate, "exit");
+              expect(await waitForProcessToExit(pid)).toBe(true);
+              await registry.register(pid);
+            },
+          }),
+        );
+
+        expect(registrationReached).toBe(true);
+        expect(result).toMatchObject({
+          exitCode: 0,
+          stdout: "short output",
+          outcome: "completed",
+        });
+        await registry.releaseStoppedProcesses();
+        expect(sent).toEqual([]);
+      } finally {
+        await rm(workspace, { recursive: true, force: true });
+      }
+    },
+  );
+
   it("uses Effect's scoped Node process with direct argv, cwd, and timing", async () => {
     const literalArgument = "$(not-a-shell); literal argument";
     const workspace = await mkdtemp(join(tmpdir(), "seqlane-effect-process-"));

@@ -5,13 +5,17 @@ status: completed
 owners:
   - core
 created: 2026-09-08
-updated: 2026-09-16
+updated: 2026-10-22
 upstream:
-  - spec.mastra-backed-seqlane-workflows
+  - spec.workflow-execution-semantics
 supersedes: []
 ---
 
 # Remove Seqlane Events
+
+> Historical task record. Scope and outcomes describe work before the current migration.
+> Current execution authority: [Effect v4 execution and operations](../specs/2026-10-21-effect-v4-execution-and-operations.md).
+> Current-owner links record the later contract transfer. They do not establish historical Effect v4 use or current delivery.
 
 ## Objective
 
@@ -20,14 +24,14 @@ the `@seqlane/protocol` serialized contracts.
 
 The public authoring surface remains in `@seqlane/core`. The protocol package
 owns runner commands, serialized execution events, errors, and Plan snapshots.
-Runtime emission, Mastra telemetry, and bounded Studio or recording projections
+Runtime emission, runtime telemetry, and bounded Studio or recording projections
 remain separate.
 
 ## Upstream requirements
 
-- `REQ-OBS-002`: Migrate runner and event consumers.
+- [REQ-RUNNER-001: Canonical protocol ownership](../specs/2026-10-22-workflow-execution-semantics.md#req-runner-001-own-serialized-contracts-in-protocol)
 - `REQ-COMPAT-001`: Preserve current user-visible behavior.
-- [spec.mastra-backed-seqlane-workflows](../specs/2026-09-08-mastra-backed-seqlane-workflows.md)
+- [spec.workflow-execution-semantics](../specs/2026-10-22-workflow-execution-semantics.md)
 
 ## Dependencies
 
@@ -47,7 +51,7 @@ remain separate.
 
 ## Out of scope
 
-- Removing Mastra observability.
+- Removing runtime observability.
 - Removing runner notifications or typed run outcomes.
 - Deleting Studio, recording, or replay.
 - Moving the rich in-process event model and event sink out of `@seqlane/core`;
@@ -92,10 +96,10 @@ Then run the full gate:
 
 - `@seqlane/events` has no source, project, export, or dependency reference.
 - `@seqlane/protocol` owns the replacement serialized contracts without a
-  dependency on Mastra or executor packages.
+  dependency on runtime-engine or executor packages.
 - Runner, CLI, output, Studio, recording, and replay checks pass.
 - Typed outcomes and narrow notifications remain available.
-- No duplicate replacement schema, generic event bus, or Mastra type is
+- No duplicate replacement schema, generic event bus, or runtime-engine type is
   introduced.
 - The changed behavior passes every required check.
 - Any remaining failure is proven on the unchanged baseline and recorded.
@@ -109,7 +113,7 @@ workspace references are removed. `@seqlane/protocol` owns the replacement
 serialized contracts. Current application and runtime consumers use the
 replacement package.
 
-## Delivery state
+## Historical delivery state
 
 Delivered to the default branch through [pull request
 #107](https://github.com/marcolink/seqlane/pull/107). This pull request
@@ -117,7 +121,7 @@ superseded the closed pull request #104.
 
 ## Traceability
 
-- [spec.mastra-backed-seqlane-workflows: Mastra-Backed Seqlane Workflow Contracts](../specs/2026-09-08-mastra-backed-seqlane-workflows.md)
-- [adr.mastra-backed-seqlane-workflows: Center Seqlane Workflows on a Mastra-Backed Executable DSL](../adrs/2026-09-08-mastra-backed-seqlane-workflows.md)
+- [spec.workflow-execution-semantics: Workflow Authoring and Execution Semantics](../specs/2026-10-22-workflow-execution-semantics.md)
+- [rfc.effect-v4-migration: Full Effect v4 Migration](../rfcs/2026-10-21-effect-v4-migration.md)
 - [adr.separate-seqlane-protocol-package: Separate Seqlane Protocol Contracts from Core Authoring](../adrs/2026-09-13-separate-seqlane-protocol-package.md)
 - [task.migrate-execution-event-consumers: Migrate Execution Event Consumers](./2026-09-08-migrate-execution-event-consumers.md)

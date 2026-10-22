@@ -5,7 +5,7 @@ status: accepted
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-03
+updated: 2026-10-22
 upstream:
   - rfc.seqlane-technical-architecture
 supersedes: []
@@ -31,7 +31,7 @@ final result and to a repeat postcondition.
 
 The design must preserve these existing constraints:
 
-- Seqlane core and serialized Plans remain independent of Mastra and concrete
+- Seqlane core and serialized Plans remain independent of runtime engines and concrete
   executors.
 - Runs remain autonomous and non-interactive under adr.autonomous-non-interactive-execution.
 - V1 has no implicit automatic retry under adr.autonomous-non-interactive-execution.
@@ -127,7 +127,7 @@ autonomous V1 runtime. Deferred.
 
 ## Constraints
 
-- `seqlane-core` must not import Mastra or executor types.
+- `seqlane-core` must not import runtime-library or executor types.
 - Serialized Plans must contain validator identity, bindings, and policy only;
   they must not contain callbacks, prompts resolved to executor objects, or
   model/client instances.

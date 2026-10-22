@@ -10,55 +10,42 @@ upstream:
   - prd.seqlane-runtime
   - brd.seqlane
 supersedes:
-  - rfc.mastra-runtime-and-operational-foundation
-  - adr.mastra-backed-seqlane-workflows
-  - adr.mastra-local-mechanical-tasks
+  - adr.engine-opaque-agent-adapter-contracts
+  - adr.seqlane-plan-ir-and-typed-dataflow
+  - adr.fluent-seqlane-flow-dsl
+  - adr.effect-private-runtime-engine
+  - adr.dedicated-runner-process
+  - adr.local-read-only-execution-studio
+  - adr.local-development-studio-trust-and-lifecycle
+  - adr.studio-vite-development-and-isolated-replay
+  - rfc.seqlane-technical-architecture
+  - rfc.high-fidelity-local-observability
 ---
 
 # Full Effect v4 Migration
 
 ## Summary
 
-Replace Mastra across every workspace package with Effect v4 execution and services.
+Use Effect v4 execution and services across every workspace package.
 Keep Oclif for CLI commands, flags, argument validation, help, and exit conventions.
 Keep Zod as the canonical validator for public and wire contracts, as the user requested.
 Preserve Seqlane authoring semantics, canonical observations, terminal output, and hosted inspection.
 
-The final tracked tree must contain no Mastra code, dependency, name, documentation, fixture, skill, or generated artifact.
+The final tracked tree and distributions contain only the selected runtime integration, with no retired engine code, dependency, name, documentation, fixture, skill, or generated artifact.
 Git history and previously published releases remain unchanged.
 This accepted RFC records the architecture decision and migration plan. It does not claim runtime delivery.
 
 ## Context
 
-The source snapshot inspected for this inventory was commit `51249b721a340959702e550fb84e7a3bd51ed59f` in a detached, initially clean checkout. This records the state of that snapshot only; it does not describe the current branch or establish delivery on `main`.
+The workspace contains 23 package manifests. CLI, direct Action callers, HTTP,
+and MCP share one run-scoped Effect program. Public workflow definitions,
+Plans, serialized events, and CLI results stay engine-independent.
 
-The workspace has 23 package manifests. Direct dependencies occur in four packages:
-
-| Package         | Current dependency or responsibility                                                                             |
-| --------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `libs/runtime`  | `@mastra/core`, Hono integration, LibSQL storage, MCP, observability, server, graph compilation, local processes |
-| `libs/acp`      | `@mastra/acp`, `@mastra/core`, agent transport, observation projection                                           |
-| `libs/opencode` | `@mastra/core` for native observation projection                                                                 |
-| `apps/cli`      | `mastra` for the hidden Studio command                                                                           |
-
-`git grep -il mastra` found 255 tracked files, including 171 under `docs/sdlc`.
-The remaining matches include source, tests, package metadata, skills, CI, and lint configuration.
-These numbers describe the inspected checkout and must be regenerated before implementation.
-
-Current execution paths include both the supervised CLI runner and direct Action callers:
-
-```text
-Oclif run -> runner child -> load/validate Plan -> createMastraPlanExecution
-Action -> startWorkflowRun ------------------> createMastraPlanExecution
-                                                 |
-                                       compiler / runtime / adapters
-                                                 |
-                              canonical events + native trace projection
-```
-
-`run` is ephemeral. Hosted commands provide separate persistence and inspection.
-The runner and `startWorkflowRun` duplicate lifecycle work; both must converge on one Effect program.
-The existing Promise dependency program is another migration target, not an engine to retain under a new name.
+Standalone runs are ephemeral. Hosted persistence and inspection are explicit
+capabilities with a fresh versioned database. Canonical protocol events remain
+the source of truth for observations; traces, logs, metrics, and TUI views are
+projections. Package and release verification establishes delivery separately
+from this accepted architecture decision.
 
 ## Goals
 
@@ -79,16 +66,22 @@ The existing Promise dependency program is another migration target, not an engi
 
 ## Documentation impact
 
-Classification: architecture change, with operational contract changes.
+Classification: architecture change with operational contract changes.
 
-- BRD: no change. The software-engineering workflow outcome remains the same.
-- PRD: replace `prd.seqlane-on-mastra` with an engine-neutral product document. Preserve its non-engine product requirements.
-- RFC: this RFC replaces the accepted Mastra runtime foundation; its acceptance records architecture authority, not code delivery.
-- ADR: replace the workflow-engine and local-process decisions. Revise engine-opaque adapter and observability decisions.
-- SPEC: the linked active target contract supersedes the engine-specific runtime contracts. Retained product semantics remain in force through that contract.
-- TASK: create the linked delivery task with ordered vertical slices and deletion gates.
+- PRD owns retained product requirements, including typed workflows, choice,
+  classifier behavior, sessions, workspace policy, output quality, and distribution.
+- This RFC owns the selected runtime architecture and package dispositions.
+- The Effect specification owns run programs, external resources, telemetry,
+  CLI/Action composition, hosted inspection, and final removal gates.
+- Focused workflow and adapter-observation specifications own the transferred
+  detailed semantics; specialized neutral contracts remain authoritative.
+- Tasks own scoped delivery evidence. The final gate retains release and
+  exact-head CI requirements.
 
-The former accepted Mastra RFC and engine-specific ADR/spec records are superseded by this accepted RFC and active target spec. Their engine-independent product requirements remain normative through explicit incorporation in the target spec until transferred to target-only owners by S12. The user authorized the full migration; implementation remains incomplete until each task slice has evidence.
+Retained requirements have target-only canonical owners. Obsolete engine
+records can be removed after their inbound IDs and links are reconciled.
+The complete-removal decision overrides normal tracked historical retention;
+Git history remains available. This transfer makes no historical Effect claim.
 
 ## Decision
 
@@ -118,7 +111,7 @@ Oclif / Action / HTTP / MCP composition root
 ```
 
 Use the existing validated Plan and ordering rules.
-Replace `compilePlanToMastra`, private envelopes, runtime composition, and the Promise scheduler with a thin Plan interpreter.
+A thin Plan interpreter owns domain interpretation; Effect owns dependency waiting, concurrency, scopes, and interruption.
 Use `Deferred` for dependency completion and scoped fibers for node execution.
 Use bounded Effect concurrency for runnable bodies, not for fibers that only wait on dependencies.
 Otherwise a waiting dependent can consume the permit required by its prerequisite.
@@ -141,35 +134,21 @@ Do not call `runPromise` inside the Plan scheduler, retry policy, event reducer,
 Interop must preserve the owning scope, parent span, interruption, and original cause.
 A Promise wrapper around the old scheduler does not satisfy migration.
 
-Illustrative lifecycle change, using proposed private helper names:
-
-Before:
-
-```ts
-const execution = createMastraPlanExecution(options);
-try {
-  return await execution.runtime.run(request);
-} finally {
-  await execution.runtime.shutdown();
-}
-```
-
-After:
+The run program acquires its resources in a scope and evaluates only at the
+owning composition boundary:
 
 ```ts
-import { Effect } from "effect";
-
 const program = Effect.gen(function* () {
   const execution = yield* acquirePlanExecution(options);
   return yield* execution.run(request);
 }).pipe(Effect.scoped, Effect.withSpan("seqlane.run"));
 
-// Only the Oclif or direct-call boundary evaluates the program.
 return Effect.runPromise(program.pipe(Effect.provide(RunLive)));
 ```
 
-The helper and layer names describe the target design. This example is not compiled implementation evidence.
-`acquirePlanExecution` registers cleanup during acquisition, including partial acquisition failure.
+These illustrative helper names describe ownership, not an exported API or
+compiled delivery evidence. Acquisition registers cleanup before external work,
+including partial-acquisition failure.
 
 ### decision-effect-capabilities
 
@@ -266,7 +245,7 @@ The host provides typed Effect services for execution, registry access, hosted h
 HTTP and MCP must share the same run identity, cancellation handle, and event stream.
 Keep loopback binding, origin checks, concurrency bounds, and shutdown behavior.
 
-Replace private engine response shapes in `operational-client.ts` with protocol-owned Zod DTOs.
+Operational clients consume protocol-owned Zod DTOs.
 Retain useful existing endpoint paths where possible; do not expose or recreate the previous framework API wholesale.
 Inventory each consumed endpoint before removal. The target contract defines the required operations.
 
@@ -278,33 +257,33 @@ Mark unfinished runs interrupted after host loss; do not replay side effects.
 
 ## Architecture and boundaries
 
-Every package has an explicit disposition. “Audit” includes source, dependencies, tests, exports, documentation, and build output.
+Every package has an explicit disposition. “Audit” includes source, dependencies, tests, exports, documentation, and build output. S1–S11 record scoped verification. S12 records the final complete-tree, production dependency, and distribution audit. All 23 package dispositions pass.
 
-| Package path                            | Migration disposition                                                                                                                                      |
-| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `libs/core`                             | Keep DSL, Plan, identity, Zod, and public Promise callbacks. Remove engine language and strengthen public-boundary tests                                   |
-| `libs/protocol`                         | Keep canonical Zod schemas, serialization, versioning, observation semantics, and malformed-input checks. Own new operational DTOs                         |
-| `libs/runtime`                          | Replace engine compilation, envelopes, execution, local processes, host, storage, telemetry, and duplicate lifecycle code with Effect                      |
-| `libs/adapter`                          | Keep one generic capability contract. Convert private orchestration to Effect; remove engine-context obligations after projection callers migrate          |
-| `libs/opencode`                         | Keep native SDK/harness. Scope connections, streams, checkpoints, forks, repair attempts, and cleanup; replace native trace projection                     |
-| `libs/codex`                            | Keep native app-server transport. Migrate connection, stream, request, cancellation, and process lifetimes; preserve observation availability              |
-| `libs/acp`                              | Replace `@mastra/acp` with the official ACP SDK client. Preserve ACP v1 negotiation, permissions, model selection, output repair, and capability reporting |
-| `libs/tui`                              | Keep Ink/React and pure reducers. Migrate stream subscription/disposal where needed; preserve complete values and passive terminal behavior                |
-| `libs/fixtures`                         | Replace engine fixtures with portable workflow fixtures and reusable Effect test services                                                                  |
-| `libs/action-code-review`               | Execute through the common Effect program. Migrate I/O and cancellation; preserve pure review state, publication limits, and exact write confirmation      |
-| `libs/action-merge-conflict-resolution` | Migrate agent runner, workspace/process operations, and cancellation; remove old observation forwarding                                                    |
-| `libs/action-service-lifecycle`         | Scope service acquisition, readiness, teardown, and bounded retries for its real Action consumers                                                          |
-| `apps/cli`                              | Effect command/application orchestration behind Oclif; runner supervision and output parity; host/replay/plan migration; launcher removal                  |
-| `apps/docs`                             | Rewrite architecture, setup, operation, observability, and examples. Keep VitePress                                                                        |
-| `workflows/code-review`                 | Preserve workflow behavior and Zod schemas. Migrate affected callback integration and verify review fixture results                                        |
-| `workflows/read-context`                | Preserve behavior and Zod schemas. Verify deterministic and agent execution through Effect                                                                 |
-| `workflows/resolve-merge-conflicts`     | Preserve workflow behavior, session/workspace policy, and schemas. Verify conflict-resolution fixtures                                                     |
-| `actions/code-review`                   | Effect composition behind Actions SDK entry/post hooks; rebuild and inspect both bundles                                                                   |
-| `actions/resolve-merge-conflicts`       | Same runtime and lifecycle migration; preserve Action inputs, outputs, and non-interactive behavior                                                        |
-| `actions/opencode-server`               | Effect-backed lifecycle helper; preserve ready/owned-service/post-cleanup behavior                                                                         |
-| `actions/ripwire-server`                | Same service lifecycle; preserve Zod input contract and transport behavior                                                                                 |
-| `actions/zvec-grep-server`              | Same service lifecycle; preserve transport, ownership, and cleanup                                                                                         |
-| `actions/setup-opencode`                | Scope download/cache/tool operations behind Effect; preserve Actions SDK and Zod input contract                                                            |
+| Package path                            | Required disposition                                                                                                                                  | Scoped result and remaining gate                                                                |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `libs/core`                             | Keep DSL, Plan, identity, Zod, and public Promise callbacks. Remove engine language and strengthen public-boundary tests                              | S4/S7 public contracts; S12 source, dependency, and distribution audit passes                   |
+| `libs/protocol`                         | Keep canonical Zod schemas, serialization, versioning, observation semantics, and malformed-input checks. Own new operational DTOs                    | S8/S10 event and hosted contracts; S12 source, dependency, and distribution audit passes        |
+| `libs/runtime`                          | Replace engine compilation, envelopes, execution, local processes, host, storage, telemetry, and duplicate lifecycle code with Effect                 | S1–S10 execution and operations; S12 source, dependency, and distribution audit passes          |
+| `libs/adapter`                          | Keep one generic capability contract, Effect-owned orchestration, and canonical observation sinks without engine-context obligations                  | S5 generic adapter boundary; S12 source, dependency, and distribution audit passes              |
+| `libs/opencode`                         | Keep native SDK/harness. Scope connections, streams, checkpoints, forks, repair attempts, and cleanup; replace native trace projection                | S5 native adapter; S12 source, dependency, and distribution audit passes                        |
+| `libs/codex`                            | Keep native app-server transport. Migrate connection, stream, request, cancellation, and process lifetimes; preserve observation availability         | S5 native adapter; S12 source, dependency, and distribution audit passes                        |
+| `libs/acp`                              | Use the official ACP SDK client. Preserve ACP v1 negotiation, permissions, model selection, output repair, and capability reporting                   | S6 official SDK transport; S12 source, dependency, and distribution audit passes                |
+| `libs/tui`                              | Keep Ink/React and pure reducers. Migrate stream subscription/disposal where needed; preserve complete values and passive terminal behavior           | S8/S9 observation and output parity; S12 source, dependency, and distribution audit passes      |
+| `libs/fixtures`                         | Replace engine fixtures with portable workflow fixtures and reusable Effect test services                                                             | S4/S9 shared runtime fixtures; S12 source, dependency, and distribution audit passes            |
+| `libs/action-code-review`               | Execute through the common Effect program. Migrate I/O and cancellation; preserve pure review state, publication limits, and exact write confirmation | S9/S11 direct caller and distribution; S12 source, dependency, and distribution audit passes    |
+| `libs/action-merge-conflict-resolution` | Migrate agent runner, workspace/process operations, and cancellation; remove old observation forwarding                                               | S11 Action orchestration; S12 source, dependency, and distribution audit passes                 |
+| `libs/action-service-lifecycle`         | Scope service acquisition, readiness, teardown, and bounded retries for its real Action consumers                                                     | S11 service lifetimes; S12 source, dependency, and distribution audit passes                    |
+| `apps/cli`                              | Effect command/application orchestration behind Oclif; runner supervision and output parity; host/replay/plan migration; launcher removal             | S9/S10 CLI and hosted inspection; S12 source, dependency, and distribution audit passes         |
+| `apps/docs`                             | Rewrite architecture, setup, operation, observability, and examples. Keep VitePress                                                                   | S12 transfer, public docs build, and 350-document validation pass                               |
+| `workflows/code-review`                 | Preserve workflow behavior and Zod schemas. Migrate affected callback integration and verify review fixture results                                   | S11 consuming workflow audit; S12 source, dependency, and distribution audit passes             |
+| `workflows/read-context`                | Preserve behavior and Zod schemas. Verify deterministic and agent execution through Effect                                                            | S11 consuming workflow audit; S12 source, dependency, and distribution audit passes             |
+| `workflows/resolve-merge-conflicts`     | Preserve workflow behavior, session/workspace policy, and schemas. Verify conflict-resolution fixtures                                                | S11 consuming workflow audit; S12 source, dependency, and distribution audit passes             |
+| `actions/code-review`                   | Effect composition behind Actions SDK entry/post hooks; rebuild and inspect both bundles                                                              | S11 hosted Action main/post verification; S12 source, dependency, and distribution audit passes |
+| `actions/resolve-merge-conflicts`       | Same runtime and lifecycle migration; preserve Action inputs, outputs, and non-interactive behavior                                                   | S11 hosted Action main/post verification; S12 source, dependency, and distribution audit passes |
+| `actions/opencode-server`               | Effect-backed lifecycle helper; preserve ready/owned-service/post-cleanup behavior                                                                    | S11 hosted Action main/post verification; S12 source, dependency, and distribution audit passes |
+| `actions/ripwire-server`                | Same service lifecycle; preserve Zod input contract and transport behavior                                                                            | S11 hosted Action main/post verification; S12 source, dependency, and distribution audit passes |
+| `actions/zvec-grep-server`              | Same service lifecycle; preserve transport, ownership, and cleanup                                                                                    | S11 hosted Action main/post verification; S12 source, dependency, and distribution audit passes |
+| `actions/setup-opencode`                | Scope download/cache/tool operations behind Effect; preserve Actions SDK and Zod input contract                                                       | S11 hosted Action main/post verification; S12 source, dependency, and distribution audit passes |
 
 Root tooling also changes: manifests, lockfile, Nx inputs/tags, TS references, release checks, CI, hooks, root docs, and tracked skills.
 Keep existing short Action library boundaries. Do not introduce a generic Action framework.
@@ -332,10 +311,9 @@ Replacing every pure function with Effect adds dependencies without changing exe
 | Integration modules change within v4                   | Exact pins, owned imports, installed declaration checks, and focused integration tests                       |
 | Broad cleanup breaks traceability                      | Regenerate links/indexes after contract transfer, then validate the entire corpus                            |
 
-`effect@4.0.5` passes the Snyk package/version check for known direct issues at planning time.
-This is not a transitive dependency audit.
-Scoped-package pages were partly unavailable or stale. Companion packages and the ACP SDK require fresh exact-version checks before installation.
-No dependencies were installed or changed for this plan.
+Security and license verification covers the complete production dependency
+closure at the final release gate. A direct package/version check alone does
+not prove transitive dependency safety or current artifact contents.
 
 ## Migration or rollout
 
@@ -347,32 +325,39 @@ Rollback uses the previous complete commit/release, not a fallback engine.
 Use additive hosted schema migrations during development and keep old databases untouched.
 Do not promote a failed tracer or infer readiness from document status.
 
-The final cleanup includes this document's before examples, inventory names, legacy paths, and traceability links.
-Transfer retained contracts into target-only documents before removing obsolete canonical records.
-Then remove or rewrite migration records and replace legacy stable IDs in all relationships.
-The user's complete-removal requirement takes precedence over the usual policy of retaining superseded engine documents in the tracked tree.
+Retained contracts live in the linked current owners. Final verification audits
+all tracked names and content, dependency closure, and rebuilt release artifacts.
+Relationships reference extant target-only stable IDs and canonical paths.
 History remains recoverable through Git.
 
 ## Open questions
 
 No product-scope question blocks this plan. Oclif and public/wire Zod are explicit constraints.
 Exact companion package versions and platform termination behavior are implementation verification gates, not assumed results.
-The proposed Studio removal and fresh hosted-history format are explicit behavior changes for review.
+Launcher removal and the fresh hosted-history format are explicit behavior changes; the runtime specification owns their inspection and recovery requirements.
 
 ## Delivery state
 
-Architecture accepted and target contract active. [S1](../tasks/2026-10-21-effect-v4-effect-tracer.md) records branch-local process evidence. [S2](../tasks/2026-10-21-effect-v4-dependency-graphs.md) records dependency-graph parity through the private CLI and direct compositions. [S3](../tasks/2026-10-21-effect-v4-sessions-and-workspace-admission.md) records session lineage, atomic admission, observations, and cleanup through both compositions. [S4](../tasks/2026-10-21-effect-v4-nested-workflows-and-validation.md) records nested execution, choices, repeats, validation, shared limits, and cleanup. [S5](../tasks/2026-10-21-effect-v4-native-adapters-and-observations.md) records native adapter ownership, full observations, and confirmed cancellation. [S6](../tasks/2026-10-21-effect-v4-acp-transport.md) records official ACP transport ownership, complete native updates, and confirmed process cleanup. [S7](../tasks/2026-10-21-effect-v4-classifier-and-deadlines.md) records classifier transport ownership, native retry schedules, monotonic deadlines, and mixed direct/CLI caller evidence. [S8](../tasks/2026-10-21-effect-v4-telemetry-and-event-pressure.md) records real trace correlation, complete observations, native metrics and logs, bounded required-event delivery, and isolated optional OTLP export. [S9](../tasks/2026-10-21-effect-v4-cli-and-action-cutover.md) records production CLI/direct Action cutover, shared native process identity, bounded supervision, original failure causes, and compiled caller parity. [S10](../tasks/2026-10-21-effect-v4-hosted-history-and-inspection.md) records native hosted HTTP/MCP, transactional SQL history, versioned inspection, cancellation and admission ownership, persisted observations and traces, and crash recovery without replay. [S11](../tasks/2026-10-21-effect-v4-remaining-actions-and-distribution.md) records all six Actions, shared libraries, production distributions, and actual hosted entry/post verification with [passing CI](https://github.com/marcolink/seqlane/actions/runs/39744581106). S12 owns complete removal and release verification.
+Architecture accepted and target contracts active. [S1](../tasks/2026-10-21-effect-v4-effect-tracer.md) records branch-local process evidence. [S2](../tasks/2026-10-21-effect-v4-dependency-graphs.md) records dependency-graph parity through the private CLI and direct compositions. [S3](../tasks/2026-10-21-effect-v4-sessions-and-workspace-admission.md) records session lineage, atomic admission, observations, and cleanup through both compositions. [S4](../tasks/2026-10-21-effect-v4-nested-workflows-and-validation.md) records nested execution, choices, repeats, validation, shared limits, and cleanup. [S5](../tasks/2026-10-21-effect-v4-native-adapters-and-observations.md) records native adapter ownership, full observations, and confirmed cancellation. [S6](../tasks/2026-10-21-effect-v4-acp-transport.md) records official ACP transport ownership, complete native updates, and confirmed process cleanup. [S7](../tasks/2026-10-21-effect-v4-classifier-and-deadlines.md) records classifier transport ownership, native retry schedules, monotonic deadlines, and mixed direct/CLI caller evidence. [S8](../tasks/2026-10-21-effect-v4-telemetry-and-event-pressure.md) records real trace correlation, complete observations, native metrics and logs, bounded required-event delivery, and isolated optional OTLP export. [S9](../tasks/2026-10-21-effect-v4-cli-and-action-cutover.md) records production CLI/direct Action cutover, shared native process identity, bounded supervision, original failure causes, and compiled caller parity. [S10](../tasks/2026-10-21-effect-v4-hosted-history-and-inspection.md) records native hosted HTTP/MCP, transactional SQL history, versioned inspection, cancellation and admission ownership, persisted observations and traces, and crash recovery without replay. [S11](../tasks/2026-10-21-effect-v4-remaining-actions-and-distribution.md) records all six Actions, shared libraries, production distributions, and actual hosted entry/post verification with [passing CI](https://github.com/marcolink/seqlane/actions/runs/39744581106). [S12](../tasks/2026-10-21-effect-v4-complete-removal-and-release.md) completes requirement transfer, full removal, all 23 package audits, installed packages, clean artifacts, and release dry runs. [Implementation-checkpoint CI](https://github.com/marcolink/seqlane/actions/runs/39751001939) passes; the final task commit reconciles documentation only. Delivery is the reachable S12 task commit with passing CI on its exact published head, recorded in [branch CI history](https://github.com/marcolink/seqlane/actions/workflows/ci.yml?query=branch%3Afeat%2Feffect-v4-migration). No default-branch merge or registry publication is claimed.
 
 ## Traceability
 
 - [brd.seqlane: Business requirements](../brd/2026-09-02-seqlane.md)
 - [prd.seqlane-runtime: Product requirements](../prd/2026-10-21-seqlane-runtime.md)
-- [Superseded product requirements](../prd/2026-09-03-seqlane-on-mastra.md)
-- [Current runtime foundation](./2026-09-03-mastra-runtime-and-operational-foundation.md)
-- [Current workflow contracts](../specs/2026-09-08-mastra-backed-seqlane-workflows.md)
+- [Workflow authoring and execution semantics](../specs/2026-10-22-workflow-execution-semantics.md)
+- [Adapter observation lifecycle and projection](../specs/2026-10-22-adapter-observation-projection.md)
 - [Standalone CLI contract](../specs/2026-09-16-standalone-cli-runs.md)
-- [Engine-opaque adapter boundary](../adrs/2026-09-18-engine-opaque-agent-adapter-contracts.md)
-- [Observation target contract, retained for later reconciliation](../specs/2026-09-19-otel-aligned-observation-contract.md)
+- Supersedes [the earlier private-runtime decision](../adrs/2026-09-02-effect-private-runtime-engine.md).
+- Supersedes [the earlier technical architecture](./2026-09-02-seqlane-technical-architecture.md).
+- Supersedes [the local high-fidelity proposal](./2026-09-19-high-fidelity-local-observability.md).
+- Supersedes [the dedicated runner decision](../adrs/2026-09-02-dedicated-runner-process.md).
+- Supersedes [the local read-only Studio decision](../adrs/2026-09-02-local-read-only-execution-studio.md).
+- Supersedes [the local Studio lifecycle decision](../adrs/2026-09-02-local-development-studio-trust-and-lifecycle.md).
+- Supersedes [the Studio development and replay decision](../adrs/2026-09-02-studio-vite-development-and-isolated-replay.md).
+- Supersedes [the earlier Plan representation decision](../adrs/2026-09-02-seqlane-plan-ir-and-typed-dataflow.md).
+- Supersedes [the earlier fluent DSL decision](../adrs/2026-09-02-fluent-seqlane-flow-dsl.md).
+- Supersedes [the opaque adapter context decision](../adrs/2026-09-18-engine-opaque-agent-adapter-contracts.md).
+- [Canonical observation fields and OTel mapping](../specs/2026-09-19-otel-aligned-observation-contract.md)
 - [Effect migration target contract](../specs/2026-10-21-effect-v4-execution-and-operations.md)
 - [Effect migration delivery task](../tasks/2026-10-21-migrate-all-packages-to-effect-v4.md)
 

@@ -5,14 +5,18 @@ status: in-progress
 owners:
   - core
 created: 2026-09-17
-updated: 2026-09-17
+updated: 2026-10-22
 upstream:
-  - spec.mastra-runtime-and-operational-integration
+  - spec.effect-v4-execution-and-operations
   - spec.executor-neutral-workflow-authoring
 supersedes: []
 ---
 
 # Simplify Direct Workflow Runs
+
+> Historical task record. Scope and outcomes describe work before the current migration.
+> Current execution authority: [Effect v4 execution and operations](../specs/2026-10-21-effect-v4-execution-and-operations.md).
+> Current-owner links record the later contract transfer. They do not establish historical Effect v4 use or current delivery.
 
 ## Objective
 
@@ -24,7 +28,7 @@ isolated runner child without Seqlane operational-host or persistence overhead.
 - Require an explicit workflow file or package entrypoint.
 - Remove catalog and descriptor resolution from `run` only.
 - Route dry and executing runs through the existing runner IPC boundary.
-- Keep direct Mastra execution and the existing runtime-profile and adapter
+- Keep direct runtime execution and the existing runtime-profile and adapter
   configuration contract inside the worker.
 - Remove run-owned operational host, durable storage, history, recording, and
   GitHub summary behavior from `run`.
@@ -62,5 +66,5 @@ branch; this task status is not delivery evidence.
 
 ## Traceability
 
-- [spec.mastra-runtime-and-operational-integration](../specs/2026-09-03-mastra-runtime-and-operational-integration.md)
+- [spec.effect-v4-execution-and-operations](../specs/2026-10-21-effect-v4-execution-and-operations.md)
 - [spec.executor-neutral-workflow-authoring](../specs/2026-09-02-executor-neutral-workflow-authoring.md)

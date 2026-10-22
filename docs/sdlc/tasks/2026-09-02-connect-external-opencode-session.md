@@ -5,13 +5,17 @@ status: completed
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-03
+updated: 2026-10-22
 upstream:
   - spec.opencode-executor-integration
 supersedes: []
 ---
 
 # Connect to one external OpenCode session
+
+> Historical task record. Scope and outcomes describe work before the current migration.
+> Current execution authority: [Effect v4 execution and operations](../specs/2026-10-21-effect-v4-execution-and-operations.md).
+> Current-owner links record the later contract transfer. They do not establish historical Effect v4 use or current delivery.
 
 > Migrated from implementation story `TS-004-02`.
 
@@ -37,26 +41,29 @@ supersedes: []
 
 ## Implementation Notes
 
-Use the public SDK configuration to target the supplied URL. Do not call a local OpenCode process helper. The adapter queue is required even though the spec.mastra-runtime-integration MVP compiler is sequential. This protects session message boundaries after later scheduler changes.
+Use the public SDK configuration to target the supplied URL. Do not call a local OpenCode process helper. The adapter queue preserves session message boundaries independently of Plan concurrency.
 
 ## Acceptance Criteria
 
-**Scenario:** *A Run gets one new external session*
+**Scenario:** _A Run gets one new external session_
+
 - **Given:** A compatible externally running OpenCode server
 - **When:** The runner starts one OpenCode workflow Run
 - **Then:** The adapter creates one client and one new session for that Run, and retains no raw session value outside the runner
 
-**Scenario:** *Runs do not share session state*
+**Scenario:** _Runs do not share session state_
+
 - **Given:** Two sequential Seqlane Runs against the same server
 - **When:** Both Runs prepare OpenCode execution
 - **Then:** Each Run uses a different client, session, queue, and cancellation state
 
-**Scenario:** *An invalid server does not change lifecycle ownership*
+**Scenario:** _An invalid server does not change lifecycle ownership_
+
 - **Given:** An unreachable or incompatible OpenCode URL
 - **When:** The runner prepares execution
 - **Then:** The Run fails with a Seqlane executor error and Seqlane does not launch, stop, enumerate, or delete OpenCode resources
 
-## Source
+## Source and current owners
 
 - [rfc.seqlane-technical-architecture — Seqlane Technical Architecture](../rfcs/2026-09-02-seqlane-technical-architecture.md)
 - [adr.opencode-executor-integration — Integrate OpenCode Through a Seqlane-Owned Executor Boundary](../adrs/2026-09-02-opencode-executor-integration.md)

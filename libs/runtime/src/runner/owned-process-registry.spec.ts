@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const processHelpers = vi.hoisted(() => ({
   captureOwnedProcessIdentity: vi.fn(),
+  confirmOwnedProcessGroupStopped: vi.fn(),
   confirmOwnedProcessStopped: vi.fn(),
   terminateOwnedProcess: vi.fn(),
 }));
@@ -56,6 +57,36 @@ afterEach(() => {
 });
 
 describe("owned process registry", () => {
+  it("rejects unavailable identity when native group shutdown is unconfirmed", async () => {
+    const cause = new Error("Identity unavailable");
+    processHelpers.captureOwnedProcessIdentity.mockRejectedValue(cause);
+    processHelpers.confirmOwnedProcessGroupStopped.mockResolvedValue(false);
+    const { host, attach } = acknowledgedHost();
+    const registry = new OwnedProcessRegistry(host, 25);
+    attach(registry);
+
+    await expect(registry.register(40)).rejects.toBe(cause);
+    expect(host.send).not.toHaveBeenCalled();
+    expect(processHelpers.terminateOwnedProcess).not.toHaveBeenCalled();
+  });
+
+  it("preserves supervisor disconnect after a child has already stopped", async () => {
+    processHelpers.captureOwnedProcessIdentity.mockRejectedValue(
+      new Error("Process no longer exists"),
+    );
+    processHelpers.confirmOwnedProcessGroupStopped.mockResolvedValue(true);
+    const { host, attach } = acknowledgedHost();
+    const registry = new OwnedProcessRegistry(host, 25);
+    attach(registry);
+    registry.supervisorDisconnected();
+
+    await expect(registry.register(40)).rejects.toThrow(
+      "Runner supervisor disconnected",
+    );
+    expect(host.send).not.toHaveBeenCalled();
+    expect(processHelpers.terminateOwnedProcess).not.toHaveBeenCalled();
+  });
+
   it("requires a matching ACK before keeping a process lease", async () => {
     processHelpers.captureOwnedProcessIdentity.mockImplementation(
       async (pid: number) => identityFor(pid),

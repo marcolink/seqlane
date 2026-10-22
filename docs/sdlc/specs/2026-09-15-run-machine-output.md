@@ -5,9 +5,9 @@ status: active
 owners:
   - core
 created: 2026-09-15
-updated: 2026-10-05
+updated: 2026-10-22
 upstream:
-  - prd.seqlane-on-mastra
+  - prd.seqlane-runtime
   - rfc.execution-observability-and-debugging
   - adr.run-terminal-presentation-boundary
   - adr.standalone-cli-runs
@@ -430,7 +430,7 @@ request and evidence for the amended contract.
 - [adr.standalone-cli-runs](../adrs/2026-09-16-standalone-cli-runs.md)
 - [spec.standalone-cli-runs](./2026-09-16-standalone-cli-runs.md)
 
-- [prd.seqlane-on-mastra requirement-run-output-quality](../prd/2026-09-03-seqlane-on-mastra.md#requirement-run-output-quality)
+- [prd.seqlane-runtime requirement-run-output-quality](../prd/2026-10-21-seqlane-runtime.md)
 - [rfc.execution-observability-and-debugging: Seqlane Execution Observability and Debugging](../rfcs/2026-09-02-execution-observability-and-debugging.md)
 - [adr.run-terminal-presentation-boundary: Separate Run Terminal Presentation from Machine Results](../adrs/2026-09-15-run-terminal-presentation-boundary.md)
 - [spec.run-terminal-rendering: Run Terminal Rendering](./2026-09-15-run-terminal-rendering.md)

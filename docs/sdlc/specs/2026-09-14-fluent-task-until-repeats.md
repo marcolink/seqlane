@@ -5,16 +5,16 @@ status: active
 owners:
   - core
 created: 2026-09-14
-updated: 2026-10-21
+updated: 2026-10-22
 upstream:
-  - prd.seqlane-on-mastra
-  - spec.mastra-backed-seqlane-workflows
+  - prd.seqlane-runtime
+  - spec.workflow-execution-semantics
 supersedes: []
 ---
 
 # Fluent Task-Until Repeats
 
-> Runtime authority: Authoring, repeat limits, binding, admission, cancellation, and inspectable invocation semantics remain active. Mastra-native loop lowering and version-specific implementation requirements are superseded by the Effect v4 execution and operations spec. See [spec.effect-v4-execution-and-operations](./2026-10-21-effect-v4-execution-and-operations.md).
+> Runtime authority: authoring, limits, bindings, admission, cancellation, and identity remain active. The shared Effect program owns repetition under [the runtime contract](./2026-10-21-effect-v4-execution-and-operations.md).
 
 ## Summary
 
@@ -35,7 +35,7 @@ the implementation contract, not proof of runtime delivery.
   typed. Do not require the first input to contain a placeholder result. Let a
   later input reuse the initial input or bind values from earlier Flow tasks.
 - Keep the stop condition and next-input binding in the serializable Seqlane
-  Plan. Keep Mastra and executor types out of the public API.
+  Plan. Keep runtime-library and executor types out of the public API.
 - Preserve the existing bounded-repeat limits, typed errors, admission rules,
   cancellation, and inspectable invocations.
 
@@ -114,15 +114,14 @@ Task failure stops the repeat. Seqlane does not retry it. Cancellation stops
 the active attempt and prevents another attempt. No later workflow node can
 consume a repeat result after failure or cancellation.
 
-### requirement-mastra-lowering
+### requirement-effect-execution
 
-The private compiler lowers the repeat to Mastra-native post-condition loop
-control flow. If input and output shapes differ, private mapping steps or a
-private loop envelope adapt them without changing the public schema or adding
-a Seqlane-owned executor loop. The compiler enforces the iteration limit with
-Mastra's iteration count and normalizes limit errors to Seqlane's typed errors.
-The installed Mastra version's types and a focused runtime test must confirm
-the exact lowering before implementation.
+The private Effect program executes each attempt through the ordinary invocation
+kernel, checks the validated Boolean condition after its result, and prepares
+next input only when another attempt is needed. Input and output have distinct
+schemas; no private transport envelope changes either public contract.
+Use Effect scopes and run-wide limits. No persisted loop workflow or automatic
+resume is introduced. Normalize exhaustion into the existing typed errors.
 
 Every attempt and child invocation remains inspectable. The existing
 dependency, session, workspace, identity, cancellation, and observability
@@ -157,20 +156,12 @@ current attempt input and result have separate types. The return from
 `nextInput` must validate against the runnable's input schema before another
 attempt starts.
 
-The private Mastra lowering stores mutable repeat data in the loop workflow's
-native `stateSchema`. The current input and latest result use typed inline
-values. The runtime derives the initial input from immutable source values for
-each attempt that reuses it. When Mastra storage is available, the workflow
-input and immutable dependency outputs use typed references to the parent
-Mastra run snapshot. A workflow without storage uses bounded inline values.
-
-The complete loop state must be JSON-safe and no larger than 256 KiB. The
-runtime checks this limit before initial persistence and each state update.
-Each attempt envelope contains only JSON-safe control data: the attempt number,
-stop flag, run identity, repeat budget, and loop workflow/run reference. The
-envelope is bounded to 16 KiB. If Mastra resumes the internal loop, it restores
-the envelope and state through the same attempt boundary. This design does not
-add a public Seqlane suspend or resume API, or a second result store.
+Repeat state is run-scoped and private. Keep current input, latest validated
+result, attempt index, and shared run budget separately from immutable workflow
+input and dependency outputs. Preserve complete valid JSON values without a
+private persistence envelope or lossy summary. Nested graphs share one budget
+and resource-admission registry. Cancellation prevents the next attempt and
+awaits confirmed external termination before reuse.
 
 The type-level contract is:
 
@@ -206,7 +197,7 @@ returned by a `.task()` call and is consumed by that immediate chain.
 
 The serializable repeat node records the runnable kind and registry key, its
 initial input binding, stop-condition reference, optional next-input binding,
-and iteration limit. It records no authoring callback or Mastra object.
+and iteration limit. It records no authoring callback or runtime-library object.
 References inside the repeat are scoped to the attempt input and result.
 Outer dependencies come from the initial task binding, declared policies, and
 earlier task references in `until` or `nextInput`.
@@ -235,7 +226,7 @@ This is a breaking change to authoring. Pull request #114 removed
 `.repeat(name, options)` and its repeat-body mini-DSL. `.task().until()` is the
 only public repeat API. No legacy runtime path remains.
 
-The active Mastra-backed workflow specification retains the general Plan,
+The active engine-backed workflow specification retains the general Plan,
 policy, and repeat limits. Its authoring and repeat clauses reflect this
 contract. The new delivery task supersedes the cancelled
 `task.reject-nested-workflows-in-repeats`. Completed earlier repeat tasks
@@ -249,12 +240,12 @@ remain historical records, not open work for this design.
 - Test serialized Plan validation and malformed or out-of-scope references.
 - Test reuse of the initial input without `nextInput`, and earlier task
   references in `nextInput` with their dependency ordering.
-- Run focused real-Mastra tests for one attempt, later success, exact-limit
+- Run focused Effect integration tests for one attempt, later success, exact-limit
   success, per-node exhaustion, the run-wide budget, different input and
   output schemas, child workflow attempts, cancellation, and admission.
 - Test JSON snapshot reload and resumed attempts, including bounded control
   envelopes and durable dependency results.
-- Check public declarations for Mastra type leaks and source for forbidden
+- Check public declarations for runtime-engine type leaks and source for forbidden
   `/ee/` imports.
 
 ## Acceptance criteria
@@ -267,7 +258,7 @@ remain historical records, not open work for this design.
   and the normal session and workspace admission behavior.
 - The last allowed successful attempt completes. A false last condition and
   run-wide budget exhaustion fail with their respective typed errors.
-- The normal CLI and operational host execute the same Mastra-backed repeat
+- The normal CLI and operational host execute the same Effect repeat
   semantics; cancellation prevents any later attempt.
 
 ## Delivery state
@@ -277,8 +268,8 @@ Active contract. Delivered to the default branch through [pull request
 
 ## Traceability
 
-- [prd.seqlane-on-mastra: Seqlane on Mastra](../prd/2026-09-03-seqlane-on-mastra.md)
-- [spec.mastra-backed-seqlane-workflows: Mastra-Backed Seqlane Workflow Contracts](./2026-09-08-mastra-backed-seqlane-workflows.md)
-- [adr.mastra-backed-seqlane-workflows: Center Seqlane Workflows on a Mastra-Backed Executable DSL](../adrs/2026-09-08-mastra-backed-seqlane-workflows.md)
+- [prd.seqlane-runtime: Seqlane Runtime Product Requirements](../prd/2026-10-21-seqlane-runtime.md)
+- [spec.workflow-execution-semantics: Workflow Authoring and Execution Semantics](./2026-10-22-workflow-execution-semantics.md)
+- [rfc.effect-v4-migration: Full Effect v4 Migration](../rfcs/2026-10-21-effect-v4-migration.md)
 - [task.reject-nested-workflows-in-repeats: Reject Nested Workflows in Repeat Bodies](../tasks/2026-09-11-reject-nested-workflows-in-repeats.md)
 - [task.deliver-fluent-task-until-repeats: Deliver Fluent Task-Until Repeats](../tasks/2026-09-14-deliver-fluent-task-until-repeats.md)

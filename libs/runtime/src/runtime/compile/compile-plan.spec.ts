@@ -1,4 +1,6 @@
+import { Effect } from "effect";
 // @test-scope ./compile-plan.ts
+// @test-scope ./prepare-plan.ts
 // @test-scope ./compile-node-step.ts
 // @test-scope ../validation/plan-validation.ts
 // @test-scope ../invocation/invocation-execution.ts
@@ -14,7 +16,8 @@ import type {
 } from "@seqlane/core";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { PlanCompiler, compilePlan } from "./compile-plan.js";
+import { PlanCompiler } from "./compile-plan.js";
+import { compilePlan } from "./prepare-plan.js";
 import { executeSequentialProgram } from "../execution/program.js";
 import type { ExecutorRequest } from "../execution/executor.js";
 import { WORKFLOW_INPUT_NODE_ID } from "../plan/binding-resolution.js";
@@ -795,9 +798,8 @@ describe("PlanCompiler workflow compilation", () => {
         },
       },
     );
-    const externalLease = await compiled.context.workspaceLocks.acquire(
-      workspace,
-      "exclusive",
+    const externalLease = await Effect.runPromise(
+      compiled.context.workspaceLocks.acquireEffect(workspace, "exclusive"),
     );
 
     const execution = executeSequentialProgram(compiled.program);

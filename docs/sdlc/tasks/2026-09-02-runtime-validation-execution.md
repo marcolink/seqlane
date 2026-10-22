@@ -5,7 +5,7 @@ status: completed
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-03
+updated: 2026-10-22
 upstream:
   - spec.semantic-validation-gates
 supersedes: []
@@ -67,7 +67,7 @@ behavior.
 
 - [adr.semantic-validation-gates](../adrs/2026-09-02-semantic-validation-gates.md)
 - [spec.semantic-validation-gates](../specs/2026-09-02-semantic-validation-gates.md)
-- [spec.mastra-runtime-integration](../specs/2026-09-02-mastra-runtime-integration.md)
+- [spec.effect-v4-execution-and-operations](../specs/2026-10-21-effect-v4-execution-and-operations.md)
 - [spec.autonomous-non-interactive-execution](../specs/2026-09-02-autonomous-non-interactive-execution.md)
 
 ## Traceability

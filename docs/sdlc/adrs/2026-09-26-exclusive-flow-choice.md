@@ -5,10 +5,10 @@ status: accepted
 owners:
   - core
 created: 2026-09-26
-updated: 2026-09-26
+updated: 2026-10-22
 upstream:
-  - prd.seqlane-on-mastra
-  - adr.mastra-backed-seqlane-workflows
+  - prd.seqlane-runtime
+  - rfc.effect-v4-migration
 supersedes: []
 ---
 
@@ -19,7 +19,7 @@ supersedes: []
 Authors can compose tasks and bounded repeats, but cannot use a prior Boolean
 result to select one of two runnables. An ordinary task cannot express this
 choice without hiding the selected invocation inside its `execute` function.
-The existing Mastra-backed workflow decision excluded generic conditionals from
+The existing engine-backed workflow decision excluded generic conditionals from
 its original delivery. This decision extends that Plan with one bounded choice.
 
 ## Decision
@@ -52,11 +52,10 @@ session policy, workspace policy, and invocation lifecycle. The choice has its
 own inspectable Plan identity. The unselected arm is reported as not selected,
 without failing the run or acquiring its execution resources.
 
-The serializable Seqlane Plan gains a choice node. The private runtime lowers
-it through Mastra workflow control flow and preserves Seqlane admission and
-event contracts. Mastra types and callbacks do not enter the public DSL or
-Plan. The runtime enforces exclusive selection even if its underlying branch
-primitive permits several true conditions.
+The serializable Seqlane Plan gains a choice node. The private runtime
+preserves exclusive selection, admission, and event contracts. Runtime-library
+types and callbacks do not enter the public DSL or Plan. The active workflow
+and execution specifications own the current lowering mechanism.
 
 ## Alternatives considered
 
@@ -93,7 +92,7 @@ tracked by the linked task.
 
 ## Traceability
 
-- [prd.seqlane-on-mastra, exclusive choice requirement](../prd/2026-09-03-seqlane-on-mastra.md#requirement-exclusive-flow-choice)
-- [adr.mastra-backed-seqlane-workflows](./2026-09-08-mastra-backed-seqlane-workflows.md)
-- [spec.mastra-backed-seqlane-workflows, choice contract](../specs/2026-09-08-mastra-backed-seqlane-workflows.md#req-choice-001-route-one-runnable)
+- [prd.seqlane-runtime, exclusive choice requirement](../prd/2026-10-21-seqlane-runtime.md)
+- [rfc.effect-v4-migration](../rfcs/2026-10-21-effect-v4-migration.md)
+- [spec.workflow-execution-semantics, choice contract](../specs/2026-10-22-workflow-execution-semantics.md#req-choice-001-route-one-runnable)
 - [task.deliver-exclusive-flow-choice](../tasks/2026-09-26-deliver-exclusive-flow-choice.md)

@@ -5,10 +5,10 @@ status: accepted
 owners:
   - core
 created: 2026-09-13
-updated: 2026-09-16
+updated: 2026-10-22
 upstream:
-  - adr.mastra-backed-seqlane-workflows
-  - spec.mastra-backed-seqlane-workflows
+  - rfc.effect-v4-migration
+  - spec.workflow-execution-semantics
 supersedes: []
 ---
 
@@ -61,7 +61,7 @@ output   ─────▶ protocol
 cli      ─────▶ core + runtime + protocol + output
 ```
 
-Mastra and executor types remain behind runtime. They must not appear in core,
+Runtime-library and executor types remain behind runtime. They must not appear in core,
 protocol, serialized Plans, or public workflow-authoring contracts.
 
 ## Alternatives considered
@@ -100,7 +100,7 @@ historical decision record.
 
 ## Traceability
 
-- [adr.mastra-backed-seqlane-workflows: Center Seqlane Workflows on a Mastra-Backed Executable DSL](./2026-09-08-mastra-backed-seqlane-workflows.md)
-- [spec.mastra-backed-seqlane-workflows: Mastra-Backed Seqlane Workflow Contracts](../specs/2026-09-08-mastra-backed-seqlane-workflows.md)
+- [rfc.effect-v4-migration: Full Effect v4 Migration](../rfcs/2026-10-21-effect-v4-migration.md)
+- [spec.workflow-execution-semantics: Workflow Authoring and Execution Semantics](../specs/2026-10-22-workflow-execution-semantics.md)
 - [task.remove-seqlane-events: Remove Seqlane Events](../tasks/2026-09-08-remove-seqlane-events.md)
 - [task.migrate-execution-event-consumers: Migrate Execution Event Consumers](../tasks/2026-09-08-migrate-execution-event-consumers.md)

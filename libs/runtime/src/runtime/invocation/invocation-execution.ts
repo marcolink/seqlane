@@ -5,7 +5,6 @@ import type {
   SeqlaneInvocationMetrics,
   ModelSelection,
   TaskNode,
-  WorkflowNode,
   ValidationCheckNode,
   ValidationGateNode,
   SeqlaneSchema,
@@ -41,7 +40,6 @@ import { summarizeSeqlaneOutput } from "../execution/output-summary.js";
 import { getTaskSchema } from "../plan/task-schema.js";
 import { toSeqlaneDisplayValue } from "../execution/display-value.js";
 import type { WorkspaceLockLease } from "../workspace/workspace-lock.js";
-import { workspaceResourcesForPlanNode } from "../workspace/workspace-ordering.js";
 import {
   parseValidationResult,
   validationFailure,
@@ -55,7 +53,6 @@ import {
   taskIdCompatibility,
   throwInvocationFailure,
   throwTaskPhaseError,
-  type LegacyTaskNode,
   type TaskExecutionOptions,
   type ValidationEnvelope,
   type ValidationExecutionOptions,
@@ -443,7 +440,7 @@ export async function executeTaskNode(
                   context.workflowModel,
                 invocationId,
                 taskId: node.taskId,
-                executor: (node as LegacyTaskNode).executor ?? node.taskId,
+                executor: node.taskId,
                 input,
                 agent: agentRequest,
                 signal: abortSignal,
@@ -675,145 +672,6 @@ export function prepareTaskInput(
     );
   } catch (cause) {
     return throwTaskPhaseError(cause, "input", node.taskId, abortSignal);
-  }
-}
-
-export async function executeWorkflowNode(
-  context: ExecutionContext,
-  node: WorkflowNode,
-  abortSignal: AbortSignal,
-  options: Pick<
-    TaskExecutionOptions,
-    | "invocationId"
-    | "observability"
-    | "results"
-    | "remainingConsumers"
-    | "validateOutput"
-  > & {
-    readonly execute: () => Promise<unknown>;
-    readonly workspaceAdmission?: "dynamic" | "graph";
-  },
-): Promise<unknown> {
-  const { invocationId, results, remainingConsumers } = options;
-  const creationOrdinal = invocationCreationOrdinal(context, invocationId);
-  const workspaceLeases: WorkspaceLockLease[] = [];
-  let workspaceAdmitted = false;
-  let waitingReported = false;
-  const releaseWorkspace = (): void => {
-    for (const lease of workspaceLeases.splice(0)) lease.release();
-    if (!workspaceAdmitted) return;
-    workspaceAdmitted = false;
-    context.events.emit({
-      type: "invocation.progress",
-      workId: context.workId,
-      runId: context.runId,
-      invocationId,
-      state: "active",
-      phase: "workspace_released",
-      workspace: node.workspace,
-    });
-  };
-  const reportWaiting = (blockingInvocationId: string | undefined): void => {
-    if (waitingReported) return;
-    waitingReported = true;
-    context.events.emit({
-      type: "invocation.progress",
-      workId: context.workId,
-      runId: context.runId,
-      invocationId,
-      state: "waiting",
-      phase: "admission",
-      waitingReason: "workspace_unavailable",
-      workspace: node.workspace,
-      ...(blockingInvocationId === undefined ? {} : { blockingInvocationId }),
-    });
-  };
-
-  try {
-    const resources = [
-      ...workspaceResourcesForPlanNode(node, context.workspaceResources),
-    ].sort((left, right) => left.key.localeCompare(right.key));
-    if (options.workspaceAdmission === "graph") {
-      try {
-        for (const resource of resources) {
-          workspaceLeases.push(
-            await context.workspaceLocks.acquire(
-              resource,
-              node.workspace,
-              reportWaiting,
-              creationOrdinal,
-              invocationId,
-              context.workspaceOwnerId ?? invocationId,
-            ),
-          );
-        }
-      } catch (cause) {
-        for (const lease of workspaceLeases.splice(0)) lease.release();
-        throw cause;
-      }
-    } else {
-      if (resources.length === 0) throw new Error("No workspace resource");
-      // Child workflows may span several resources. Acquire every resource
-      // in stable key order so concurrent multi-resource requests cannot
-      // deadlock, and use JointAdmission for abort-aware waiting. Leases are
-      // released together in finally below when execution ends or aborts.
-      for (const resource of resources) {
-        const admission = await context.jointAdmissions.acquire({
-          signal: abortSignal,
-          session: undefined,
-          workspace: resource,
-          workspacePolicy: node.workspace,
-          invocationId,
-          ownerId: context.workspaceOwnerId ?? invocationId,
-          creationOrdinal,
-          onWorkspaceWaiting: reportWaiting,
-          onSessionWaiting: () => undefined,
-        });
-        workspaceLeases.push(admission.workspaceLease);
-      }
-    }
-    workspaceAdmitted = true;
-    context.events.emit({
-      type: "invocation.started",
-      workId: context.workId,
-      runId: context.runId,
-      invocationId,
-      subject: { type: "workflow", workflowId: node.workflowId },
-    });
-    context.events.emit({
-      type: "invocation.progress",
-      workId: context.workId,
-      runId: context.runId,
-      invocationId,
-      state: "active",
-      phase: "execute",
-      message: "Executing workflow",
-      workspace: node.workspace,
-    });
-
-    let output = await options.execute();
-    if (options.validateOutput !== undefined) {
-      releaseWorkspace();
-      output = await options.validateOutput(output);
-    }
-    results.set(node.nodeId, output);
-    context.events.emit({
-      type: "invocation.succeeded",
-      workId: context.workId,
-      runId: context.runId,
-      invocationId,
-    });
-    releaseIfUnused(results, remainingConsumers, node.nodeId);
-    return output;
-  } catch (cause) {
-    return throwInvocationFailure(cause, {
-      context,
-      abortSignal,
-      invocationId,
-      taskId: node.workflowId,
-    });
-  } finally {
-    releaseWorkspace();
   }
 }
 

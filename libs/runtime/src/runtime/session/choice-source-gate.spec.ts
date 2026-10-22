@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import { ChoiceSourceGate } from "./choice-source-gate.js";
 
@@ -5,7 +6,9 @@ describe("choice session source gate", () => {
   it("waits for source success and rejects failed or cancelled waits", async () => {
     const gate = new ChoiceSourceGate();
     gate.register("source", "source-invocation");
-    const waiting = gate.wait("source", new AbortController().signal);
+    const waiting = Effect.runPromise(
+      gate.waitEffect("source", new AbortController().signal),
+    );
     gate.observe({
       type: "invocation.succeeded",
       workId: "work",
@@ -14,7 +17,9 @@ describe("choice session source gate", () => {
     });
     await expect(waiting).resolves.toBeUndefined();
     await expect(
-      gate.wait("source", new AbortController().signal),
+      Effect.runPromise(
+        gate.waitEffect("source", new AbortController().signal),
+      ),
     ).resolves.toBeUndefined();
 
     const failed = new ChoiceSourceGate();
@@ -28,13 +33,17 @@ describe("choice session source gate", () => {
       dependencyIds: [],
     });
     await expect(
-      failed.wait("source", new AbortController().signal),
+      Effect.runPromise(
+        failed.waitEffect("source", new AbortController().signal),
+      ),
     ).rejects.toThrow('Choice session source "source" did not succeed');
 
     const cancelled = new ChoiceSourceGate();
     cancelled.register("source", "cancelled-invocation");
     const controller = new AbortController();
-    const cancelledWait = cancelled.wait("source", controller.signal);
+    const cancelledWait = Effect.runPromise(
+      cancelled.waitEffect("source", controller.signal),
+    );
     controller.abort(new Error("run cancelled"));
     await expect(cancelledWait).rejects.toThrow("run cancelled");
   });
@@ -43,7 +52,9 @@ describe("choice session source gate", () => {
     const gate = new ChoiceSourceGate();
     gate.register("source", "source-invocation");
     const controller = new AbortController();
-    const waiting = gate.wait("source", controller.signal);
+    const waiting = Effect.runPromise(
+      gate.waitEffect("source", controller.signal),
+    );
     controller.abort(new Error("run cancelled"));
     await expect(waiting).rejects.toThrow("run cancelled");
   });

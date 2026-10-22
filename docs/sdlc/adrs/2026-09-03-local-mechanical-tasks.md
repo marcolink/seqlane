@@ -5,7 +5,7 @@ status: superseded
 owners:
   - core
 created: 2026-09-03
-updated: 2026-09-04
+updated: 2026-10-22
 upstream:
   - adr.executor-neutral-workflow-authoring
   - adr.effect-private-runtime-engine
@@ -137,7 +137,7 @@ network policy, background local processes, or an Effect runtime migration.
 
 ## Traceability
 
-- [adr.mastra-local-mechanical-tasks](./2026-09-04-mastra-local-mechanical-tasks.md)
+- [rfc.effect-v4-migration](../rfcs/2026-10-21-effect-v4-migration.md)
 - [adr.executor-neutral-workflow-authoring](./2026-09-02-executor-neutral-workflow-authoring.md)
 - [adr.effect-private-runtime-engine](./2026-09-02-effect-private-runtime-engine.md)
 - [adr.seqlane-plan-ir-and-typed-dataflow](./2026-09-02-seqlane-plan-ir-and-typed-dataflow.md)

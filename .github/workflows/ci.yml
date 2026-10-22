@@ -79,6 +79,9 @@ jobs:
       - name: Check test mappings
         run: pnpm test:mapping
 
+      - name: Audit runtime source and production dependencies
+        run: pnpm verify:runtime --source
+
       - name: Test workflow helper
         run: pnpm test:workflow-helper
 
@@ -95,8 +98,9 @@ jobs:
 
       - name: Build and consume production packages
         run: |
-          pnpm exec nx run-many -t build -p adapter,cli,codex-adapter,core,opencode,protocol,runtime,tui --output-style=static
+          pnpm exec nx run-many -t build --output-style=static
           pnpm verify:installed
+          pnpm verify:runtime --distributions
 
       - name: Materialize Ripwire Action
         if: steps.classify.outputs.ripwire_relevant != 'false'

@@ -5,10 +5,10 @@ status: superseded
 owners:
   - core
 created: 2026-09-16
-updated: 2026-10-05
+updated: 2026-10-22
 upstream:
-  - prd.seqlane-on-mastra
-  - rfc.mastra-runtime-and-operational-foundation
+  - prd.seqlane-runtime
+  - rfc.effect-v4-migration
   - adr.standalone-cli-runs
 supersedes: []
 ---
@@ -19,7 +19,7 @@ supersedes: []
 
 ## Summary
 
-`seqlane run` executes one explicit workflow entrypoint through Mastra, returns
+`seqlane run` executes one explicit workflow entrypoint through the shared Effect program, returns
 its result, and exits. It requires no app, catalog, operational server, or
 Seqlane configuration file. This specification owns standalone execution.
 Existing output specifications own terminal rendering and final result schemas.
@@ -243,7 +243,7 @@ compatibility without changing the executor-neutral workflow structure.
 
 ### requirement-execution-lifecycle
 
-Use Mastra as the sole generic runtime with state held in memory. Standalone
+Use the shared Effect run program with state held in memory. Standalone
 execution must not start a Seqlane HTTP server or use an operational client.
 Adapter-local transports are permitted and remain distinct from a Seqlane host.
 
@@ -252,7 +252,7 @@ workspace before adapter startup. Capability checks that need a live adapter
 occur after lazy startup and before the agent invocation where possible.
 Earlier deterministic work can complete before an adapter or model error occurs.
 
-SIGINT and SIGTERM request cancellation through Mastra and active adapter or
+SIGINT and SIGTERM request cancellation through the Effect scope and active adapter or
 process operations. Cleanup runs after success, failure, cancellation, and
 partial startup. Use bounded shutdown and terminate only owned child processes.
 A second interruption can force owned-process termination. Arbitrary crashes,
@@ -272,8 +272,8 @@ output contract. Restore the terminal and remove signal listeners.
 
 Seqlane must not create or update durable databases, run history, recordings,
 logs, saved results, session indexes, transpilation caches, or artifact stores.
-Do not write `.seqlane/mastra.db`, event files, or `GITHUB_STEP_SUMMARY`.
-Mastra operational state for the command remains in memory.
+Do not write a Seqlane database, event file, or `GITHUB_STEP_SUMMARY`.
+Operational state for the command remains in memory.
 
 Temporary implementation resources must be bounded, tracked, and removed during
 normal cleanup. They must not become retained diagnostic or resume artifacts.
@@ -303,7 +303,7 @@ The standalone path has these stages:
 3. Validate the workflow, input, workspace, and compiled Plan.
 4. Prepare the selected adapter only when agent work requires it.
 5. Check available model and capability information.
-6. Execute the workflow through the private Mastra integration.
+6. Execute the workflow through the shared private Effect program.
 7. Normalize the authoritative result and release owned resources.
 8. Emit the final result and exit.
 
@@ -353,7 +353,7 @@ Test observable behavior through the compiled CLI and focused runtime tests:
 | Lifecycle          | Success, failure, both signals, partial startup, bounded cleanup, foreign process survives             |
 | Persistence        | No database, recording, summary, history, retained temporary output, or disk cache                     |
 | Output             | Passive human/CI parity, clean JSON despite imported logging, exact false-like results                 |
-| Boundaries         | No Seqlane listener, operational-client dependency, public Mastra types, or `/ee/` imports             |
+| Boundaries         | No Seqlane listener, operational-client dependency, public runtime-engine types, or `/ee/` imports             |
 
 Use filesystem snapshots with workflow outputs and adapter-owned files explicitly
 identified. A temporary database that is later deleted does not satisfy the
@@ -376,10 +376,10 @@ establish delivery of that PR.
 
 ## Traceability
 
-- [prd.seqlane-on-mastra](../prd/2026-09-03-seqlane-on-mastra.md#requirement-standalone-cli-runs)
-- [rfc.mastra-runtime-and-operational-foundation](../rfcs/2026-09-03-mastra-runtime-and-operational-foundation.md)
+- [prd.seqlane-runtime](../prd/2026-10-21-seqlane-runtime.md)
+- [rfc.effect-v4-migration](../rfcs/2026-10-21-effect-v4-migration.md)
 - [adr.standalone-cli-runs](../adrs/2026-09-16-standalone-cli-runs.md)
-- [Operational integration](./2026-09-03-mastra-runtime-and-operational-integration.md)
+- [Operational integration](./2026-10-21-effect-v4-execution-and-operations.md)
 - [Run terminal rendering](./2026-09-15-run-terminal-rendering.md)
 - [Run machine output](./2026-09-15-run-machine-output.md)
 - [Delivery task](../tasks/2026-09-16-deliver-standalone-cli-runs.md)

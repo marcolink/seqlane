@@ -5,7 +5,7 @@ status: superseded
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-15
+updated: 2026-10-22
 upstream:
   - rfc.seqlane-technical-architecture
 supersedes: []
@@ -65,7 +65,7 @@ seqlane-cli       flags, mode selection, runner wiring, exit status
 
 `seqlane-output` must not own runner transport, workflow execution, process
 termination, or executor integrations. It may depend on `seqlane-core`, but
-must not depend on Mastra or OpenCode.
+must not depend on runtime libraries or OpenCode.
 
 The human projection will represent two distinct relationships:
 

@@ -106,7 +106,6 @@ export function executeRepeatAttemptEffect(options: {
                   attemptNode,
                   {
                     invocationId: attemptInvocationId,
-                    observability: {},
                     results: context.results,
                     remainingConsumers: context.remainingConsumers,
                     subject: { type: "task", taskId: attemptNode.taskId },
@@ -145,7 +144,6 @@ export function executeRepeatAttemptEffect(options: {
           abortSignal,
           {
             invocationId: attemptInvocationId,
-            observability: {},
             results: context.results,
             remainingConsumers: context.remainingConsumers,
             subject: { type: "task", taskId: attemptNode.taskId },

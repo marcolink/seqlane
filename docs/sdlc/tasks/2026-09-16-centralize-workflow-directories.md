@@ -5,9 +5,9 @@ status: completed
 owners:
   - core
 created: 2026-09-16
-updated: 2026-09-16
+updated: 2026-10-22
 upstream:
-  - spec.mastra-backed-seqlane-workflows
+  - spec.workflow-execution-semantics
   - spec.direct-runtime-code-review-action
   - spec.seqlane-action-merge-conflict-resolution
 supersedes: []
@@ -53,6 +53,6 @@ and Action consumers no longer own divergent graph copies.
 
 ## Traceability
 
-- [spec.mastra-backed-seqlane-workflows](../specs/2026-09-08-mastra-backed-seqlane-workflows.md)
+- [spec.workflow-execution-semantics](../specs/2026-10-22-workflow-execution-semantics.md)
 - [spec.direct-runtime-code-review-action](../specs/2026-09-08-direct-runtime-code-review-action.md)
 - [spec.seqlane-action-merge-conflict-resolution](../specs/2026-09-06-seqlane-action-merge-conflict-resolution.md)

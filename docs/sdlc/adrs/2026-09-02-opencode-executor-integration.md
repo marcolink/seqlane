@@ -5,7 +5,7 @@ status: accepted
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-03
+updated: 2026-10-22
 upstream:
   - rfc.seqlane-technical-architecture
 supersedes: []
@@ -172,7 +172,7 @@ Provides maximal control but duplicates repository harness, model/tool orchestra
 
 Simple integration but provides a weaker typed/session/event boundary and makes deterministic session continuity harder.
 
-### Use Mastra agents directly
+### Use a general-purpose agent framework directly
 
 Reduces dependencies but loses the repository-aware OpenCode harness Seqlane wants to preserve.
 

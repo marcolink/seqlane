@@ -62,6 +62,10 @@ not grant filesystem permissions.
 The run validates workflow inputs, task outputs, and the workflow result. It
 returns a failure when a boundary or task fails.
 
+Each standalone run uses memory only. It creates no Seqlane listener, history
+database, recording, or export file. Adapter data and intentional workflow
+outputs keep their existing ownership.
+
 ## Optional OTLP export
 
 Runs deliver complete canonical events locally. Remote telemetry is disabled

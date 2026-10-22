@@ -1,6 +1,7 @@
 // @test-scope ./owned-process-supervision.ts
 
 import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { Effect, Fiber } from "effect";
 import { TestClock } from "effect/testing";
 import { afterEach, describe, expect, it } from "vitest";
@@ -56,6 +57,85 @@ afterEach(() => {
 });
 
 describe("owned process supervision", () => {
+  it.skipIf(process.platform === "win32")(
+    "acknowledges a process that exits during registration only after its group stops",
+    async () => {
+      const child = spawn(
+        process.execPath,
+        [
+          "-e",
+          "process.stdin.resume(); process.stdin.once('end', () => process.exit(0))",
+        ],
+        { detached: true, stdio: ["pipe", "ignore", "ignore"] },
+      );
+      const foreign = spawn(
+        process.execPath,
+        ["-e", "setInterval(() => undefined, 1000)"],
+        { detached: true, stdio: "ignore" },
+      );
+      if (child.pid === undefined || foreign.pid === undefined) {
+        throw new Error("Worker did not start");
+      }
+      children.push(child.pid, foreign.pid);
+      foreign.unref();
+      const identity = await captureOwnedProcessIdentity(child.pid);
+      const closed = once(child, "close");
+      child.stdin.end();
+      expect(await closed).toEqual([0, null]);
+
+      let acknowledge: (() => void) | undefined;
+      let sent: (() => void) | undefined;
+      const ackSent = new Promise<void>((resolve) => {
+        sent = resolve;
+      });
+      const supervision = createOwnedProcessSupervision(
+        {
+          send(_message, callback) {
+            acknowledge = () => callback?.(null);
+            sent?.();
+            return true;
+          },
+        },
+        () => undefined,
+      );
+      const registered = Effect.runPromiseExit(
+        supervision.handle(frame("short-process", identity)),
+      );
+      expect(
+        await Promise.race([
+          ackSent.then(() => "ack"),
+          registered.then(() => "settled"),
+        ]),
+      ).toBe("ack");
+      expect(supervision.size).toBe(1);
+      acknowledge?.();
+      expect((await registered)._tag).toBe("Success");
+      await expect(Effect.runPromise(supervision.cleanup())).resolves.toBe(
+        true,
+      );
+      expect(supervision.size).toBe(0);
+      expect(() => process.kill(foreign.pid!, 0)).not.toThrow();
+    },
+  );
+
+  it("rejects a stale identity while its process group may still be active", async () => {
+    const supervision = createOwnedProcessSupervision(
+      acknowledgingHost,
+      () => undefined,
+      {
+        ...inertOs,
+        isCurrent: async () => false,
+        confirmStopped: async () => false,
+      },
+    );
+    const result = await Effect.runPromiseExit(
+      supervision.handle(frame("stale-active", fakeIdentity(40))),
+    );
+
+    expect(result._tag).toBe("Failure");
+    expect(supervision.size).toBe(0);
+  });
+
   it("accepts the shared 1,000-attempt budget plus bounded startup headroom", async () => {
     const supervision = createOwnedProcessSupervision(
       acknowledgingHost,

@@ -1,8 +1,8 @@
 # @seqlane/runtime
 
-Internal runtime boundary for compiling and executing Seqlane Plans. This
-package is public on npm so `seqlane` can install it. Its exports are not a
-supported API.
+Internal Effect v4 runtime boundary for compiling and executing Seqlane Plans.
+This package is public on npm so `seqlane` can install it. Its exports are not
+a supported API.
 
 Release tarballs contain production code and declarations. Private test support,
 crash fixtures, and compiler test output stay in the development checkout.
@@ -16,9 +16,9 @@ created by application composition and stay outside this package.
 The optional operational host uses Effect HTTP, MCP, and SQL services. It keeps
 versioned run metadata, outcomes, canonical events, observations, and correlated
 native spans in a fresh `.seqlane/operations.db`. Standalone runs create no
-listener or history database. Existing databases are not imported or removed. Each history database has one
-host owner. SQLite holds its connection lock until that host closes or exits;
-concurrent callers use the host API.
+listener or history database. Existing databases are not imported or removed.
+Each history database has one host owner. SQLite holds its connection lock
+until that host closes or exits; concurrent callers use the host API.
 
 HTTP start returns a run reference immediately. Status, result, ordered event
 pages, bounded run lists, cancellation, and trace inspection share the same run
@@ -31,6 +31,19 @@ external actions. MCP uses the same admitted run program and cancellation path.
 A cancelled or timed-out request must drain its run before its capacity is
 released. The native MCP integration is isolated because the pinned API is
 unstable.
+
+### Observations and telemetry
+
+Canonical observations retain complete available model, tool, skill, request,
+response, usage, cost, timing, availability, and correlation values. One
+acknowledged, byte-bounded sink preserves accepted event order. Bounded terminal
+retention evicts whole records with a visible notice; it does not shorten values.
+
+Effect owns native spans, metrics, logs, and optional OTLP export. Observations
+provide the detailed projection without a second adapter trace tree. Remote
+export requires explicit `SEQLANE_TELEMETRY` configuration and a payload policy.
+Exporter failure cannot change a task result. Required event delivery failure
+remains an execution failure.
 
 ### Task execution and invocation policy
 
@@ -55,7 +68,7 @@ richer process metadata remains private runtime detail. `context.runAgent` uses
 the executor selected by the invocation's session policy.
 
 The private Effect Plan program runs each ready task as soon as its dependencies
-settle. Dependency waiters do not hold task-body permits; the target composition
+settle. Dependency waiters do not hold task-body permits; the shared program
 uses a bound of eight active task bodies. It waits for started work to settle
 before reporting failure or cancellation. Task input is validated before
 admission or `invocation.started`. Invalid input emits `invocation.failed`
@@ -69,7 +82,7 @@ and quarantines its session and workspace. A late executor failure is retained
 as the uncertainty error's cause. The affected lease stays held while the run's
 admission registry remains alive.
 
-The target composition supports nested workflows, selected choice arms, bounded
+The shared program supports nested workflows, selected choice arms, bounded
 repeats, next-input bindings, and output validation. Nested graphs share the
 task-body limit, repeat budget, admission registries, and invocation creation
 order. Containers do not hold a task-body permit while waiting for children.
@@ -167,7 +180,8 @@ A configured path is preferred; when unavailable, the adapter falls back to
 
 The selected agent runtime receives the workspace, validates Codex models before
 task work, and closes each run-owned app-server process at run completion.
-Codex is not available through workflow source, Plans, or public CLI flags.
+The standalone CLI selects it with `--adapter codex`. Connection details remain
+private and do not enter workflow source or Plans.
 
 Seqlane coordinates only sessions and processes it starts or tracks. It does
 not roll back mutations or guarantee behavior of unmanaged external processes.

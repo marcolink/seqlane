@@ -5,13 +5,17 @@ status: completed
 owners:
   - core
 created: 2026-09-04
-updated: 2026-09-04
+updated: 2026-10-22
 upstream:
   - spec.agent-adapter-boundary-and-capabilities
 supersedes: []
 ---
 
 # Restore the OpenCode SDK-Only Adapter
+
+> Historical task record. Scope and outcomes describe work before the current migration.
+> Current execution authority: [Effect v4 execution and operations](../specs/2026-10-21-effect-v4-execution-and-operations.md).
+> Current-owner links record the later contract transfer. They do not establish historical Effect v4 use or current delivery.
 
 ## Objective
 
@@ -41,7 +45,7 @@ through the supported OpenCode SDK.
 
 - Route OpenCode task execution through the configured SDK client and endpoint.
 - Keep OpenCode prompts, structured output, models, sessions, and UI in this adapter.
-- Remove Mastra ACP dependencies and exports from `@seqlane/opencode`.
+- Remove ACP transport dependencies and exports from `@seqlane/opencode`.
 - Remove duplicate executor paths inside the OpenCode package.
 - Preserve the repository harness and workspace binding.
 - Keep SDK values and raw events inside the package.
@@ -72,7 +76,7 @@ through the supported OpenCode SDK.
 
 - Prove that task requests reach the configured fake OpenCode server.
 - Prove that the configured workspace reaches the SDK request.
-- Search `@seqlane/opencode` for ACP and Mastra production imports.
+- Search `@seqlane/opencode` for ACP and runtime-engine production imports.
 - Prove structured output, cancellation, activity, and interaction failures.
 - Run package tests, type checks, lint, build, and boundary checks.
 
@@ -80,7 +84,7 @@ through the supported OpenCode SDK.
 
 - `@seqlane/opencode` uses the SDK for every production OpenCode operation.
 - The package exports one OpenCode adapter execution path.
-- No ACP or Mastra dependency remains in the OpenCode package.
+- No ACP or runtime-engine dependency remains in the OpenCode package.
 - The configured endpoint and workspace control the executed session.
 
 ## Outcome

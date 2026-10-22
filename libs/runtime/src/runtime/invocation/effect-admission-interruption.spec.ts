@@ -177,7 +177,6 @@ describe("Effect admission interruption", () => {
         new AbortController().signal,
         {
           invocationId: "effect-interruption-invocation",
-          observability: {},
           results: context.results,
           remainingConsumers: context.remainingConsumers,
           subject: { type: "task", taskId: taskDefinition.id },

@@ -5,20 +5,24 @@ status: completed
 owners:
   - core
 created: 2026-09-10
-updated: 2026-09-10
+updated: 2026-10-22
 upstream:
   - spec.direct-runtime-code-review-action
-  - spec.opencode-mastra-observability-projection
+  - spec.adapter-observation-projection
 supersedes: []
 ---
 
 # Enable Safe Repository Skills in Pull-Request Review
 
+> Historical task record. Scope and outcomes describe work before the current migration.
+> Current execution authority: [Effect v4 execution and operations](../specs/2026-10-21-effect-v4-execution-and-operations.md).
+> Current-owner links record the later contract transfer. They do not establish historical Effect v4 use or current delivery.
+
 ## Objective
 
 Allow the trusted pull-request review runtime to use repository skills while
 preserving the `pull_request_target` trust boundary and making each skill use
-observable in Seqlane and Mastra telemetry.
+observable through canonical Seqlane observations.
 
 ## Upstream requirements
 
@@ -26,8 +30,7 @@ observable in Seqlane and Mastra telemetry.
 - Keep target project configuration disabled during privileged review.
 - Treat skill text as untrusted prompt input and do not grant target skills
   additional filesystem, shell, or network permissions.
-- Keep OpenCode skills represented as bounded `TOOL_CALL` telemetry with
-  `toolType: "skill"`.
+- Keep source-reported skill identity distinct from ordinary tool activity.
 
 ## Scope
 
@@ -36,8 +39,7 @@ observable in Seqlane and Mastra telemetry.
 - Allow OpenCode's `skill` tool explicitly while retaining the deny-by-default
   policy for other tools and project configuration.
 - Emit bounded diagnostics for allowed and denied skill policy results.
-- Record a bounded individual skill identity in the native Mastra tool span
-  name, while retaining `toolType: "skill"`.
+- Retain source-reported skill identity and available payload in canonical observations.
 - Retain bounded skill usage in Action publication metrics.
 - Update the active OpenCode observability specification and review docs.
 
@@ -46,14 +48,14 @@ observable in Seqlane and Mastra telemetry.
 - Executing new or modified pull-request skill text in privileged review.
 - Enabling target `AGENTS.md`, `.opencode`, or arbitrary project configuration.
 - Granting skills shell, edit, external-directory, or unrestricted network access.
-- Creating a separate `SKILL_RESOLUTION` span category.
+- Adding a separate skill resolver or native trace tree.
 
 ## Implementation plan
 
 1. Add a trusted skill-policy resolver used by the review workflow to stage
    base-unchanged skills and report exclusions.
 2. Add explicit OpenCode `skill` permission and staged skill paths.
-3. Add per-skill Mastra span attributes and bounded publication metrics.
+3. Project canonical skill activity and retain bounded publication metrics.
 4. Add focused resolver, observability, metrics, and workflow contract tests.
 5. Synchronize active SDLC documents and run focused repository checks.
 
@@ -80,7 +82,7 @@ observable in Seqlane and Mastra telemetry.
 - An unchanged base skill is available to OpenCode in review.
 - A new or modified target skill is diagnosed and excluded.
 - OpenCode skill calls are explicitly permitted and identified by bounded name
-  in native telemetry.
+  in canonical observations.
 - Published run metrics retain bounded per-task skill counts without payloads.
 - Project configuration and unrelated tool permissions remain denied.
 
@@ -91,10 +93,10 @@ The workflow disables target project configuration and external skill discovery,
 stages only base-unchanged skill directories from the target checkout, and
 explicitly permits only OpenCode's `skill` tool within the existing deny-by-
 default policy. New and modified target skills are diagnosed and excluded.
-OpenCode skill calls use bounded individual names in native `TOOL_CALL` spans,
-retain `toolType: "skill"`, and fall back to the constant tool name for missing,
-invalid, oversized, or over-budget identities. Action metrics retain bounded,
-deduplicated per-task skill counts without skill payloads.
+OpenCode skill activity remained identifiable in telemetry. Action metrics
+retained bounded, deduplicated per-task skill counts without skill payloads.
+The later observation contract owns complete canonical payloads and truthful
+availability. Historical telemetry limits do not restrict local capture.
 
 Verification completed:
 
@@ -108,7 +110,7 @@ Verification completed:
 - formatting, ESLint, `pnpm docs:index`, `pnpm docs:validate`, and
   `git diff --check` passed.
 
-## Delivery state
+## Historical delivery state
 
 No commit or pull request yet. Current work is isolated in the
 `codex/code-review-skill-policy` worktree.
@@ -121,5 +123,5 @@ passed; run the target unchanged after committing or in a writable checkout.
 ## Traceability
 
 - [spec.direct-runtime-code-review-action](../specs/2026-09-08-direct-runtime-code-review-action.md)
-- [spec.opencode-mastra-observability-projection](../specs/2026-09-08-opencode-mastra-observability-projection.md)
-- [adr.mastra-native-agent-observability](../adrs/2026-09-07-mastra-native-agent-observability.md)
+- [spec.adapter-observation-projection](../specs/2026-10-22-adapter-observation-projection.md)
+- [rfc.effect-v4-migration](../rfcs/2026-10-21-effect-v4-migration.md)

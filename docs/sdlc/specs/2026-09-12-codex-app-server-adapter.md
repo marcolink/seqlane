@@ -146,7 +146,7 @@ The adapter must use completed items as the source of tool activity and the comp
 It must report usage without counting cumulative updates more than once.
 It must omit unsupported cost values rather than estimate them.
 Raw event payloads, private IDs, prompt text, and credentials must not enter public events or errors.
-Diagnostic and Mastra projection failures must not change a successful Codex result.
+Diagnostic and optional runtime telemetry failures must not change a successful Codex result.
 
 The adapter must bound activity retention separately from turn execution.
 It must allow more than 1,024 small text fragments in a valid turn.
@@ -213,7 +213,7 @@ Do not add Codex fields to public authoring, Plan, runner IPC, or CLI result sch
 - Test typed output, model preflight, isolated and reused sessions, exact forks, cancellation, and interaction failure.
 - Test fragmented text, mixed tool activity, activity truncation, and safeguards after truncation.
 - Test direct-run and persistent-host lifecycle with run isolation.
-- Check public declarations and serialized boundaries for Codex and Mastra type leaks.
+- Check public declarations and serialized boundaries for Codex and runtime-engine type leaks.
 - Run `pnpm test:mapping`, focused tests, typecheck, lint, build, format, and `pnpm docs:validate`.
 
 ## Acceptance criteria
