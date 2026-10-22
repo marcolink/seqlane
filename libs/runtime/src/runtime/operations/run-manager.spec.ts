@@ -1,8 +1,9 @@
+import { runTest } from "./native-test-support.js";
 // @test-scope ./run-manager.ts
 // @test-scope ./sqlite-store.ts
 // @test-scope ./registration.ts
 import { afterEach, describe, expect, it } from "vitest";
-import { Effect, Fiber } from "effect";
+import { Clock, Effect, Fiber } from "effect";
 import {
   buildWorkflow,
   createFlow,
@@ -13,7 +14,10 @@ import { z } from "zod";
 import { createOperationalWorkflow } from "./registration.js";
 import { createOperationalRunManager } from "./run-manager.js";
 import { OperationalAdmissionError } from "./run-manager.js";
-import { openOperationalStore } from "./sqlite-store.js";
+import {
+  OperationalRunConflictError,
+  openOperationalStore,
+} from "./sqlite-store.js";
 import type { OperationalStore } from "./sqlite-store.js";
 import { seqlaneExecutionEventSchema } from "@seqlane/protocol";
 
@@ -26,6 +30,167 @@ describe("hosted native run manager", () => {
     await close?.();
     close = undefined;
     shutdown = undefined;
+  });
+
+  it("inherits the request Clock and parent span through execution and SQL inspection", async () => {
+    const authored = createFlow({
+      id: "hosted-context",
+      input: z.string(),
+      output: z.string(),
+    })
+      .output(({ input }) => input)
+      .define();
+    const built = buildWorkflow(authored);
+    const workflow = createOperationalWorkflow({
+      key: "context",
+      plan: built.plan,
+      workflow: authored,
+      taskDefinitions: built.taskDefinitions,
+      validatorDefinitions: built.validatorDefinitions,
+      workflowDefinitions: built.workflowDefinitions,
+    });
+    const millis = Date.parse("2040-01-01T12:00:00.000Z");
+    const nanos = BigInt(millis) * 1_000_000n;
+    const result = await runTest(
+      Effect.gen(function* () {
+        const originalClock = yield* Clock.Clock;
+        const clock: Clock.Clock = {
+          sleep: (duration) => originalClock.sleep(duration),
+          monotonicTimeNanosUnsafe: () =>
+            originalClock.monotonicTimeNanosUnsafe(),
+          monotonicTimeNanos: originalClock.monotonicTimeNanos,
+          currentTimeMillisUnsafe: () => millis,
+          currentTimeMillis: Effect.succeed(millis),
+          currentTimeNanosUnsafe: () => nanos,
+          currentTimeNanos: Effect.succeed(nanos),
+        };
+        return yield* Effect.gen(function* () {
+          const store = yield* openOperationalStore("file::memory:");
+          const manager = yield* createOperationalRunManager({
+            workflows: [workflow],
+            store,
+          });
+          const parent = yield* Effect.makeSpan("request");
+          const status = yield* manager
+            .invoke("context", { version: 1, input: "context" })
+            .pipe(Effect.withParentSpan(parent));
+          const events = yield* manager.events(status.runId, {
+            afterSequence: 0,
+            limit: 100,
+          });
+          const trace = yield* manager.trace(status.runId);
+          return { status, events, trace, parent };
+        }).pipe(Effect.provideService(Clock.Clock, clock));
+      }),
+    );
+    expect(result.status.error).toBeUndefined();
+    expect(result.status).toMatchObject({
+      status: "succeeded",
+      output: "context",
+      createdAt: "2040-01-01T12:00:00.000Z",
+      updatedAt: "2040-01-01T12:00:00.000Z",
+      completeness: { inspection: "complete" },
+    });
+    expect(
+      result.events?.events.every(
+        ({ event }) => event.metadata.occurredAt === result.status.createdAt,
+      ),
+    ).toBe(true);
+    expect(
+      result.trace.spans.find((span) => span.name === "seqlane.hosted.run"),
+    ).toMatchObject({
+      parentSpanId: result.parent.spanId,
+      traceId: result.parent.traceId,
+      startTimeUnixNano: String(nanos),
+    });
+    expect(
+      result.trace.spans.find(
+        (span) => span.name === "seqlane.runtime.execution",
+      ),
+    ).toMatchObject({
+      traceId: result.parent.traceId,
+      startTimeUnixNano: String(nanos),
+    });
+  });
+
+  it("rejects a duplicate run ID without replacing the active run fiber", async () => {
+    const input = z.string();
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let starts = 0;
+    const workflow = createOperationalWorkflow({
+      key: "duplicate",
+      workflow: { input, output: input },
+      plan: {
+        workflow: { id: "duplicate" },
+        nodes: [
+          {
+            type: "task",
+            taskId: "duplicate.task",
+            nodeId: "duplicate.task:1",
+            workspace: "exclusive",
+            dependsOn: [],
+            input: { type: "ref", nodeId: "__seqlane_input", path: [] },
+          },
+        ],
+        output: { type: "ref", nodeId: "duplicate.task:1", path: [] },
+      },
+      taskDefinitions: new Map([
+        [
+          "duplicate.task",
+          {
+            id: "duplicate.task",
+            input,
+            output: input,
+            execute: async () => {
+              starts += 1;
+              await blocked;
+              return "original";
+            },
+          },
+        ],
+      ]),
+    });
+    const store = await runTest(openOperationalStore("file::memory:"));
+    const manager = await runTest(
+      createOperationalRunManager({ workflows: [workflow], store }),
+    );
+    shutdown = () => runTest(manager.shutdown());
+    close = () => runTest(store.close());
+    try {
+      await runTest(
+        manager.start("duplicate", {
+          version: 1,
+          runId: "duplicate-run",
+          input: "first",
+        }),
+      );
+      await expect.poll(() => starts).toBe(1);
+      await expect(
+        runTest(
+          manager.start("duplicate", {
+            version: 1,
+            runId: "duplicate-run",
+            input: "second",
+          }),
+        ),
+      ).rejects.toBeInstanceOf(OperationalRunConflictError);
+      expect(await runTest(manager.status("duplicate-run"))).toMatchObject({
+        status: "running",
+      });
+      expect(starts).toBe(1);
+    } finally {
+      release();
+    }
+    await expect
+      .poll(() => runTest(manager.status("duplicate-run")))
+      .toMatchObject({
+        status: "succeeded",
+        output: "original",
+        completeness: { inspection: "complete" },
+      });
   });
 
   it("persists the actual result, canonical events, and a correlated native trace", async () => {
@@ -55,13 +220,15 @@ describe("hosted native run manager", () => {
         },
       }),
     });
-    const store = await openOperationalStore("file::memory:");
-    close = () => store.close();
-    const manager = createOperationalRunManager({
-      workflows: [workflow],
-      store,
-    });
-    shutdown = () => manager.shutdown();
+    const store = await runTest(openOperationalStore("file::memory:"));
+    close = () => runTest(store.close());
+    const manager = await runTest(
+      createOperationalRunManager({
+        workflows: [workflow],
+        store,
+      }),
+    );
+    shutdown = () => runTest(manager.shutdown());
     expect(manager.workflows[0]?.input.schema).toMatchObject({
       type: "string",
     });
@@ -70,22 +237,26 @@ describe("hosted native run manager", () => {
       properties: { length: { type: "number" } },
     });
 
-    const reference = await manager.start("echo", { version: 1, input: "" });
+    const reference = await runTest(
+      manager.start("echo", { version: 1, input: "" }),
+    );
     await expect
-      .poll(async () => await manager.status(reference.runId))
+      .poll(async () => await runTest(manager.status(reference.runId)))
       .toMatchObject({ status: "succeeded" });
-    const status = await manager.status(reference.runId);
+    const status = await runTest(manager.status(reference.runId));
     expect(status).toMatchObject({
       status: "succeeded",
       output: { value: "", length: 0 },
       completeness: { inspection: "complete" },
     });
 
-    const events = await manager.events(reference.runId, {
-      version: 1,
-      afterSequence: 0,
-      limit: 100,
-    });
+    const events = await runTest(
+      manager.events(reference.runId, {
+        version: 1,
+        afterSequence: 0,
+        limit: 100,
+      }),
+    );
     expect(events?.events.map(({ event }) => event.type)).toEqual([
       "run.started",
       "run.plan",
@@ -94,7 +265,7 @@ describe("hosted native run manager", () => {
     expect(events?.events.map(({ sequence }) => sequence)).toEqual([1, 2, 3]);
     expect(coreEvents).toEqual(["run.started", "run.succeeded"]);
     expect(emittedPlans).toEqual([reference.runId]);
-    const trace = await manager.trace(reference.runId);
+    const trace = await runTest(manager.trace(reference.runId));
     expect(trace.completeness).toEqual({ inspection: "complete" });
     expect(trace.spans.some((span) => span.name === "seqlane.hosted.run")).toBe(
       true,
@@ -122,28 +293,33 @@ describe("hosted native run manager", () => {
       validatorDefinitions: built.validatorDefinitions,
       workflowDefinitions: built.workflowDefinitions,
     });
-    const store = await openOperationalStore("file::memory:");
-    close = () => store.close();
+    const store = await runTest(openOperationalStore("file::memory:"));
+    close = () => runTest(store.close());
     const failingStore: OperationalStore = {
       ...store,
-      appendEvent: async (runId, value) => {
-        const event = seqlaneExecutionEventSchema.parse(value);
-        if (event.type === "run.succeeded")
-          throw new Error("simulated storage failure");
-        await store.appendEvent(runId, event);
-      },
+      appendEvent: (runId, value) =>
+        Effect.gen(function* () {
+          const event = seqlaneExecutionEventSchema.parse(value);
+          if (event.type === "run.succeeded")
+            throw new Error("simulated storage failure");
+          yield* store.appendEvent(runId, event);
+        }),
     };
-    const manager = createOperationalRunManager({
-      workflows: [workflow],
-      store: failingStore,
-    });
-    shutdown = () => manager.shutdown();
+    const manager = await runTest(
+      createOperationalRunManager({
+        workflows: [workflow],
+        store: failingStore,
+      }),
+    );
+    shutdown = () => runTest(manager.shutdown());
 
-    const reference = await manager.start("failure", { version: 1, input: "" });
+    const reference = await runTest(
+      manager.start("failure", { version: 1, input: "" }),
+    );
     await expect
-      .poll(async () => await manager.status(reference.runId))
+      .poll(async () => await runTest(manager.status(reference.runId)))
       .toMatchObject({ status: "succeeded" });
-    expect(await manager.status(reference.runId)).toMatchObject({
+    expect(await runTest(manager.status(reference.runId))).toMatchObject({
       status: "succeeded",
       output: "",
       completeness: {
@@ -151,7 +327,7 @@ describe("hosted native run manager", () => {
         storageError: { category: "RuntimeError" },
       },
     });
-    expect(await store.status(reference.runId)).toMatchObject({
+    expect(await runTest(store.status(reference.runId))).toMatchObject({
       status: "succeeded",
       output: "",
       completeness: { inspection: "incomplete" },
@@ -207,33 +383,38 @@ describe("hosted native run manager", () => {
         ],
       ]),
     });
-    const store = await openOperationalStore("file::memory:");
-    close = () => store.close();
+    const store = await runTest(openOperationalStore("file::memory:"));
+    close = () => runTest(store.close());
     const failingStore: OperationalStore = {
       ...store,
-      appendEvent: async (runId, value) => {
-        const event = seqlaneExecutionEventSchema.parse(value);
-        if (event.type === "invocation.input") {
-          failObserved();
-          throw new Error("simulated active event storage failure");
-        }
-        await store.appendEvent(runId, event);
-      },
+      appendEvent: (runId, value) =>
+        Effect.gen(function* () {
+          const event = seqlaneExecutionEventSchema.parse(value);
+          if (event.type === "invocation.input") {
+            failObserved();
+            throw new Error("simulated active event storage failure");
+          }
+          yield* store.appendEvent(runId, event);
+        }),
     };
-    const manager = createOperationalRunManager({
-      workflows: [workflow],
-      store: failingStore,
-    });
-    shutdown = () => manager.shutdown();
+    const manager = await runTest(
+      createOperationalRunManager({
+        workflows: [workflow],
+        store: failingStore,
+      }),
+    );
+    shutdown = () => runTest(manager.shutdown());
 
-    const reference = await manager.start("active-storage-failure", {
-      version: 1,
-      input: "active",
-    });
+    const reference = await runTest(
+      manager.start("active-storage-failure", {
+        version: 1,
+        input: "active",
+      }),
+    );
     await expect
-      .poll(async () => (await manager.status(reference.runId)).status)
+      .poll(async () => (await runTest(manager.status(reference.runId))).status)
       .toBe("failed");
-    expect(await manager.status(reference.runId)).toMatchObject({
+    expect(await runTest(manager.status(reference.runId))).toMatchObject({
       status: "failed",
       error: {
         message: expect.stringContaining(
@@ -298,39 +479,47 @@ describe("hosted native run manager", () => {
           ],
         ]),
       });
-      const store = await openOperationalStore("file::memory:");
-      close = () => store.close();
+      const store = await runTest(openOperationalStore("file::memory:"));
+      close = () => runTest(store.close());
       let storedCause: unknown = "not observed";
       const failingStore: OperationalStore = {
         ...store,
-        appendEvent: async (runId, value) => {
-          const event = seqlaneExecutionEventSchema.parse(value);
-          if (event.type === "invocation.input") {
-            failObserved();
-            throw cause;
-          }
-          await store.appendEvent(runId, event);
-        },
-        markIncomplete: async (value) => {
-          storedCause = value.storageError;
-          await store.markIncomplete(value);
-        },
+        appendEvent: (runId, value) =>
+          Effect.gen(function* () {
+            const event = seqlaneExecutionEventSchema.parse(value);
+            if (event.type === "invocation.input") {
+              failObserved();
+              throw cause;
+            }
+            yield* store.appendEvent(runId, event);
+          }),
+        markIncomplete: (value) =>
+          Effect.gen(function* () {
+            storedCause = value.storageError;
+            yield* store.markIncomplete(value);
+          }),
       };
-      const manager = createOperationalRunManager({
-        workflows: [workflow],
-        store: failingStore,
-      });
-      shutdown = () => manager.shutdown();
+      const manager = await runTest(
+        createOperationalRunManager({
+          workflows: [workflow],
+          store: failingStore,
+        }),
+      );
+      shutdown = () => runTest(manager.shutdown());
 
-      const reference = await manager.start("falsey-storage-failure", {
-        version: 1,
-        input: "active",
-      });
+      const reference = await runTest(
+        manager.start("falsey-storage-failure", {
+          version: 1,
+          input: "active",
+        }),
+      );
       await expect
-        .poll(async () => (await manager.status(reference.runId)).status)
+        .poll(
+          async () => (await runTest(manager.status(reference.runId))).status,
+        )
         .toBe("failed");
       expect(storedCause).toBe(cause);
-      expect(await manager.status(reference.runId)).toMatchObject({
+      expect(await runTest(manager.status(reference.runId))).toMatchObject({
         status: "failed",
         error: { category: "RuntimeError" },
         completeness: { inspection: "incomplete" },
@@ -381,20 +570,24 @@ describe("hosted native run manager", () => {
         emitPlan: () => undefined,
       }),
     });
-    const store = await openOperationalStore("file::memory:");
-    close = () => store.close();
-    const manager = createOperationalRunManager({
-      workflows: [workflow],
-      store,
-    });
-    shutdown = () => manager.shutdown();
+    const store = await runTest(openOperationalStore("file::memory:"));
+    close = () => runTest(store.close());
+    const manager = await runTest(
+      createOperationalRunManager({
+        workflows: [workflow],
+        store,
+      }),
+    );
+    shutdown = () => runTest(manager.shutdown());
 
-    const reference = await manager.start("forwarding", {
-      version: 1,
-      input: "task input",
-    });
+    const reference = await runTest(
+      manager.start("forwarding", {
+        version: 1,
+        input: "task input",
+      }),
+    );
     await expect
-      .poll(async () => (await manager.status(reference.runId)).status)
+      .poll(async () => (await runTest(manager.status(reference.runId))).status)
       .toBe("succeeded");
     expect(coreEvents).toEqual(
       expect.arrayContaining([
@@ -448,31 +641,37 @@ describe("hosted native run manager", () => {
         emitPlan: () => undefined,
       }),
     });
-    const store = await openOperationalStore("file::memory:");
-    close = () => store.close();
-    const manager = createOperationalRunManager({
-      workflows: [workflow],
-      store,
-    });
-    shutdown = () => manager.shutdown();
+    const store = await runTest(openOperationalStore("file::memory:"));
+    close = () => runTest(store.close());
+    const manager = await runTest(
+      createOperationalRunManager({
+        workflows: [workflow],
+        store,
+      }),
+    );
+    shutdown = () => runTest(manager.shutdown());
 
-    const reference = await manager.start("sink-failure", {
-      version: 1,
-      input: "value",
-    });
+    const reference = await runTest(
+      manager.start("sink-failure", {
+        version: 1,
+        input: "value",
+      }),
+    );
     await expect
-      .poll(async () => (await manager.status(reference.runId)).status)
+      .poll(async () => (await runTest(manager.status(reference.runId))).status)
       .toBe("failed");
-    expect(await manager.status(reference.runId)).toMatchObject({
+    expect(await runTest(manager.status(reference.runId))).toMatchObject({
       error: { message: expect.stringContaining("event sink rejected input") },
     });
     expect(
       (
-        await manager.events(reference.runId, {
-          version: 1,
-          afterSequence: 0,
-          limit: 100,
-        })
+        await runTest(
+          manager.events(reference.runId, {
+            version: 1,
+            afterSequence: 0,
+            limit: 100,
+          }),
+        )
       )?.events.map(({ event }) => event.type),
     ).toContain("invocation.input");
   });
@@ -494,8 +693,8 @@ describe("hosted native run manager", () => {
       validatorDefinitions: built.validatorDefinitions,
       workflowDefinitions: built.workflowDefinitions,
     });
-    const store = await openOperationalStore("file::memory:");
-    close = () => store.close();
+    const store = await runTest(openOperationalStore("file::memory:"));
+    close = () => runTest(store.close());
     let release!: () => void;
     const blocked = new Promise<void>((resolve) => {
       release = resolve;
@@ -503,17 +702,20 @@ describe("hosted native run manager", () => {
     let active = 0;
     const heldStore: OperationalStore = {
       ...store,
-      setRunning: async (runId, updatedAt) => {
-        active += 1;
-        await blocked;
-        await store.setRunning(runId, updatedAt);
-      },
+      setRunning: (runId, updatedAt) =>
+        Effect.gen(function* () {
+          active += 1;
+          yield* Effect.promise(() => blocked);
+          yield* store.setRunning(runId, updatedAt);
+        }),
     };
-    const manager = createOperationalRunManager({
-      workflows: [workflow],
-      store: heldStore,
-    });
-    shutdown = () => manager.shutdown();
+    const manager = await runTest(
+      createOperationalRunManager({
+        workflows: [workflow],
+        store: heldStore,
+      }),
+    );
+    shutdown = () => runTest(manager.shutdown());
     const fiber = Effect.runFork(
       manager.invoke("invoke-cancel", {
         version: 1,
@@ -532,7 +734,7 @@ describe("hosted native run manager", () => {
     release();
     await interruption;
     expect(interruptionSettled).toBe(true);
-    expect(await manager.status("invoke-cancel-1")).toMatchObject({
+    expect(await runTest(manager.status("invoke-cancel-1"))).toMatchObject({
       status: "cancelled",
     });
   });
@@ -577,8 +779,8 @@ describe("hosted native run manager", () => {
         ],
       ]),
     });
-    const store = await openOperationalStore("file::memory:");
-    close = () => store.close();
+    const store = await runTest(openOperationalStore("file::memory:"));
+    close = () => runTest(store.close());
     let enteredCreateRun!: () => void;
     let release!: () => void;
     const createRunEntered = new Promise<void>((resolve) => {
@@ -589,17 +791,20 @@ describe("hosted native run manager", () => {
     });
     const heldStore: OperationalStore = {
       ...store,
-      createRun: async (value) => {
-        enteredCreateRun();
-        await createRunBlocked;
-        await store.createRun(value);
-      },
+      createRun: (value) =>
+        Effect.gen(function* () {
+          enteredCreateRun();
+          yield* Effect.promise(() => createRunBlocked);
+          yield* store.createRun(value);
+        }),
     };
-    const manager = createOperationalRunManager({
-      workflows: [workflow],
-      store: heldStore,
-    });
-    shutdown = () => manager.shutdown();
+    const manager = await runTest(
+      createOperationalRunManager({
+        workflows: [workflow],
+        store: heldStore,
+      }),
+    );
+    shutdown = () => runTest(manager.shutdown());
     const fiber = Effect.runFork(
       manager.invoke("invoke-admission-cancel", {
         version: 1,
@@ -616,10 +821,12 @@ describe("hosted native run manager", () => {
     expect(interruptionSettled).toBe(false);
     release();
     await interruption;
-    await manager.shutdown();
+    await runTest(manager.shutdown());
 
     expect(externalStarts).toBe(0);
-    expect(await store.status("invoke-admission-cancel-1")).toMatchObject({
+    expect(
+      await runTest(store.status("invoke-admission-cancel-1")),
+    ).toMatchObject({
       status: "cancelled",
     });
   });
@@ -660,8 +867,8 @@ describe("hosted native run manager", () => {
         ],
       ]),
     });
-    const store = await openOperationalStore("file::memory:");
-    close = () => store.close();
+    const store = await runTest(openOperationalStore("file::memory:"));
+    close = () => runTest(store.close());
     let enteredCreateRun!: () => void;
     let release!: () => void;
     const createRunEntered = new Promise<void>((resolve) => {
@@ -672,25 +879,30 @@ describe("hosted native run manager", () => {
     });
     const heldStore: OperationalStore = {
       ...store,
-      createRun: async (value) => {
-        enteredCreateRun();
-        await createRunBlocked;
-        await store.createRun(value);
-      },
+      createRun: (value) =>
+        Effect.gen(function* () {
+          enteredCreateRun();
+          yield* Effect.promise(() => createRunBlocked);
+          yield* store.createRun(value);
+        }),
     };
-    const manager = createOperationalRunManager({
-      workflows: [workflow],
-      store: heldStore,
-    });
-    shutdown = () => manager.shutdown();
-    const starting = manager.start("shutdown-admission", {
-      version: 1,
-      runId: "shutdown-admission-1",
-      input: "value",
-    });
+    const manager = await runTest(
+      createOperationalRunManager({
+        workflows: [workflow],
+        store: heldStore,
+      }),
+    );
+    shutdown = () => runTest(manager.shutdown());
+    const starting = runTest(
+      manager.start("shutdown-admission", {
+        version: 1,
+        runId: "shutdown-admission-1",
+        input: "value",
+      }),
+    );
     await createRunEntered;
     let shutdownSettled = false;
-    const stopping = manager.shutdown().then(() => {
+    const stopping = runTest(manager.shutdown()).then(() => {
       shutdownSettled = true;
     });
     await new Promise((resolve) => setImmediate(resolve));
@@ -700,7 +912,7 @@ describe("hosted native run manager", () => {
     await stopping;
 
     expect(externalStarts).toBe(0);
-    expect(await store.status("shutdown-admission-1")).toMatchObject({
+    expect(await runTest(store.status("shutdown-admission-1"))).toMatchObject({
       status: "cancelled",
     });
   });
@@ -753,8 +965,8 @@ describe("hosted native run manager", () => {
         ],
       ]),
     });
-    const store = await openOperationalStore("file::memory:");
-    close = () => store.close();
+    const store = await runTest(openOperationalStore("file::memory:"));
+    close = () => runTest(store.close());
     let startupPlanBlocked!: () => void;
     let releaseStartupPlan!: () => void;
     const planBlocked = new Promise<void>((resolve) => {
@@ -766,45 +978,50 @@ describe("hosted native run manager", () => {
     const targetRunId = "startup-flush-cancel-target";
     const heldStore: OperationalStore = {
       ...store,
-      appendEvent: async (runId, value) => {
-        const event = seqlaneExecutionEventSchema.parse(value);
-        if (runId === targetRunId && event.type === "run.plan") {
-          startupPlanBlocked();
-          await planGate;
-        }
-        await store.appendEvent(runId, event);
-      },
+      appendEvent: (runId, value) =>
+        Effect.gen(function* () {
+          const event = seqlaneExecutionEventSchema.parse(value);
+          if (runId === targetRunId && event.type === "run.plan") {
+            startupPlanBlocked();
+            yield* Effect.promise(() => planGate);
+          }
+          yield* store.appendEvent(runId, event);
+        }),
     };
-    const manager = createOperationalRunManager({
-      workflows: [workflow],
-      store: heldStore,
-    });
-    shutdown = () => manager.shutdown();
+    const manager = await runTest(
+      createOperationalRunManager({
+        workflows: [workflow],
+        store: heldStore,
+      }),
+    );
+    shutdown = () => runTest(manager.shutdown());
     const activeReferences = await Promise.all(
       Array.from({ length: 4 }, (_, index) =>
-        manager.start("startup-flush-cancel", {
-          version: 1,
-          runId: `startup-flush-cancel-${index}`,
-          input: "active",
-        }),
+        runTest(
+          manager.start("startup-flush-cancel", {
+            version: 1,
+            runId: `startup-flush-cancel-${index}`,
+            input: "active",
+          }),
+        ),
       ),
     );
     await expect.poll(() => externalStarts).toBe(4);
 
     let startingSettled = false;
-    const starting = manager
-      .start("startup-flush-cancel", {
+    const starting = runTest(
+      manager.start("startup-flush-cancel", {
         version: 1,
         runId: targetRunId,
         input: "queued",
-      })
-      .then((reference) => {
-        startingSettled = true;
-        return reference;
-      });
+      }),
+    ).then((reference) => {
+      startingSettled = true;
+      return reference;
+    });
     await planBlocked;
     let cancellationSettled = false;
-    const cancellation = manager.cancel(targetRunId).then((result) => {
+    const cancellation = runTest(manager.cancel(targetRunId)).then((result) => {
       cancellationSettled = true;
       return result;
     });
@@ -822,7 +1039,7 @@ describe("hosted native run manager", () => {
     expect(externalStarts).toBe(4);
     expect(peakActive).toBeLessThanOrEqual(4);
     for (const reference of activeReferences)
-      await manager.cancel(reference.runId);
+      await runTest(manager.cancel(reference.runId));
   });
 
   it("bounds admission at four active and sixteen queued and drains cancellation", async () => {
@@ -839,8 +1056,8 @@ describe("hosted native run manager", () => {
       plan: built.plan,
       workflow: authored,
     });
-    const store = await openOperationalStore("file::memory:");
-    close = () => store.close();
+    const store = await runTest(openOperationalStore("file::memory:"));
+    close = () => runTest(store.close());
     let release!: () => void;
     const blocked = new Promise<void>((resolve) => {
       release = resolve;
@@ -848,46 +1065,53 @@ describe("hosted native run manager", () => {
     let active = 0;
     const heldStore: OperationalStore = {
       ...store,
-      setRunning: async (runId, updatedAt) => {
-        active += 1;
-        await blocked;
-        await store.setRunning(runId, updatedAt);
-      },
+      setRunning: (runId, updatedAt) =>
+        Effect.gen(function* () {
+          active += 1;
+          yield* Effect.promise(() => blocked);
+          yield* store.setRunning(runId, updatedAt);
+        }),
     };
-    const manager = createOperationalRunManager({
-      workflows: [workflow],
-      store: heldStore,
-    });
-    shutdown = () => manager.shutdown();
+    const manager = await runTest(
+      createOperationalRunManager({
+        workflows: [workflow],
+        store: heldStore,
+      }),
+    );
+    shutdown = () => runTest(manager.shutdown());
 
     const starts = Array.from({ length: 20 }, (_, index) =>
-      manager.start("capacity", {
-        version: 1,
-        runId: `capacity-${index}`,
-        input: null,
-      }),
+      runTest(
+        manager.start("capacity", {
+          version: 1,
+          runId: `capacity-${index}`,
+          input: null,
+        }),
+      ),
     );
     const references = await Promise.all(starts);
     await expect.poll(() => active).toBe(4);
     await expect(
-      manager.start("capacity", {
-        version: 1,
-        runId: "capacity-overflow",
-        input: null,
-      }),
+      runTest(
+        manager.start("capacity", {
+          version: 1,
+          runId: "capacity-overflow",
+          input: null,
+        }),
+      ),
     ).rejects.toBeInstanceOf(OperationalAdmissionError);
 
     const queuedCancellations = references
       .slice(4)
-      .map(({ runId }) => manager.cancel(runId));
+      .map(({ runId }) => runTest(manager.cancel(runId)));
 
     let cancelSettled = false;
-    const activeCancellation = manager
-      .cancel(references[0]!.runId)
-      .then((result) => {
-        cancelSettled = true;
-        return result;
-      });
+    const activeCancellation = runTest(
+      manager.cancel(references[0]!.runId),
+    ).then((result) => {
+      cancelSettled = true;
+      return result;
+    });
     expect(cancelSettled).toBe(false);
     release();
     expect(await activeCancellation).toMatchObject({
@@ -900,6 +1124,6 @@ describe("hosted native run manager", () => {
       ),
     ).toBe(true);
     expect(active).toBe(4);
-    await manager.shutdown();
+    await runTest(manager.shutdown());
   });
 });

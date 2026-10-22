@@ -2,13 +2,9 @@ import { existsSync, mkdirSync } from "node:fs";
 import { dirname, isAbsolute, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { SqliteClient } from "@effect/sql-sqlite-node";
-import { Cause, Effect, Exit, ManagedRuntime } from "effect";
+import { Cause, Context, Effect, Exit, Layer, Scope } from "effect";
 import { SqlClient } from "effect/sql/SqlClient";
-import {
-  LockTimeoutError,
-  UniqueViolation,
-  type SqlError,
-} from "effect/sql/SqlError";
+import { LockTimeoutError, UniqueViolation } from "effect/sql/SqlError";
 import { jsonValueSchema, type JsonValue } from "@seqlane/core";
 import {
   operationalRunCompletenessSchema,
@@ -226,9 +222,9 @@ export interface OperationalStore {
     readonly runId: string;
     readonly workflowKey: string;
     readonly createdAt: string;
-  }): Promise<void>;
-  setRunning(runId: string, updatedAt: string): Promise<void>;
-  appendEvent(runId: string, event: unknown): Promise<void>;
+  }): Effect.Effect<void, unknown>;
+  setRunning(runId: string, updatedAt: string): Effect.Effect<void, unknown>;
+  appendEvent(runId: string, event: unknown): Effect.Effect<void, unknown>;
   completeRun(input: {
     readonly runId: string;
     readonly status: Extract<
@@ -240,7 +236,7 @@ export interface OperationalStore {
     readonly error?: unknown;
     readonly spans: readonly TelemetrySpanSnapshot[];
     readonly droppedRecords: number;
-  }): Promise<void>;
+  }): Effect.Effect<void, unknown>;
   markIncomplete(input: {
     readonly runId: string;
     readonly status: Extract<
@@ -253,18 +249,22 @@ export interface OperationalStore {
     readonly storageError: unknown;
     readonly spans?: readonly TelemetrySpanSnapshot[];
     readonly droppedRecords?: number;
-  }): Promise<void>;
-  status(runId: string): Promise<OperationalRunStatus | undefined>;
+  }): Effect.Effect<void, unknown>;
+  status(
+    runId: string,
+  ): Effect.Effect<OperationalRunStatus | undefined, unknown>;
   list(options: {
     readonly limit: number;
     readonly cursor?: number;
-  }): Promise<OperationalRunList>;
+  }): Effect.Effect<OperationalRunList, unknown>;
   events(
     runId: string,
     options: { readonly afterSequence: number; readonly limit: number },
-  ): Promise<OperationalRunEvents | undefined>;
-  trace(runId: string): Promise<OperationalTraceInspection | undefined>;
-  close(): Promise<void>;
+  ): Effect.Effect<OperationalRunEvents | undefined, unknown>;
+  trace(
+    runId: string,
+  ): Effect.Effect<OperationalTraceInspection | undefined, unknown>;
+  close(): Effect.Effect<void, unknown>;
 }
 
 function storagePath(storageUrl: string | undefined): string {
@@ -425,417 +425,426 @@ function asSerializedError(cause: unknown) {
     : serializedSeqlaneErrorSchema.parse(serializeSeqlaneError(cause));
 }
 
-export async function openOperationalStore(
+export class OperationalStoreService extends Context.Service<
+  OperationalStoreService,
+  OperationalStore
+>()("seqlane/OperationalStore") {}
+
+/** The caller's scope owns the SQL connection, including failed startup. */
+export function openOperationalStore(
   storageUrl?: string,
-): Promise<OperationalStore> {
-  const path = storagePath(storageUrl);
-  if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
-  preflightDatabase(path);
-  const runtime = ManagedRuntime.make(
-    SqliteClient.layer({ filename: path, busyTimeout: BUSY_TIMEOUT_MS }),
-  );
-  let healthy = false;
-  let closed = false;
-  try {
-    const schemaExit = await runtime.runPromiseExit(
-      createSchema(path === ":memory:"),
+): Effect.Effect<OperationalStore, unknown, Scope.Scope> {
+  return Effect.gen(function* () {
+    const path = storagePath(storageUrl);
+    if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
+    preflightDatabase(path);
+    let healthy = false;
+    let closed = false;
+    const scope = yield* Effect.acquireRelease(Scope.make(), (scope) =>
+      Effect.sync(() => {
+        healthy = false;
+        closed = true;
+      }).pipe(Effect.andThen(Scope.close(scope, Exit.void))),
     );
-    if (Exit.isFailure(schemaExit)) throw Cause.squash(schemaExit.cause);
-    // Recovery is ordered after exclusive lock acquisition and never replays work.
-    const recoveredAt = new Date().toISOString();
-    const recoveryExit = await runtime.runPromiseExit(
-      Effect.gen(function* () {
-        const sql = yield* SqlClient;
-        yield* sql.withTransaction(
-          sql`UPDATE operational_runs SET status = 'interrupted', inspection_complete = 0, updated_at = ${recoveredAt} WHERE status IN ('queued', 'running')`,
+    const sql = yield* Effect.gen(function* () {
+      const context = yield* Layer.buildWithScope(
+        SqliteClient.layer({ filename: path, busyTimeout: BUSY_TIMEOUT_MS }),
+        scope,
+      );
+      const sql = Context.get(context, SqlClient);
+      yield* createSchema(path === ":memory:").pipe(
+        Effect.provideService(SqlClient, sql),
+      );
+      // Recovery follows exclusive ownership; it never replays unfinished work.
+      const recoveredAt = new Date(
+        yield* Effect.clockWith((clock) => clock.currentTimeMillis),
+      ).toISOString();
+      yield* sql.withTransaction(
+        sql`UPDATE operational_runs SET status = 'interrupted', inspection_complete = 0, updated_at = ${recoveredAt} WHERE status IN ('queued', 'running')`,
+      );
+      return sql;
+    }).pipe(
+      Effect.catchCause((cause) => {
+        const failure = Cause.squash(cause);
+        return Scope.close(scope, Exit.fail(failure)).pipe(
+          Effect.catchCause(() => Effect.void),
+          Effect.andThen(
+            Effect.fail(
+              sqliteBusyCauseSchema.safeParse(failure).success
+                ? new OperationalStoreBusyError(path, { cause: failure })
+                : failure instanceof OperationalStorageError
+                  ? failure
+                  : new OperationalStorageError("open", failure),
+            ),
+          ),
         );
       }),
     );
-    if (Exit.isFailure(recoveryExit)) throw Cause.squash(recoveryExit.cause);
     healthy = true;
-  } catch (cause) {
-    try {
-      await runtime.dispose();
-    } catch {
-      /* Keep the original startup failure. */
-    }
-    const failure = cause;
-    if (sqliteBusyCauseSchema.safeParse(failure).success)
-      throw new OperationalStoreBusyError(path, { cause: failure });
-    if (cause instanceof OperationalStorageError) throw cause;
-    throw new OperationalStorageError("open", failure);
-  }
 
-  const run = async <A, E>(
-    effect: Effect.Effect<A, E, SqlClient>,
-  ): Promise<A> => {
-    let exit: Exit.Exit<A, E | SqlError>;
-    try {
-      exit = await runtime.runPromiseExit(effect);
-    } catch (cause) {
-      healthy = false;
-      const failure = cause;
-      if (sqliteBusyCauseSchema.safeParse(failure).success)
-        throw new OperationalStoreBusyError(path, { cause: failure });
-      throw new OperationalStorageError("query", failure);
-    }
-    if (Exit.isSuccess(exit)) return exit.value;
-    const cause = Cause.squash(exit.cause);
-    if (sqliteUniqueCauseSchema.safeParse(cause).success) throw cause;
-    healthy = false;
-    if (cause instanceof OperationalStorageError) throw cause;
-    if (sqliteBusyCauseSchema.safeParse(cause).success)
-      throw new OperationalStoreBusyError(path, { cause });
-    throw new OperationalStorageError("query", cause);
-  };
-  const runForRunId = (runId: string) =>
-    Effect.gen(function* () {
-      const sql = yield* SqlClient;
-      return yield* sql`SELECT work_id, run_id, workflow_key, status, created_at, updated_at, output_json, error_json, inspection_complete, storage_error_json FROM operational_runs WHERE run_id = ${runId}`;
-    });
+    const run = <A, E>(
+      effect: Effect.Effect<A, E>,
+    ): Effect.Effect<A, unknown> =>
+      effect.pipe(
+        Effect.catchCause((failure) => {
+          if (Cause.hasInterruptsOnly(failure))
+            return Effect.failCause(failure);
+          const cause = Cause.squash(failure);
+          if (sqliteUniqueCauseSchema.safeParse(cause).success)
+            return Effect.fail(cause);
+          healthy = false;
+          return Effect.fail(
+            cause instanceof OperationalStorageError
+              ? cause
+              : sqliteBusyCauseSchema.safeParse(cause).success
+                ? new OperationalStoreBusyError(path, { cause })
+                : new OperationalStorageError("query", cause),
+          );
+        }),
+      );
+    const runForRunId = (runId: string) =>
+      sql`SELECT work_id, run_id, workflow_key, status, created_at, updated_at, output_json, error_json, inspection_complete, storage_error_json FROM operational_runs WHERE run_id = ${runId}`;
 
-  return {
-    get healthy() {
-      return healthy && !closed;
-    },
-    createRun: async ({ workId, runId, workflowKey, createdAt }) => {
-      try {
-        await run(
+    return {
+      get healthy() {
+        return healthy && !closed;
+      },
+      createRun: ({ workId, runId, workflowKey, createdAt }) =>
+        run(
+          sql`INSERT INTO operational_runs (work_id, run_id, workflow_key, status, created_at, updated_at) VALUES (${workId}, ${runId}, ${workflowKey}, 'queued', ${createdAt}, ${createdAt})`,
+        ).pipe(
+          Effect.asVoid,
+          Effect.catch((cause) =>
+            Effect.fail(
+              sqliteUniqueCauseSchema.safeParse(cause).success
+                ? new OperationalRunConflictError(runId, cause)
+                : cause,
+            ),
+          ),
+        ),
+      setRunning: (runId, updatedAt) =>
+        run(
+          sql`UPDATE operational_runs SET status = 'running', updated_at = ${updatedAt} WHERE run_id = ${runId} AND status = 'queued'`,
+        ).pipe(Effect.asVoid),
+      appendEvent: (runId, rawEvent) =>
+        run(
           Effect.gen(function* () {
-            const sql = yield* SqlClient;
-            yield* sql`INSERT INTO operational_runs (work_id, run_id, workflow_key, status, created_at, updated_at) VALUES (${workId}, ${runId}, ${workflowKey}, 'queued', ${createdAt}, ${createdAt})`;
-          }),
-        );
-      } catch (cause) {
-        if (sqliteUniqueCauseSchema.safeParse(cause).success)
-          throw new OperationalRunConflictError(runId, cause);
-        throw cause;
-      }
-    },
-    setRunning: (runId, updatedAt) =>
-      run(
-        Effect.gen(function* () {
-          const sql = yield* SqlClient;
-          yield* sql`UPDATE operational_runs SET status = 'running', updated_at = ${updatedAt} WHERE run_id = ${runId} AND status = 'queued'`;
-        }),
-      ),
-    appendEvent: (runId, rawEvent) =>
-      run(
-        Effect.gen(function* () {
-          const event = seqlaneExecutionEventSchema.parse(rawEvent);
-          if (event.runId !== runId)
-            throw new TypeError("Event run identity does not match stored run");
-          const eventJson = jsonText(event);
-          const bytes = Buffer.byteLength(eventJson, "utf8");
-          const sql = yield* SqlClient;
-          yield* sql.withTransaction(
-            Effect.gen(function* () {
-              const rows =
-                yield* sql`SELECT work_id, next_sequence FROM operational_runs WHERE run_id = ${runId}`;
-              const runRow = z
-                .strictObject({
-                  work_id: z.string(),
-                  next_sequence: z.number().int().nonnegative(),
-                })
-                .parse(rows[0]);
-              if (event.workId !== runRow.work_id)
-                throw new TypeError(
-                  "Event work identity does not match stored run",
-                );
-              const expected = runRow.next_sequence + 1;
-              if (event.metadata.sequence !== expected)
-                throw new TypeError("Hosted event sequence is not contiguous");
-              yield* sql`INSERT INTO operational_events (run_id, sequence, event_json, byte_count) VALUES (${runId}, ${event.metadata.sequence}, ${eventJson}, ${bytes})`;
-              yield* sql`UPDATE operational_runs SET next_sequence = ${event.metadata.sequence}, updated_at = ${event.metadata.occurredAt} WHERE run_id = ${runId}`;
-            }),
-          );
-        }),
-      ),
-    completeRun: (input) =>
-      run(
-        Effect.gen(function* () {
-          const sql = yield* SqlClient;
-          const spans = z
-            .array(telemetrySpanSnapshotSchema)
-            .max(2000)
-            .parse(input.spans);
-          const traceId = spans[0]?.traceId;
-          const storageError =
-            input.droppedRecords === 0
-              ? undefined
-              : asSerializedError(
-                  new Error("Trace record retention limit reached"),
-                );
-          yield* sql.withTransaction(
-            Effect.gen(function* () {
-              yield* sql`UPDATE operational_runs SET status = ${input.status}, updated_at = ${input.updatedAt}, output_json = ${input.output === undefined ? null : jsonText(jsonValueSchema.parse(input.output))}, error_json = ${input.error === undefined ? null : jsonText(asSerializedError(input.error))}, inspection_complete = ${storageError === undefined ? 1 : 0}, storage_error_json = ${storageError === undefined ? null : jsonText(storageError)} WHERE run_id = ${input.runId}`;
-              yield* sql`INSERT INTO operational_traces (run_id, trace_id, spans_json, dropped_records) VALUES (${input.runId}, ${traceId ?? null}, ${jsonText(spans)}, ${input.droppedRecords}) ON CONFLICT(run_id) DO UPDATE SET trace_id = excluded.trace_id, spans_json = excluded.spans_json, dropped_records = excluded.dropped_records`;
-            }),
-          );
-        }),
-      ),
-    markIncomplete: (input) =>
-      run(
-        Effect.gen(function* () {
-          const sql = yield* SqlClient;
-          const storageError = asSerializedError(input.storageError);
-          const error =
-            input.error === undefined
-              ? null
-              : jsonText(asSerializedError(input.error));
-          const output =
-            input.output === undefined
-              ? null
-              : jsonText(jsonValueSchema.parse(input.output));
-          const spans =
-            input.spans === undefined
-              ? undefined
-              : z
-                  .array(telemetrySpanSnapshotSchema)
-                  .max(2000)
-                  .parse(input.spans);
-          const droppedRecords = input.droppedRecords ?? 0;
-          if (!Number.isSafeInteger(droppedRecords) || droppedRecords < 0)
-            throw new TypeError(
-              "Dropped trace record count must be a non-negative safe integer",
-            );
-          yield* sql.withTransaction(
-            Effect.gen(function* () {
-              yield* sql`UPDATE operational_runs SET status = ${input.status}, updated_at = ${input.updatedAt}, output_json = ${output}, error_json = ${error}, inspection_complete = 0, storage_error_json = ${jsonText(storageError)} WHERE run_id = ${input.runId}`;
-              if (spans !== undefined) {
-                const traceId = spans[0]?.traceId;
-                yield* sql`INSERT INTO operational_traces (run_id, trace_id, spans_json, dropped_records) VALUES (${input.runId}, ${traceId ?? null}, ${jsonText(spans)}, ${droppedRecords}) ON CONFLICT(run_id) DO UPDATE SET trace_id = excluded.trace_id, spans_json = excluded.spans_json, dropped_records = excluded.dropped_records`;
-              }
-            }),
-          );
-        }),
-      ),
-    status: (runId) =>
-      run(
-        Effect.gen(function* () {
-          const rows = yield* runForRunId(runId);
-          return rows.length === 0 ? undefined : parseStoredRun(rows[0]);
-        }),
-      ),
-    list: (options) =>
-      run(
-        Effect.gen(function* () {
-          const sql = yield* SqlClient;
-          const rows =
-            options.cursor === undefined
-              ? yield* sql`SELECT rowid, work_id, run_id, workflow_key, status, created_at, updated_at FROM operational_runs ORDER BY rowid DESC LIMIT ${options.limit + 1}`
-              : yield* sql`SELECT rowid, work_id, run_id, workflow_key, status, created_at, updated_at FROM operational_runs WHERE rowid < ${options.cursor} ORDER BY rowid DESC LIMIT ${options.limit + 1}`;
-          const parsed = rows
-            .slice(0, options.limit)
-            .map((value) => storedSummaryRow.parse(value));
-          const summaries = parsed.map((row) =>
-            operationalRunSummarySchema.parse({
-              workId: row.work_id,
-              runId: row.run_id,
-              workflowKey: row.workflow_key,
-              status: row.status,
-              createdAt: row.created_at,
-              updatedAt: row.updated_at,
-            }),
-          );
-          const nextCursor =
-            rows.length > options.limit ? parsed.at(-1)?.rowid : undefined;
-          return operationalRunListSchema.parse({
-            version: 1,
-            runs: summaries,
-            ...(nextCursor === undefined ? {} : { nextCursor }),
-          });
-        }),
-      ),
-    events: (runId, options) =>
-      run(
-        Effect.gen(function* () {
-          const sql = yield* SqlClient;
-          const snapshot = yield* sql.withTransaction(
-            Effect.gen(function* () {
-              const runRows = yield* runForRunId(runId);
-              if (runRows.length === 0) return undefined;
-              const sequenceRows =
-                yield* sql`SELECT next_sequence FROM operational_runs WHERE run_id = ${runId}`;
-              const latest = storedSequenceRow.parse(
-                sequenceRows[0],
-              ).next_sequence;
-              const boundedLimit = Math.min(
-                options.limit,
-                MAX_EVENT_PAGE_COUNT,
+            const event = seqlaneExecutionEventSchema.parse(rawEvent);
+            if (event.runId !== runId)
+              throw new TypeError(
+                "Event run identity does not match stored run",
               );
-              const items: { sequence: number; event: unknown }[] = [];
-              let cursor = options.afterSequence;
-              let bytes = 0;
-              let gap: { fromSequence: number; toSequence: number } | undefined;
-              while (items.length < boundedLimit) {
+            const eventJson = jsonText(event);
+            const bytes = Buffer.byteLength(eventJson, "utf8");
+            yield* sql.withTransaction(
+              Effect.gen(function* () {
                 const rows =
-                  yield* sql`SELECT sequence, byte_count, length(CAST(event_json AS BLOB)) AS actual_byte_count FROM operational_events WHERE run_id = ${runId} AND sequence > ${cursor} ORDER BY sequence ASC LIMIT 1`;
-                if (rows.length === 0) {
-                  if (latest > cursor && gap === undefined)
-                    gap = { fromSequence: cursor + 1, toSequence: latest };
-                  break;
+                  yield* sql`SELECT work_id, next_sequence FROM operational_runs WHERE run_id = ${runId}`;
+                const runRow = z
+                  .strictObject({
+                    work_id: z.string(),
+                    next_sequence: z.number().int().nonnegative(),
+                  })
+                  .parse(rows[0]);
+                if (event.workId !== runRow.work_id)
+                  throw new TypeError(
+                    "Event work identity does not match stored run",
+                  );
+                const expected = runRow.next_sequence + 1;
+                if (event.metadata.sequence !== expected)
+                  throw new TypeError(
+                    "Hosted event sequence is not contiguous",
+                  );
+                yield* sql`INSERT INTO operational_events (run_id, sequence, event_json, byte_count) VALUES (${runId}, ${event.metadata.sequence}, ${eventJson}, ${bytes})`;
+                yield* sql`UPDATE operational_runs SET next_sequence = ${event.metadata.sequence}, updated_at = ${event.metadata.occurredAt} WHERE run_id = ${runId}`;
+              }),
+            );
+          }),
+        ),
+      completeRun: (input) =>
+        run(
+          Effect.gen(function* () {
+            const spans = z
+              .array(telemetrySpanSnapshotSchema)
+              .max(2000)
+              .parse(input.spans);
+            const traceId = spans[0]?.traceId;
+            const storageError =
+              input.droppedRecords === 0
+                ? undefined
+                : asSerializedError(
+                    new Error("Trace record retention limit reached"),
+                  );
+            yield* sql.withTransaction(
+              Effect.gen(function* () {
+                yield* sql`UPDATE operational_runs SET status = ${input.status}, updated_at = ${input.updatedAt}, output_json = ${input.output === undefined ? null : jsonText(jsonValueSchema.parse(input.output))}, error_json = ${input.error === undefined ? null : jsonText(asSerializedError(input.error))}, inspection_complete = ${storageError === undefined ? 1 : 0}, storage_error_json = ${storageError === undefined ? null : jsonText(storageError)} WHERE run_id = ${input.runId}`;
+                yield* sql`INSERT INTO operational_traces (run_id, trace_id, spans_json, dropped_records) VALUES (${input.runId}, ${traceId ?? null}, ${jsonText(spans)}, ${input.droppedRecords}) ON CONFLICT(run_id) DO UPDATE SET trace_id = excluded.trace_id, spans_json = excluded.spans_json, dropped_records = excluded.dropped_records`;
+              }),
+            );
+          }),
+        ),
+      markIncomplete: (input) =>
+        run(
+          Effect.gen(function* () {
+            const storageError = asSerializedError(input.storageError);
+            const error =
+              input.error === undefined
+                ? null
+                : jsonText(asSerializedError(input.error));
+            const output =
+              input.output === undefined
+                ? null
+                : jsonText(jsonValueSchema.parse(input.output));
+            const spans =
+              input.spans === undefined
+                ? undefined
+                : z
+                    .array(telemetrySpanSnapshotSchema)
+                    .max(2000)
+                    .parse(input.spans);
+            const droppedRecords = input.droppedRecords ?? 0;
+            if (!Number.isSafeInteger(droppedRecords) || droppedRecords < 0)
+              throw new TypeError(
+                "Dropped trace record count must be a non-negative safe integer",
+              );
+            yield* sql.withTransaction(
+              Effect.gen(function* () {
+                yield* sql`UPDATE operational_runs SET status = ${input.status}, updated_at = ${input.updatedAt}, output_json = ${output}, error_json = ${error}, inspection_complete = 0, storage_error_json = ${jsonText(storageError)} WHERE run_id = ${input.runId}`;
+                if (spans !== undefined) {
+                  const traceId = spans[0]?.traceId;
+                  yield* sql`INSERT INTO operational_traces (run_id, trace_id, spans_json, dropped_records) VALUES (${input.runId}, ${traceId ?? null}, ${jsonText(spans)}, ${droppedRecords}) ON CONFLICT(run_id) DO UPDATE SET trace_id = excluded.trace_id, spans_json = excluded.spans_json, dropped_records = excluded.dropped_records`;
                 }
-                const row = storedEventSizeRow.parse(rows[0]);
-                if (row.byte_count !== row.actual_byte_count)
-                  throw new TypeError("Stored event byte count is invalid");
-                if (row.sequence > cursor + 1) {
-                  if (gap !== undefined) break;
-                  gap = {
-                    fromSequence: cursor + 1,
-                    toSequence: row.sequence - 1,
-                  };
-                }
-                if (bytes + row.byte_count > EVENT_PAGE_BYTES) {
-                  if (items.length === 0)
-                    throw new RangeError(
-                      "A single stored event exceeds the inspection page byte limit",
+              }),
+            );
+          }),
+        ),
+      status: (runId) =>
+        run(
+          Effect.gen(function* () {
+            const rows = yield* runForRunId(runId);
+            return rows.length === 0 ? undefined : parseStoredRun(rows[0]);
+          }),
+        ),
+      list: (options) =>
+        run(
+          Effect.gen(function* () {
+            const rows =
+              options.cursor === undefined
+                ? yield* sql`SELECT rowid, work_id, run_id, workflow_key, status, created_at, updated_at FROM operational_runs ORDER BY rowid DESC LIMIT ${options.limit + 1}`
+                : yield* sql`SELECT rowid, work_id, run_id, workflow_key, status, created_at, updated_at FROM operational_runs WHERE rowid < ${options.cursor} ORDER BY rowid DESC LIMIT ${options.limit + 1}`;
+            const parsed = rows
+              .slice(0, options.limit)
+              .map((value) => storedSummaryRow.parse(value));
+            const summaries = parsed.map((row) =>
+              operationalRunSummarySchema.parse({
+                workId: row.work_id,
+                runId: row.run_id,
+                workflowKey: row.workflow_key,
+                status: row.status,
+                createdAt: row.created_at,
+                updatedAt: row.updated_at,
+              }),
+            );
+            const nextCursor =
+              rows.length > options.limit ? parsed.at(-1)?.rowid : undefined;
+            return operationalRunListSchema.parse({
+              version: 1,
+              runs: summaries,
+              ...(nextCursor === undefined ? {} : { nextCursor }),
+            });
+          }),
+        ),
+      events: (runId, options) =>
+        run(
+          Effect.gen(function* () {
+            const snapshot = yield* sql.withTransaction(
+              Effect.gen(function* () {
+                const runRows = yield* runForRunId(runId);
+                if (runRows.length === 0) return undefined;
+                const sequenceRows =
+                  yield* sql`SELECT next_sequence FROM operational_runs WHERE run_id = ${runId}`;
+                const latest = storedSequenceRow.parse(
+                  sequenceRows[0],
+                ).next_sequence;
+                const boundedLimit = Math.min(
+                  options.limit,
+                  MAX_EVENT_PAGE_COUNT,
+                );
+                const items: { sequence: number; event: unknown }[] = [];
+                let cursor = options.afterSequence;
+                let bytes = 0;
+                let gap:
+                  { fromSequence: number; toSequence: number } | undefined;
+                while (items.length < boundedLimit) {
+                  const rows =
+                    yield* sql`SELECT sequence, byte_count, length(CAST(event_json AS BLOB)) AS actual_byte_count FROM operational_events WHERE run_id = ${runId} AND sequence > ${cursor} ORDER BY sequence ASC LIMIT 1`;
+                  if (rows.length === 0) {
+                    if (latest > cursor && gap === undefined)
+                      gap = { fromSequence: cursor + 1, toSequence: latest };
+                    break;
+                  }
+                  const row = storedEventSizeRow.parse(rows[0]);
+                  if (row.byte_count !== row.actual_byte_count)
+                    throw new TypeError("Stored event byte count is invalid");
+                  if (row.sequence > cursor + 1) {
+                    if (gap !== undefined) break;
+                    gap = {
+                      fromSequence: cursor + 1,
+                      toSequence: row.sequence - 1,
+                    };
+                  }
+                  if (bytes + row.byte_count > EVENT_PAGE_BYTES) {
+                    if (items.length === 0)
+                      throw new RangeError(
+                        "A single stored event exceeds the inspection page byte limit",
+                      );
+                    break;
+                  }
+                  const eventRows =
+                    yield* sql`SELECT event_json FROM operational_events WHERE run_id = ${runId} AND sequence = ${row.sequence}`;
+                  const eventJson = z
+                    .strictObject({ event_json: z.string() })
+                    .parse(eventRows[0]).event_json;
+                  if (
+                    Buffer.byteLength(eventJson, "utf8") !==
+                    row.actual_byte_count
+                  )
+                    throw new TypeError("Stored event byte count is invalid");
+                  const eventValue: unknown = JSON.parse(eventJson);
+                  const event = seqlaneExecutionEventSchema.parse(eventValue);
+                  if (
+                    event.runId !== runId ||
+                    event.metadata.sequence !== row.sequence
+                  )
+                    throw new TypeError(
+                      "Stored event identity or sequence is invalid",
                     );
-                  break;
+                  bytes += row.byte_count;
+                  items.push({ sequence: row.sequence, event });
+                  cursor = row.sequence;
+                  if (gap !== undefined) {
+                    const nextRows =
+                      yield* sql`SELECT sequence FROM operational_events WHERE run_id = ${runId} AND sequence > ${cursor} ORDER BY sequence ASC LIMIT 1`;
+                    const nextRow =
+                      nextRows[0] === undefined
+                        ? undefined
+                        : z
+                            .strictObject({
+                              sequence: z.number().int().nonnegative(),
+                            })
+                            .parse(nextRows[0]);
+                    if (nextRow !== undefined && nextRow.sequence > cursor + 1)
+                      break;
+                  }
                 }
-                const eventRows =
-                  yield* sql`SELECT event_json FROM operational_events WHERE run_id = ${runId} AND sequence = ${row.sequence}`;
-                const eventJson = z
-                  .strictObject({ event_json: z.string() })
-                  .parse(eventRows[0]).event_json;
+                const terminalSizeRows =
+                  yield* sql`SELECT sequence, byte_count, length(CAST(event_json AS BLOB)) AS actual_byte_count FROM operational_events WHERE run_id = ${runId} AND sequence = ${latest}`;
+                const terminalSize =
+                  terminalSizeRows[0] === undefined
+                    ? undefined
+                    : storedEventSizeRow.parse(terminalSizeRows[0]);
                 if (
-                  Buffer.byteLength(eventJson, "utf8") !== row.actual_byte_count
-                )
-                  throw new TypeError("Stored event byte count is invalid");
-                const eventValue: unknown = JSON.parse(eventJson);
-                const event = seqlaneExecutionEventSchema.parse(eventValue);
-                if (
-                  event.runId !== runId ||
-                  event.metadata.sequence !== row.sequence
+                  terminalSize !== undefined &&
+                  terminalSize.byte_count !== terminalSize.actual_byte_count
                 )
                   throw new TypeError(
-                    "Stored event identity or sequence is invalid",
+                    "Stored terminal event byte count is invalid",
                   );
-                bytes += row.byte_count;
-                items.push({ sequence: row.sequence, event });
-                cursor = row.sequence;
-                if (gap !== undefined) {
-                  const nextRows =
-                    yield* sql`SELECT sequence FROM operational_events WHERE run_id = ${runId} AND sequence > ${cursor} ORDER BY sequence ASC LIMIT 1`;
-                  const nextRow =
-                    nextRows[0] === undefined
-                      ? undefined
-                      : z
-                          .strictObject({
-                            sequence: z.number().int().nonnegative(),
-                          })
-                          .parse(nextRows[0]);
-                  if (nextRow !== undefined && nextRow.sequence > cursor + 1)
-                    break;
-                }
-              }
-              const terminalSizeRows =
-                yield* sql`SELECT sequence, byte_count, length(CAST(event_json AS BLOB)) AS actual_byte_count FROM operational_events WHERE run_id = ${runId} AND sequence = ${latest}`;
-              const terminalSize =
-                terminalSizeRows[0] === undefined
-                  ? undefined
-                  : storedEventSizeRow.parse(terminalSizeRows[0]);
-              if (
-                terminalSize !== undefined &&
-                terminalSize.byte_count !== terminalSize.actual_byte_count
-              )
-                throw new TypeError(
-                  "Stored terminal event byte count is invalid",
-                );
-              const terminalWithinResponse =
-                terminalSize !== undefined &&
-                bytes + terminalSize.byte_count <= 31 * 1024 * 1024;
-              const terminalRows = !terminalWithinResponse
-                ? []
-                : yield* sql`SELECT event_json FROM operational_events WHERE run_id = ${runId} AND sequence = ${latest}`;
-              const terminalJson =
-                terminalRows[0] === undefined
-                  ? undefined
-                  : z
-                      .strictObject({ event_json: z.string() })
-                      .parse(terminalRows[0]).event_json;
-              return { run: runRows[0], latest, items, gap, terminalJson };
-            }),
-          );
-          if (snapshot === undefined) return undefined;
-          const status = parseStoredRun(snapshot.run);
-          const terminalValue: unknown =
-            snapshot.terminalJson === undefined
-              ? undefined
-              : JSON.parse(snapshot.terminalJson);
-          const terminal =
-            terminalValue === undefined
-              ? undefined
-              : seqlaneExecutionEventSchema.parse(terminalValue);
-          const terminalEvent =
-            (status.status === "succeeded" &&
-              terminal?.type === "run.succeeded") ||
-            (status.status === "failed" && terminal?.type === "run.failed") ||
-            (status.status === "cancelled" &&
-              terminal?.type === "run.cancelled")
-              ? terminal
-              : undefined;
-          return operationalRunEventsSchema.parse({
-            version: 1,
-            runId,
-            afterSequence: options.afterSequence,
-            events: snapshot.items,
-            nextSequence:
-              snapshot.items.at(-1)?.sequence ?? options.afterSequence,
-            status: status.status,
-            completeness:
-              snapshot.gap === undefined
-                ? status.completeness
-                : {
-                    inspection: "incomplete",
-                    ...(status.completeness.storageError === undefined
-                      ? {}
-                      : { storageError: status.completeness.storageError }),
-                  },
-            ...(snapshot.gap === undefined ? {} : { gap: snapshot.gap }),
-            ...(terminalEvent === undefined ? {} : { terminalEvent }),
-          });
-        }),
-      ),
-    trace: (runId) =>
-      run(
-        Effect.gen(function* () {
-          const sql = yield* SqlClient;
-          const snapshot = yield* sql.withTransaction(
-            Effect.gen(function* () {
-              const runRows = yield* runForRunId(runId);
-              if (runRows.length === 0) return undefined;
-              const traceRows =
-                yield* sql`SELECT trace_id, spans_json, dropped_records FROM operational_traces WHERE run_id = ${runId}`;
-              return { run: runRows[0], trace: traceRows[0] };
-            }),
-          );
-          if (snapshot === undefined) return undefined;
-          const status = parseStoredRun(snapshot.run);
-          if (snapshot.trace === undefined)
+                const terminalWithinResponse =
+                  terminalSize !== undefined &&
+                  bytes + terminalSize.byte_count <= 31 * 1024 * 1024;
+                const terminalRows = !terminalWithinResponse
+                  ? []
+                  : yield* sql`SELECT event_json FROM operational_events WHERE run_id = ${runId} AND sequence = ${latest}`;
+                const terminalJson =
+                  terminalRows[0] === undefined
+                    ? undefined
+                    : z
+                        .strictObject({ event_json: z.string() })
+                        .parse(terminalRows[0]).event_json;
+                return { run: runRows[0], latest, items, gap, terminalJson };
+              }),
+            );
+            if (snapshot === undefined) return undefined;
+            const status = parseStoredRun(snapshot.run);
+            const terminalValue: unknown =
+              snapshot.terminalJson === undefined
+                ? undefined
+                : JSON.parse(snapshot.terminalJson);
+            const terminal =
+              terminalValue === undefined
+                ? undefined
+                : seqlaneExecutionEventSchema.parse(terminalValue);
+            const terminalEvent =
+              (status.status === "succeeded" &&
+                terminal?.type === "run.succeeded") ||
+              (status.status === "failed" && terminal?.type === "run.failed") ||
+              (status.status === "cancelled" &&
+                terminal?.type === "run.cancelled")
+                ? terminal
+                : undefined;
+            return operationalRunEventsSchema.parse({
+              version: 1,
+              runId,
+              afterSequence: options.afterSequence,
+              events: snapshot.items,
+              nextSequence:
+                snapshot.items.at(-1)?.sequence ?? options.afterSequence,
+              status: status.status,
+              completeness:
+                snapshot.gap === undefined
+                  ? status.completeness
+                  : {
+                      inspection: "incomplete",
+                      ...(status.completeness.storageError === undefined
+                        ? {}
+                        : { storageError: status.completeness.storageError }),
+                    },
+              ...(snapshot.gap === undefined ? {} : { gap: snapshot.gap }),
+              ...(terminalEvent === undefined ? {} : { terminalEvent }),
+            });
+          }),
+        ),
+      trace: (runId) =>
+        run(
+          Effect.gen(function* () {
+            const snapshot = yield* sql.withTransaction(
+              Effect.gen(function* () {
+                const runRows = yield* runForRunId(runId);
+                if (runRows.length === 0) return undefined;
+                const traceRows =
+                  yield* sql`SELECT trace_id, spans_json, dropped_records FROM operational_traces WHERE run_id = ${runId}`;
+                return { run: runRows[0], trace: traceRows[0] };
+              }),
+            );
+            if (snapshot === undefined) return undefined;
+            const status = parseStoredRun(snapshot.run);
+            if (snapshot.trace === undefined)
+              return operationalTraceInspectionSchema.parse({
+                version: 1,
+                runId,
+                spans: [],
+                completeness: status.completeness,
+              });
+            const row = storedTraceRow.parse(snapshot.trace);
+            const spansValue: unknown = JSON.parse(row.spans_json);
             return operationalTraceInspectionSchema.parse({
               version: 1,
               runId,
-              spans: [],
+              ...(row.trace_id === null ? {} : { traceId: row.trace_id }),
+              spans: spansValue,
+              droppedRecords: row.dropped_records,
               completeness: status.completeness,
             });
-          const row = storedTraceRow.parse(snapshot.trace);
-          const spansValue: unknown = JSON.parse(row.spans_json);
-          return operationalTraceInspectionSchema.parse({
-            version: 1,
-            runId,
-            ...(row.trace_id === null ? {} : { traceId: row.trace_id }),
-            spans: spansValue,
-            droppedRecords: row.dropped_records,
-            completeness: status.completeness,
-          });
+          }),
+        ),
+      close: () =>
+        Effect.suspend(() => {
+          if (closed) return Effect.void;
+          closed = true;
+          healthy = false;
+          return Scope.close(scope, Exit.void);
         }),
-      ),
-    close: async () => {
-      if (closed) return;
-      closed = true;
-      healthy = false;
-      await runtime.dispose();
-    },
-  };
+    };
+  });
 }

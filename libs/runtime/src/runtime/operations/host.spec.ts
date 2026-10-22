@@ -1,3 +1,5 @@
+import { Effect } from "effect";
+import { runTest } from "./native-test-support.js";
 // @test-scope ./host.ts
 // @test-scope ./run-manager.ts
 // @test-scope ./sqlite-store.ts
@@ -69,6 +71,33 @@ describe("native hosted HTTP transport", () => {
     if (directory !== undefined)
       rmSync(directory, { recursive: true, force: true });
     directory = undefined;
+  });
+
+  it("stays closed when listener acquisition races shutdown", async () => {
+    host = await createNativeOperationalHost({
+      workflows: [
+        createOperationalWorkflow({
+          key: "race",
+          workflow: { input: z.string(), output: z.string() },
+          plan: {
+            workflow: { id: "race" },
+            nodes: [],
+            output: { type: "literal", value: "ok" },
+          },
+          taskDefinitions: new Map(),
+        }),
+      ],
+      storageUrl: "file::memory:",
+      port: 0,
+    });
+    const listening = host.listen();
+    const closing = host.close();
+    await Promise.allSettled([listening, closing]);
+    expect(host.ready).toBe(false);
+    expect(
+      (await host.fetch(new Request("http://127.0.0.1/healthz"))).status,
+    ).toBe(503);
+    await expect(host.listen()).rejects.toThrow("Operational host is closed");
   });
 
   it("runs one workflow over TCP and exposes its result, events, and trace", async () => {
@@ -443,9 +472,9 @@ describe("native hosted HTTP transport", () => {
     await once(child, "exit");
     child = undefined;
 
-    const store = await openOperationalStore(storageUrl);
+    const store = await runTest(openOperationalStore(storageUrl));
     try {
-      const status = await store.status("crash-run");
+      const status = await runTest(store.status("crash-run"));
       expect(status).toMatchObject({
         status: "interrupted",
         completeness: { inspection: "incomplete" },
@@ -454,7 +483,7 @@ describe("native hosted HTTP transport", () => {
         "invoked",
       ]);
     } finally {
-      await store.close();
+      await runTest(store.close());
     }
   }, 30_000);
 
@@ -468,14 +497,16 @@ describe("native hosted HTTP transport", () => {
       output: { type: "literal", value: "ok" },
     };
     let capturedStore:
-      Awaited<ReturnType<typeof openOperationalStore>> | undefined;
+      Effect.Success<ReturnType<typeof openOperationalStore>> | undefined;
     const createStore = operationalStoreModule.openOperationalStore;
     const openStore = vi
       .spyOn(operationalStoreModule, "openOperationalStore")
-      .mockImplementation(async (storageUrl) => {
-        capturedStore = await createStore(storageUrl);
-        return capturedStore;
-      });
+      .mockImplementation((storageUrl) =>
+        Effect.gen(function* () {
+          capturedStore = yield* createStore(storageUrl);
+          return capturedStore;
+        }),
+      );
     try {
       host = await createNativeOperationalHost({
         workflows: [
@@ -490,7 +521,7 @@ describe("native hosted HTTP transport", () => {
         port: 0,
       });
       const base = await host.listen();
-      await capturedStore?.close();
+      if (capturedStore !== undefined) await runTest(capturedStore.close());
       const readiness = await fetch(`${base}/readyz`);
       expect(readiness.status).toBe(503);
       const failed = await fetch(`${base}/api/runs/list?version=1&limit=10`);

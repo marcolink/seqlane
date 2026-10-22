@@ -20,6 +20,11 @@ listener or history database. Existing databases are not imported or removed.
 Each history database has one host owner. SQLite holds its connection lock
 until that host closes or exits; concurrent callers use the host API.
 
+The host composes scoped run-manager and SQLite services in one managed
+runtime. Private service methods return Effects. Run fibers, completion, and
+shutdown waits inherit the caller context. The host exposes Promise methods
+and acquires its listener only on `listen()`; `fetch()` works without listening.
+
 HTTP start returns a run reference immediately. Status, result, ordered event
 pages, bounded run lists, cancellation, and trace inspection share the same run
 identity. Accepted history must flush before terminal inspection is complete.

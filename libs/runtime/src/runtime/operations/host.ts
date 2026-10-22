@@ -38,9 +38,12 @@ import {
   OperationalStorageError,
   OperationalStorageVersionError,
   openOperationalStore,
+  OperationalStoreService,
 } from "./sqlite-store.js";
 import {
   createOperationalRunManager,
+  OperationalRunManagerService,
+  type OperationalRunManager,
   OperationalAdmissionError,
   OperationalNotFoundError,
 } from "./run-manager.js";
@@ -348,7 +351,7 @@ function hostRequestPolicy(host: string, getPort: () => number) {
 }
 
 function routes(
-  manager: ReturnType<typeof createOperationalRunManager>,
+  manager: OperationalRunManager,
   host: string,
   getPort: () => number,
   isReady: () => boolean,
@@ -423,156 +426,90 @@ function routes(
         const body = operationalRunStartRequestSchema.parse(
           yield* bodyJson(request),
         );
-        return yield* Effect.tryPromise({
-          try: () => manager.start(key, body),
-          catch: (cause) => cause,
-        });
+        return yield* manager.start(key, body);
       }),
     ),
-    add("GET", "/api/runs/list", (request) =>
-      Effect.tryPromise({
-        try: () => manager.list(parseListQuery(requestUrl(request))),
-        catch: (cause) => cause,
-      }),
-    ),
-    add("GET", "/api/runs", (request) =>
-      Effect.tryPromise({
-        try: () => manager.list(parseListQuery(requestUrl(request))),
-        catch: (cause) => cause,
-      }),
+    ...(["/api/runs/list", "/api/runs"] as const).map((path) =>
+      add("GET", path, (request) =>
+        manager.list(parseListQuery(requestUrl(request))),
+      ),
     ),
     add("GET", "/api/workflows/:key/runs", (request) =>
       Effect.gen(function* () {
         const key = pathParts(request).at(-2) ?? "";
         workflow(key);
-        const page = yield* Effect.tryPromise({
-          try: () => manager.list(parseListQuery(requestUrl(request))),
-          catch: (cause) => cause,
-        });
+        const page = yield* manager.list(parseListQuery(requestUrl(request)));
         return operationalRunListSchema.parse({
           ...page,
           runs: page.runs.filter((run) => run.workflowKey === key),
         });
       }),
     ),
-    add("GET", "/api/runs/:id/status", (request) =>
-      Effect.tryPromise({
-        try: async () =>
-          operationalRunStatusSchema.parse(
-            await manager.status(runId(request)),
+    ...(
+      ["/api/runs/:id/status", "/api/runs/:id/result", "/api/runs/:id"] as const
+    ).map((path) =>
+      add("GET", path, (request) =>
+        manager
+          .status(runId(request))
+          .pipe(
+            Effect.map((status) => operationalRunStatusSchema.parse(status)),
           ),
-        catch: (cause) => cause,
-      }),
+      ),
     ),
-    add("GET", "/api/runs/:id/result", (request) =>
-      Effect.tryPromise({
-        try: async () =>
-          operationalRunStatusSchema.parse(
-            await manager.status(runId(request)),
-          ),
-        catch: (cause) => cause,
-      }),
-    ),
-    add("GET", "/api/runs/:id", (request) =>
-      Effect.tryPromise({
-        try: async () =>
-          operationalRunStatusSchema.parse(
-            await manager.status(runId(request)),
-          ),
-        catch: (cause) => cause,
-      }),
-    ),
-    add("GET", "/api/workflows/:key/runs/:id/status", (request) =>
-      Effect.tryPromise({
-        try: async () => {
-          const key = pathParts(request).at(-4) ?? "";
+    ...(
+      [
+        "/api/workflows/:key/runs/:id/status",
+        "/api/workflows/:key/runs/:id",
+        "/api/workflows/:key/runs/:id/result",
+      ] as const
+    ).map((path) =>
+      add("GET", path, (request) =>
+        Effect.gen(function* () {
+          const parts = pathParts(request);
+          const key = parts[parts.lastIndexOf("runs") - 1];
           const status = operationalRunStatusSchema.parse(
-            await manager.status(runId(request)),
+            yield* manager.status(runId(request)),
           );
           if (status.workflowKey !== key)
             throw new OperationalNotFoundError("run");
           return status;
-        },
-        catch: (cause) => cause,
-      }),
-    ),
-    add("GET", "/api/workflows/:key/runs/:id", (request) =>
-      Effect.tryPromise({
-        try: async () => {
-          const key = pathParts(request).at(-3) ?? "";
-          const status = operationalRunStatusSchema.parse(
-            await manager.status(runId(request)),
-          );
-          if (status.workflowKey !== key)
-            throw new OperationalNotFoundError("run");
-          return status;
-        },
-        catch: (cause) => cause,
-      }),
-    ),
-    add("GET", "/api/workflows/:key/runs/:id/result", (request) =>
-      Effect.tryPromise({
-        try: async () => {
-          const key = pathParts(request).at(-4) ?? "";
-          const status = operationalRunStatusSchema.parse(
-            await manager.status(runId(request)),
-          );
-          if (status.workflowKey !== key)
-            throw new OperationalNotFoundError("run");
-          return status;
-        },
-        catch: (cause) => cause,
-      }),
+        }),
+      ),
     ),
     add("GET", "/api/runs/:id/events", (request) =>
-      Effect.tryPromise({
-        try: async () =>
-          operationalRunEventsSchema.parse(
-            await manager.events(
-              runId(request),
-              parseEventsQuery(requestUrl(request)),
-            ),
-          ),
-        catch: (cause) => cause,
-      }),
+      manager
+        .events(runId(request), parseEventsQuery(requestUrl(request)))
+        .pipe(Effect.map((events) => operationalRunEventsSchema.parse(events))),
     ),
     add("GET", "/api/workflows/:key/runs/:id/events", (request) =>
-      Effect.tryPromise({
-        try: async () => {
-          const key = pathParts(request).at(-4) ?? "";
-          const id = runId(request);
-          const events = operationalRunEventsSchema.parse(
-            await manager.events(id, parseEventsQuery(requestUrl(request))),
-          );
-          if ((await manager.status(id)).workflowKey !== key)
-            throw new OperationalNotFoundError("run");
-          return events;
-        },
-        catch: (cause) => cause,
+      Effect.gen(function* () {
+        const key = pathParts(request).at(-4) ?? "";
+        const id = runId(request);
+        const events = operationalRunEventsSchema.parse(
+          yield* manager.events(id, parseEventsQuery(requestUrl(request))),
+        );
+        if ((yield* manager.status(id)).workflowKey !== key)
+          throw new OperationalNotFoundError("run");
+        return events;
       }),
     ),
     add("GET", "/api/runs/:id/trace", (request) =>
-      Effect.tryPromise({
-        try: async () =>
-          operationalTraceInspectionSchema.parse(
-            await manager.trace(runId(request)),
-          ),
-        catch: (cause) => cause,
-      }),
+      manager
+        .trace(runId(request))
+        .pipe(
+          Effect.map((trace) => operationalTraceInspectionSchema.parse(trace)),
+        ),
     ),
     add("GET", "/api/workflows/:key/runs/:id/trace", (request) =>
-      Effect.tryPromise({
-        try: async () => {
-          const key = pathParts(request).at(-4) ?? "";
-          const id = runId(request);
-          const trace = operationalTraceInspectionSchema.parse(
-            await manager.trace(id),
-          );
-          if ((await manager.status(id)).workflowKey !== key)
-            throw new OperationalNotFoundError("run");
-          return trace;
-        },
-        catch: (cause) => cause,
+      Effect.gen(function* () {
+        const key = pathParts(request).at(-4) ?? "";
+        const id = runId(request);
+        const trace = operationalTraceInspectionSchema.parse(
+          yield* manager.trace(id),
+        );
+        if ((yield* manager.status(id)).workflowKey !== key)
+          throw new OperationalNotFoundError("run");
+        return trace;
       }),
     ),
     add("POST", "/api/runs/:id/cancel", (request) =>
@@ -583,33 +520,21 @@ function routes(
         );
         if (body.runId !== id)
           throw new RequestValidationError("Cancel body runId must match path");
-        return yield* Effect.tryPromise({
-          try: async () =>
-            operationalRunCancelSchema.parse(await manager.cancel(id)),
-          catch: (cause) => cause,
-        });
+        return operationalRunCancelSchema.parse(yield* manager.cancel(id));
       }),
     ),
     add("POST", "/api/workflows/:key/runs/:id/cancel", (request) =>
       Effect.gen(function* () {
         const key = pathParts(request).at(-4) ?? "";
         const id = runId(request);
-        const current = yield* Effect.tryPromise({
-          try: () => manager.status(id),
-          catch: (cause) => cause,
-        });
-        if (current.workflowKey !== key)
+        if ((yield* manager.status(id)).workflowKey !== key)
           throw new OperationalNotFoundError("run");
         const body = operationalRunCancelRequestSchema.parse(
           yield* bodyJson(request),
         );
         if (body.runId !== id)
           throw new RequestValidationError("Cancel body runId must match path");
-        return yield* Effect.tryPromise({
-          try: async () =>
-            operationalRunCancelSchema.parse(await manager.cancel(id)),
-          catch: (cause) => cause,
-        });
+        return operationalRunCancelSchema.parse(yield* manager.cancel(id));
       }),
     ),
   ).pipe(Layer.provide(HttpRouter.layer));
@@ -642,23 +567,39 @@ export async function createNativeOperationalHost(
   options: OperationalHostOptions,
 ): Promise<OperationalHost> {
   const validated = validateOptions(options);
-  const store = await openOperationalStore(options.storageUrl);
-  let manager: ReturnType<typeof createOperationalRunManager>;
-  try {
-    manager = createOperationalRunManager({
-      workflows: options.workflows,
-      store,
-      classifierConnection: options.classifierConnection,
-      telemetryConfiguration: options.telemetryConfiguration,
-    });
-  } catch (cause) {
-    try {
-      await store.close();
-    } catch {
-      /* Preserve the host-construction failure. */
-    }
-    throw cause;
+  const serviceLayer = Layer.effect(
+    OperationalRunManagerService,
+    Effect.gen(function* () {
+      const store = yield* OperationalStoreService;
+      return yield* createOperationalRunManager({
+        workflows: options.workflows,
+        store,
+        classifierConnection: options.classifierConnection,
+        telemetryConfiguration: options.telemetryConfiguration,
+      });
+    }),
+  ).pipe(
+    Layer.provideMerge(
+      Layer.effect(
+        OperationalStoreService,
+        openOperationalStore(options.storageUrl),
+      ),
+    ),
+  );
+  const services = ManagedRuntime.make(serviceLayer);
+  const initialized = await services.runPromiseExit(
+    Effect.gen(function* () {
+      return {
+        store: yield* OperationalStoreService,
+        manager: yield* OperationalRunManagerService,
+      };
+    }),
+  );
+  if (Exit.isFailure(initialized)) {
+    await services.dispose().catch(() => undefined);
+    throw Cause.squash(initialized.cause);
   }
+  const { store, manager } = initialized.value;
   let listeningPort = validated.port;
   let ready = false;
   const getPort = () => listeningPort;
@@ -752,7 +693,9 @@ export async function createNativeOperationalHost(
       }
     },
     async inspectTrace(traceId) {
-      return manager.trace(traceId);
+      const exit = await services.runPromiseExit(manager.trace(traceId));
+      if (Exit.isFailure(exit)) throw Cause.squash(exit.cause);
+      return exit.value;
     },
     async listen() {
       if (disposed) throw new Error("Operational host is closed");
@@ -761,6 +704,7 @@ export async function createNativeOperationalHost(
         const server = await runtime.runPromise(
           Effect.map(HttpServer.HttpServer, (service) => service.address),
         );
+        if (disposed) throw new Error("Operational host is closed");
         if (server._tag === "UnixPathAddress")
           throw new Error("Operational host requires a TCP listener");
         listeningPort = server.port;
@@ -784,7 +728,7 @@ export async function createNativeOperationalHost(
         failure = { cause };
       }
       try {
-        await manager.shutdown();
+        await services.runPromise(manager.shutdown());
       } catch (cause) {
         failure ??= { cause };
       }
@@ -794,7 +738,7 @@ export async function createNativeOperationalHost(
         failure ??= { cause };
       }
       try {
-        await store.close();
+        await services.dispose();
       } catch (cause) {
         failure ??= { cause };
       }

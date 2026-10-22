@@ -1,4 +1,4 @@
-import { Cause, Effect, Exit, Metric, Tracer } from "effect";
+import { Cause, Effect, Metric, Tracer } from "effect";
 import { RuntimeError, SeqlaneError } from "@seqlane/core";
 import type { TraceCarrier } from "@seqlane/protocol/private/trace-carrier";
 import { withRuntimeExecutionSpan } from "../../private/telemetry/run-scope.js";
@@ -6,7 +6,7 @@ import type { SeqlaneEventSink, SeqlaneRunOutcome } from "@seqlane/core";
 import type { EffectPlanRunResult } from "./effect-plan.js";
 
 /** Evaluate the target run once and wait for its root scope to close. */
-export async function settleRunProgram(
+export function settleRunProgramEffect(
   program: Effect.Effect<EffectPlanRunResult>,
   signal: AbortSignal,
   traceCarrier?: TraceCarrier,
@@ -14,7 +14,7 @@ export async function settleRunProgram(
     readonly tracer?: Tracer.Tracer;
     readonly metricRegistry?: Map<string, unknown>;
   },
-): Promise<EffectPlanRunResult> {
+): Effect.Effect<EffectPlanRunResult> {
   let tracedProgram = withRuntimeExecutionSpan(program, traceCarrier);
   if (nativeServices?.tracer !== undefined) {
     tracedProgram = tracedProgram.pipe(
@@ -29,22 +29,29 @@ export async function settleRunProgram(
       ),
     );
   }
-  const exit: Exit.Exit<EffectPlanRunResult, unknown> =
-    await Effect.runPromiseExit(Effect.scoped(tracedProgram));
-  if (Exit.isSuccess(exit)) {
-    return signal.aborted && exit.value.status === "succeeded"
-      ? { status: "cancelled" }
-      : exit.value;
-  }
+  return Effect.scoped(tracedProgram).pipe(
+    Effect.map((result) =>
+      signal.aborted && result.status === "succeeded"
+        ? { status: "cancelled" as const }
+        : result,
+    ),
+    Effect.catchCause((failure): Effect.Effect<EffectPlanRunResult> => {
+      if (signal.aborted && Cause.hasInterruptsOnly(failure))
+        return Effect.succeed({ status: "cancelled" as const });
+      const cause = Cause.squash(failure);
+      return Effect.succeed({
+        status: "failed" as const,
+        error: cause instanceof SeqlaneError ? cause : new RuntimeError(cause),
+      });
+    }),
+  );
+}
 
-  const cause = Cause.squash(exit.cause);
-  if (signal.aborted && Cause.hasInterruptsOnly(exit.cause)) {
-    return { status: "cancelled" };
-  }
-  return {
-    status: "failed",
-    error: cause instanceof SeqlaneError ? cause : new RuntimeError(cause),
-  };
+/** Promise facade for standalone composition boundaries. */
+export function settleRunProgram(
+  ...args: Parameters<typeof settleRunProgramEffect>
+): Promise<EffectPlanRunResult> {
+  return Effect.runPromise(settleRunProgramEffect(...args));
 }
 
 /** Publish the canonical run terminal for native program or facade outcomes. */

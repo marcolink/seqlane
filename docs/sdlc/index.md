@@ -23,10 +23,9 @@ and tasks.
 
 ## Next implementation deliverable
 
-[Complete removal and release gate](./tasks/2026-10-21-effect-v4-complete-removal-and-release.md)
-is the current implementation task. It owns final tracked-tree removal,
-dependency and distribution checks, and CI on the final migration head.
-Its Outcome records remaining delivery evidence.
+[Native adapter coordination](./tasks/2026-10-22-effect-v4-optimize-adapter-coordination.md)
+is next in the sequential optimization follow-up. Each task links its prerequisite.
+The completed migration remains recorded in its original task outcomes.
 
 ## Authority
 
