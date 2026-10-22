@@ -13,3 +13,6 @@ adapter-specific executable flag.
 Codex supports model selection, structured output, session reuse, checkpoint
 forks, and activity events. Each session also appears as a task in the
 Codex app. The adapter does not provide a browser session URL.
+
+For long turns, activity events can end with an explicit truncation notice.
+The turn continues and can still return its final result.
