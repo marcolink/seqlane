@@ -23,11 +23,12 @@ and tasks.
 
 ## Current implementation delivery
 
-The seven-task optimization follow-up ends with
-[Deterministic policy timing](./tasks/2026-10-22-effect-v4-optimize-policy-clocks.md).
-Each task records its prerequisite, implementation and verification. The original
-migration remains recorded in its task outcomes. Feature-branch delivery and
-exact-head checks are tracked in [draft PR #180](https://github.com/marcolink/seqlane/pull/180).
+The Effect migration, seven-task optimization follow-up and
+[main activity-limit integration](./tasks/2026-10-22-effect-v4-integrate-codex-activity-limits.md)
+are implemented and locally verified. The integration preserves the earlier
+task commits and main's correction. Earlier outcomes retain their checkpoint
+verification evidence. Feature-branch delivery and exact-head checks are tracked
+in [draft PR #180](https://github.com/marcolink/seqlane/pull/180).
 No default-branch merge or registry publication is claimed.
 
 ## Authority

@@ -11,7 +11,11 @@ import type { ModelSelection, TaskDefinition } from "@seqlane/core";
 import { InteractionRequiredError } from "@seqlane/core";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { MAX_TURN_ACTIVITY_EVENTS, MAX_TURN_ITEM_BYTES } from "./activity.js";
+import {
+  MAX_TURN_ACTIVITY_EVENTS,
+  MAX_TURN_ITEM_BYTES,
+  MAX_TURN_ITEMS,
+} from "./activity.js";
 import {
   createCodexAdapter,
   createCodexAdapterForTransport,
@@ -520,15 +524,33 @@ describe("Codex AgentAdapter", () => {
         '{"result":"done"}',
       ];
       const activities: AgentActivity[] = [];
+      const observations: SeqlaneObservation[] = [];
       const adapter = createCodexAdapterForTransport(transport, configuration, {
         modelSelection: selection,
       });
 
       await expect(
         adapter.execute(
-          request({ onActivity: (activity) => activities.push(activity) }),
+          request({
+            onActivity: (activity) => activities.push(activity),
+            onObservation: (observation) => observations.push(observation),
+          }),
         ),
       ).resolves.toEqual({ result: "done" });
+      const response = z
+        .object({
+          model: z.object({
+            response: z.object({
+              native: z.object({
+                messageDeltas: z.array(z.object({ delta: z.string() })),
+              }),
+            }),
+          }),
+        })
+        .parse(observations.at(-1));
+      expect(
+        response.model.response.native.messageDeltas.map(({ delta }) => delta),
+      ).toEqual(transport.agentMessageDeltas);
       const eventCount = fragmentCount + 3;
       expect(activities).toHaveLength(
         Math.min(eventCount, MAX_TURN_ACTIVITY_EVENTS + 1),
@@ -569,6 +591,7 @@ describe("Codex AgentAdapter", () => {
       ..." ".repeat(MAX_TURN_ACTIVITY_EVENTS + 1),
     ];
     const controller = new AbortController();
+    const activities: AgentActivity[] = [];
     const adapter = createCodexAdapterForTransport(transport, configuration, {
       modelSelection: selection,
     });
@@ -577,13 +600,54 @@ describe("Codex AgentAdapter", () => {
       adapter.execute(
         request({
           signal: controller.signal,
-          onActivity: ({ metadata }) => {
-            if (metadata !== undefined)
+          onActivity: (activity) => {
+            activities.push(activity);
+            if (
+              z
+                .object({ truncated: z.literal(true) })
+                .safeParse(activity.metadata).success
+            )
               controller.abort(new Error("task deadline expired"));
           },
         }),
       ),
     ).rejects.toThrow("task deadline expired");
+    expect(activities.at(-1)?.metadata).toEqual({ truncated: true });
+    expect(
+      transport.requests.some(({ method }) => method === "turn/interrupt"),
+    ).toBe(true);
+  });
+
+  it("enforces the completed-item limit after activity truncation", async () => {
+    const transport = new FakeTransport();
+    transport.agentMessageDeltas = [
+      ..." ".repeat(MAX_TURN_ACTIVITY_EVENTS + 1),
+    ];
+    transport.nativeTurnFields = {
+      items: Array.from({ length: MAX_TURN_ITEMS }, (_, index) => ({
+        id: `extra-${index}`,
+        type: "commandExecution",
+      })),
+    };
+    const activities: AgentActivity[] = [];
+    const adapter = createCodexAdapterForTransport(transport, configuration, {
+      modelSelection: selection,
+    });
+
+    await expect(
+      adapter.execute(
+        request({
+          onActivity: (activity) => activities.push(activity),
+        }),
+      ),
+    ).rejects.toMatchObject({
+      cause: expect.objectContaining({
+        errors: expect.arrayContaining([
+          expect.objectContaining({ code: "limit" }),
+        ]),
+      }),
+    });
+    expect(activities.at(-1)?.metadata).toEqual({ truncated: true });
     expect(
       transport.requests.some(({ method }) => method === "turn/interrupt"),
     ).toBe(true);

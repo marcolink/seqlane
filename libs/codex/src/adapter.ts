@@ -728,6 +728,7 @@ function createAdapterForTransport(
                     output: parsed.data,
                     turn: completed.turn,
                     items: completed.items,
+                    native: tracker.snapshot().response,
                   };
                   observation.succeeded({
                     responseId: completed.turn.id,

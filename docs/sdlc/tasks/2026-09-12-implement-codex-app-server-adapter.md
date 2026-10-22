@@ -98,8 +98,13 @@ truncation.
 
 ## Delivery state
 
-The 2026-10-22 activity-limit correction is locally verified on this branch.
-Target-branch delivery and release remain pending.
+The 2026-10-22 activity-limit correction reached main in commit
+`6512cf84fe011831b455704f161c8de2cf8d7bb2` through
+[pull request #181](https://github.com/marcolink/seqlane/pull/181). The 69-test
+result above describes that correction checkpoint. Integration with the Effect
+migration is tracked by
+[task.effect-v4-integrate-codex-activity-limits](./2026-10-22-effect-v4-integrate-codex-activity-limits.md).
+Registry publication is not claimed.
 
 The adapter and runtime registration are present on the target branch through
 [pull request #110](https://github.com/marcolink/seqlane/pull/110). Live protocol

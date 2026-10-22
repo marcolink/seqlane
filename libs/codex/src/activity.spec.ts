@@ -34,6 +34,7 @@ describe("Codex activity reducer", () => {
     }
     reducer.started({ id: "late-tool", type: "commandExecution" });
     reducer.completed({ id: "late-tool", type: "commandExecution" });
+    reducer.terminateOpenActivities(20, "interrupted");
 
     expect(activities).toHaveLength(MAX_TURN_ACTIVITY_EVENTS + 1);
     expect(activities.at(-1)).toMatchObject({
@@ -55,6 +56,7 @@ describe("Codex activity reducer", () => {
 
     for (let index = 0; index < 12; index += 1) reducer.started(item);
     reducer.completed({ id: item.id, type: item.type });
+    reducer.terminateOpenActivities(20, "interrupted");
 
     expect(activities).toHaveLength(9);
     expect(activities.at(-1)?.metadata).toEqual({ truncated: true });
@@ -63,7 +65,8 @@ describe("Codex activity reducer", () => {
         .slice(0, -1)
         .reduce(
           (total, activity) =>
-            total + Buffer.byteLength(JSON.stringify(activity), "utf8"),
+            total +
+            Buffer.byteLength(JSON.stringify(activity.metadata), "utf8"),
           0,
         ),
     ).toBeLessThan(MAX_TURN_ITEMS_BYTES);
@@ -71,6 +74,17 @@ describe("Codex activity reducer", () => {
 
   it("rejects an oversized individual activity", () => {
     const reducer = new CodexActivityReducer(() => undefined);
+
+    expect(() =>
+      reducer.delta("message", "a".repeat(MAX_TURN_ITEM_BYTES)),
+    ).toThrow(expect.objectContaining({ code: "limit" }));
+  });
+
+  it("rejects oversized activity after truncation", () => {
+    const reducer = new CodexActivityReducer(() => undefined);
+    for (let index = 0; index <= MAX_TURN_ACTIVITY_EVENTS; index += 1) {
+      reducer.delta("message", "a");
+    }
 
     expect(() =>
       reducer.delta("message", "a".repeat(MAX_TURN_ITEM_BYTES)),

@@ -43,7 +43,8 @@ turn. At either limit, the adapter clears retained activity records and emits
 one progress notice with `metadata: { truncated: true }`. It omits further
 activity, but continues to collect the final result. Individual message limits,
 completed-item limits, task deadlines, cancellation, and approval handling still
-apply.
+apply. Canonical model observations retain the full native turn snapshot,
+including received message fragments, after activity truncation.
 
 If interruption cannot be confirmed, the run closes its shared connection and
 rejects further session work, checkpoints, and forks. A timed-out model probe

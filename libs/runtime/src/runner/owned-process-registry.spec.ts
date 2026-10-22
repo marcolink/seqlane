@@ -125,6 +125,78 @@ describe("owned process registry", () => {
     expect(actions.filter((action) => action === "release")).toHaveLength(70);
   });
 
+  it("drains registration before releasing a child stopped during its ACK", async () => {
+    processHelpers.captureOwnedProcessIdentity.mockResolvedValue(
+      identityFor(41),
+    );
+    processHelpers.confirmOwnedProcessStopped.mockResolvedValue(true);
+    const frames: ReturnType<typeof decodeOwnedProcessFrame>[] = [];
+    const registry = new OwnedProcessRegistry({
+      send(message, callback) {
+        const frame = decodeOwnedProcessFrame(message);
+        frames.push(frame);
+        if (frame.action === "release") acknowledge(frame);
+        callback?.();
+        return true;
+      },
+    });
+    const acknowledge = (frame: ReturnType<typeof decodeOwnedProcessFrame>) =>
+      registry.acceptAcknowledgement({
+        ...frame,
+        type: "runner.owned-process.ack",
+      });
+    const registration = registry.register(41);
+    await vi.waitFor(() => expect(frames).toHaveLength(1));
+    let released = false;
+    const release = registry.releaseStoppedProcesses().then(() => {
+      released = true;
+    });
+    try {
+      // Drain ready microtasks while registration remains behind the ACK gate.
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(released).toBe(false);
+      acknowledge(frames[0]!);
+      await Promise.all([registration, release]);
+      expect(frames.map((frame) => frame.action)).toEqual([
+        "register",
+        "release",
+      ]);
+    } finally {
+      acknowledge(frames[0]!);
+      await Promise.allSettled([registration, release]);
+    }
+  });
+
+  it("bounds release while registration identity capture is still pending", async () => {
+    let finishCapture!: (identity: OwnedProcessIdentity) => void;
+    processHelpers.captureOwnedProcessIdentity.mockReturnValue(
+      new Promise<OwnedProcessIdentity>((resolve) => {
+        finishCapture = resolve;
+      }),
+    );
+    processHelpers.confirmOwnedProcessStopped.mockResolvedValue(true);
+    const { host, attach } = acknowledgedHost();
+    const registry = new OwnedProcessRegistry(host, 25);
+    attach(registry);
+    const registration = registry.register(41);
+    try {
+      await expect(registry.releaseStoppedProcesses()).rejects.toThrow(
+        "timed out",
+      );
+      expect(host.send).not.toHaveBeenCalled();
+    } finally {
+      finishCapture(identityFor(41));
+      await registration;
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(
+        host.send.mock.calls.map(
+          ([message]) => decodeOwnedProcessFrame(message).action,
+        ),
+      ).toEqual(["register"]);
+      await registry.releaseStoppedProcesses();
+    }
+  });
+
   it("fails a registration whose supervisor ACK does not match", async () => {
     processHelpers.captureOwnedProcessIdentity.mockImplementation(
       async (pid: number) => identityFor(pid),

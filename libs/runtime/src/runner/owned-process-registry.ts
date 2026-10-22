@@ -92,22 +92,30 @@ export class OwnedProcessRegistry {
     const exit = await Effect.runPromiseExit(
       Effect.timeout(
         Effect.tryPromise({
-          try: async () => {
-            for (const [id, identity] of this.active) {
-              if (!(await confirmOwnedProcessStopped(identity))) {
-                throw new Error(`Owned process ${id} has not stopped`);
-              }
-              await this.sendAndWait({
-                type: "runner.owned-process",
-                action: "release",
-                id,
-                identity,
-              });
-              this.active.delete(id);
-            }
-          },
+          // Cancellation may stop a child while its ownership ACK is pending.
+          try: () => this.registrationTail,
           catch: (cause) => cause,
-        }),
+        }).pipe(
+          Effect.andThen(
+            Effect.tryPromise({
+              try: async () => {
+                for (const [id, identity] of this.active) {
+                  if (!(await confirmOwnedProcessStopped(identity))) {
+                    throw new Error(`Owned process ${id} has not stopped`);
+                  }
+                  await this.sendAndWait({
+                    type: "runner.owned-process",
+                    action: "release",
+                    id,
+                    identity,
+                  });
+                  this.active.delete(id);
+                }
+              },
+              catch: (cause) => cause,
+            }),
+          ),
+        ),
         Duration.millis(this.timeoutMs),
       ),
     );

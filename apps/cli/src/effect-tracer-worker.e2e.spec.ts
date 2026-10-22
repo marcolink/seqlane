@@ -32,7 +32,13 @@ import {
   type RunRequest,
   type SeqlaneExecutionEvent,
 } from "@seqlane/protocol";
-import { launchRunner } from "./runner-client.js";
+import {
+  createRunnerSupervision,
+  launchRunner,
+  spawnRunnerProcess,
+  type RunnerChild,
+} from "./runner-client.js";
+import { decodeOwnedProcessAcknowledgement } from "@seqlane/protocol/private/owned-process";
 import { withCliTelemetryEffect } from "@seqlane/runtime/private/telemetry";
 import { encodeTraceCarrier } from "@seqlane/protocol/private/trace-carrier";
 import { telemetryConfigurationEnvironment } from "@seqlane/runtime/private/telemetry";
@@ -565,6 +571,7 @@ describe("Effect S1 runner worker", () => {
           signalSource.emit(signal);
 
           const result = await client.result;
+          expect(result).not.toHaveProperty("failure");
           expect(result.status).toBe(130);
           expect(processIsAlive(pid)).toBe(false);
           expect(result).toMatchObject({
@@ -579,6 +586,88 @@ describe("Effect S1 runner worker", () => {
         }
       } finally {
         rmSync(markerDirectory, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it.each(["SIGINT", "SIGTERM"] as const)(
+    "drains a pending ownership ACK before reporting %s cancellation",
+    async (signal) => {
+      events.length = 0;
+      const signalSource = new EventEmitter();
+      const child = spawnRunnerProcess({
+        runnerPath,
+        cwd: repositoryRoot,
+      });
+      let releaseAcknowledgement: (() => void) | undefined;
+      let registered!: (pid: number) => void;
+      const registration = new Promise<number>((resolve) => {
+        registered = resolve;
+      });
+      const supervisedChild: RunnerChild = {
+        pid: child.pid,
+        on: child.on.bind(child),
+        removeListener: child.removeListener.bind(child),
+        kill: child.kill.bind(child),
+        send(message, callback) {
+          let acknowledgement;
+          try {
+            acknowledgement = decodeOwnedProcessAcknowledgement(message);
+          } catch {
+            return child.send(message, callback);
+          }
+          if (acknowledgement.action !== "register") {
+            return child.send(message, callback);
+          }
+          // Hold the worker's ACK after the supervisor accepts its identity.
+          releaseAcknowledgement = () => {
+            if (child.connected) child.send(message);
+          };
+          callback?.(null);
+          registered(acknowledgement.identity.pid);
+          return true;
+        },
+      };
+      const supervision = createRunnerSupervision(
+        supervisedChild,
+        request({ value: signal, mode: "hang" }),
+        {
+          signalSource,
+          onExecutionEvent: (event) => events.push(event),
+        },
+      );
+      let settled = false;
+      void supervision.result.then(() => {
+        settled = true;
+      });
+      try {
+        const pid = await registration;
+        expect(processIsAlive(pid)).toBe(true);
+        signalSource.emit(signal);
+        await waitForProcessExit(pid);
+        // OS cleanup must complete while terminal delivery still waits for ACK.
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        expect(settled).toBe(false);
+        expect(terminalEvents()).toEqual([]);
+        releaseAcknowledgement?.();
+        const result = await supervision.result;
+        expect(result).not.toHaveProperty("failure");
+        expect(result).toMatchObject({
+          status: 130,
+          terminalEvent: { type: "run.cancelled" },
+          cancellationSignal: signal,
+        });
+        expect(processIsAlive(pid)).toBe(false);
+        expect(terminalEvents()).toHaveLength(1);
+      } finally {
+        releaseAcknowledgement?.();
+        await closeRunnerWorker({
+          child,
+          request: request({ value: signal, mode: "hang" }),
+          result: supervision.result,
+          cancel: supervision.cancel,
+          close: supervision.cancel,
+        });
       }
     },
   );

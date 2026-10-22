@@ -113,6 +113,7 @@ export class CodexActivityReducer {
     ) {
       this.truncated = true;
       this.records.clear();
+      this.openActivities.clear();
       this.emit({
         activityId: "activity-truncated",
         kind: "tool",

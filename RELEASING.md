@@ -6,9 +6,9 @@ other group members are public registry dependencies.
 
 ## Release flow
 
-Every push to `main` or `next` starts `.github/workflows/ci.yml`. After its quality job
-passes, CI calls `.github/workflows/publish.yml`. This reusable workflow uses
-Conventional Commits to determine the next fixed version. For versions below
+Every push to `main` or `next` starts `.github/workflows/ci.yml`. After the quality
+and hosted Action jobs pass, CI calls `.github/workflows/publish.yml`. This
+reusable workflow uses Conventional Commits to determine the next fixed version. For versions below
 `1.0.0`, `feat` and `fix` commits that affect the release group produce a patch
 release. A breaking change produces a minor release. Other commits do not
 create a release.
