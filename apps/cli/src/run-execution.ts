@@ -19,7 +19,7 @@ import { writeSessionUiDiagnostic } from "./session-ui-diagnostic.js";
 import {
   captureTelemetryConfigurationEnvironment,
   encodeTelemetryConfiguration,
-  exportTelemetry,
+  exportTelemetryEffect,
   telemetryConfigurationEnvironment,
   withCliTelemetryEffect,
   type InProcessTelemetry,
@@ -56,79 +56,80 @@ export async function executeRunnerCommand(
   const telemetryConfiguration = captureTelemetryConfigurationEnvironment(
     process.env,
   );
-  if (telemetryConfiguration === undefined) {
-    return Effect.runPromise(
-      executeRunnerCommandEffect(options, undefined, undefined, undefined),
-    );
-  }
+  return Effect.runPromise(
+    Effect.gen(function* () {
+      if (telemetryConfiguration === undefined) {
+        return yield* executeRunnerCommandEffect(
+          options,
+          undefined,
+          undefined,
+          undefined,
+        );
+      }
 
-  const captured = await Effect.runPromise(
-    withCliTelemetryEffect(({ carrier, collector }) =>
-      executeRunnerCommandEffect(
-        options,
-        carrier,
-        collector,
-        telemetryConfiguration,
-      ),
-    ),
-  );
-  const snapshot = captured.snapshot();
-  const cliSpans = snapshot.spans.map((span) => ({
-    name: span.name,
-    traceId: span.traceId,
-    spanId: span.spanId,
-    ...(span.parentSpanId === undefined
-      ? {}
-      : { parentSpanId: span.parentSpanId }),
-    startTime: Number(span.startTime / 1_000_000n),
-    ...(span.endTime === undefined
-      ? {}
-      : { endTime: Number(span.endTime / 1_000_000n) }),
-    startTimeUnixNano: String(span.startTime),
-    ...(span.endTime === undefined
-      ? {}
-      : { endTimeUnixNano: String(span.endTime) }),
-    kind: span.kind,
-    links: span.links.map((link) => ({
-      traceId: link.traceId,
-      spanId: link.spanId,
-      attributes: { ...link.attributes },
-    })),
-    status: span.status === "ended" ? ("ended" as const) : ("started" as const),
-    attributes: { "seqlane.service.role": "cli" },
-  }));
-  const exportProgram = Effect.tryPromise({
-    try: () =>
-      exportTelemetry(telemetryConfiguration, {
+      const captured = yield* withCliTelemetryEffect(({ carrier, collector }) =>
+        executeRunnerCommandEffect(
+          options,
+          carrier,
+          collector,
+          telemetryConfiguration,
+        ),
+      );
+      const snapshot = captured.snapshot();
+      const cliSpans = snapshot.spans.map((span) => ({
+        name: span.name,
+        traceId: span.traceId,
+        spanId: span.spanId,
+        ...(span.parentSpanId === undefined
+          ? {}
+          : { parentSpanId: span.parentSpanId }),
+        startTime: Number(span.startTime / 1_000_000n),
+        ...(span.endTime === undefined
+          ? {}
+          : { endTime: Number(span.endTime / 1_000_000n) }),
+        startTimeUnixNano: String(span.startTime),
+        ...(span.endTime === undefined
+          ? {}
+          : { endTimeUnixNano: String(span.endTime) }),
+        kind: span.kind,
+        links: span.links.map((link) => ({
+          traceId: link.traceId,
+          spanId: link.spanId,
+          attributes: { ...link.attributes },
+        })),
+        status:
+          span.status === "ended" ? ("ended" as const) : ("started" as const),
+        attributes: { "seqlane.service.role": "cli" },
+      }));
+      yield* exportTelemetryEffect(telemetryConfiguration, {
         spans: [...snapshot.telemetry.spans, ...cliSpans],
         logs: snapshot.telemetry.logs,
         metrics: snapshot.telemetry.metrics,
-      }),
-    catch: (cause) => cause,
-  }).pipe(
-    Effect.map((result) => {
-      if (
-        result.failed ||
-        result.droppedRecords > 0 ||
-        snapshot.telemetry.droppedRecords > 0
-      ) {
-        writeDiagnostic(
-          options.capabilities.stderr,
-          "seqlane telemetry export incomplete",
-        );
-      }
-    }),
-    Effect.catch(() =>
-      Effect.sync(() =>
-        writeDiagnostic(
-          options.capabilities.stderr,
-          "seqlane telemetry export failed",
+      }).pipe(
+        Effect.map((result) => {
+          if (
+            result.failed ||
+            result.droppedRecords > 0 ||
+            snapshot.telemetry.droppedRecords > 0
+          ) {
+            writeDiagnostic(
+              options.capabilities.stderr,
+              "seqlane telemetry export incomplete",
+            );
+          }
+        }),
+        Effect.catch(() =>
+          Effect.sync(() =>
+            writeDiagnostic(
+              options.capabilities.stderr,
+              "seqlane telemetry export failed",
+            ),
+          ),
         ),
-      ),
-    ),
+      );
+      return captured.value;
+    }),
   );
-  await Effect.runPromise(exportProgram);
-  return captured.value;
 }
 
 function executeRunnerCommandEffect(

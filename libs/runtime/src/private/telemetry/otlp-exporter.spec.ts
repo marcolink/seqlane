@@ -1,13 +1,13 @@
 // @test-scope ./otlp-exporter.ts
 // @test-scope ./otlp-projection.ts
 // @test-scope ./otlp-acknowledgement.ts
-import { Effect } from "effect";
+import { Clock, Effect } from "effect";
 import { createServer } from "node:http";
 import { TestClock } from "effect/testing";
 import { jsonValueSchema } from "@seqlane/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { telemetryConfigurationSchema } from "./configuration.js";
-import { exportTelemetry } from "./otlp-exporter.js";
+import { exportTelemetryEffect } from "./otlp-exporter.js";
 import type { TelemetrySpan } from "./collector.js";
 
 const traceId = "0123456789abcdef0123456789abcdef";
@@ -55,6 +55,46 @@ function bodyDocument(body: BodyInit | null | undefined) {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("bounded native OTLP exporter", () => {
+  it("keeps counters and metrics private to each execution of the same Effect", async () => {
+    const fetchMock = vi.fn<typeof fetch>(
+      async () => new Response(null, { status: 503 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const program = exportTelemetryEffect(configuration(), {
+      spans: [span()],
+      logs: [],
+      metrics: [],
+    });
+    expect(await Effect.runPromise(program)).toEqual({
+      failed: true,
+      droppedRecords: 0,
+      exportFailures: 2,
+    });
+    fetchMock.mockResolvedValue(new Response(null));
+    expect(await Effect.runPromise(program)).toEqual({
+      failed: false,
+      droppedRecords: 0,
+      exportFailures: 0,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("rejects invalid UTF-8 collector acknowledgements", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async () => new Response(new Uint8Array([0xff]))),
+    );
+    expect(
+      await Effect.runPromise(
+        exportTelemetryEffect(configuration(), {
+          spans: [span()],
+          logs: [],
+          metrics: [],
+        }),
+      ),
+    ).toEqual({ failed: true, droppedRecords: 0, exportFailures: 2 });
+  });
+
   it("sends complete values, identities, source times, and links to native signal endpoints", async () => {
     const fetchMock = vi.fn<typeof fetch>(
       async () => new Response(null, { status: 200 }),
@@ -66,32 +106,34 @@ describe("bounded native OTLP exporter", () => {
         values: [false, 0, "", null, [], { text: "é".repeat(1_000) }],
       },
     };
-    const result = await exportTelemetry(
-      configuration({ headers: { authorization: "Bearer test" } }),
-      {
-        spans: [
-          {
-            ...span({ "seqlane.observation": payload }),
-            startTimeUnixNano: "1000001",
-            endTimeUnixNano: "2000002",
-            links: [{ traceId, spanId: "2222222222222222" }],
-          },
-        ],
-        logs: [log()],
-        metrics: [
-          {
-            name: "seqlane.invocations",
-            value: 1,
-            attributes: { outcome: "succeeded" },
-          },
-          {
-            name: "seqlane.event_queue.pending_bytes_peak",
-            value: 12,
-            attributes: {},
-            kind: "gauge",
-          },
-        ],
-      },
+    const result = await Effect.runPromise(
+      exportTelemetryEffect(
+        configuration({ headers: { authorization: "Bearer test" } }),
+        {
+          spans: [
+            {
+              ...span({ "seqlane.observation": payload }),
+              startTimeUnixNano: "1000001",
+              endTimeUnixNano: "2000002",
+              links: [{ traceId, spanId: "2222222222222222" }],
+            },
+          ],
+          logs: [log()],
+          metrics: [
+            {
+              name: "seqlane.invocations",
+              value: 1,
+              attributes: { outcome: "succeeded" },
+            },
+            {
+              name: "seqlane.event_queue.pending_bytes_peak",
+              value: 12,
+              attributes: {},
+              kind: "gauge",
+            },
+          ],
+        },
+      ),
     );
     expect(result).toEqual({
       failed: false,
@@ -163,9 +205,8 @@ describe("bounded native OTLP exporter", () => {
   it("keeps metadata policy free of canonical request and response payloads", async () => {
     const fetchMock = vi.fn<typeof fetch>(async () => new Response(null));
     vi.stubGlobal("fetch", fetchMock);
-    const result = await exportTelemetry(
-      configuration({ payloadPolicy: "metadata" }),
-      {
+    const result = await Effect.runPromise(
+      exportTelemetryEffect(configuration({ payloadPolicy: "metadata" }), {
         spans: [
           span({
             "seqlane.observation.id": "observation",
@@ -176,7 +217,7 @@ describe("bounded native OTLP exporter", () => {
         ],
         logs: [],
         metrics: [],
-      },
+      }),
     );
     expect(result).toEqual({
       failed: false,
@@ -199,9 +240,12 @@ describe("bounded native OTLP exporter", () => {
       0,
       span({ "seqlane.observation": { oversized: "x".repeat(10_000) } }),
     );
-    const result = await exportTelemetry(
-      configuration({ maxPendingBytes: 1_600 }),
-      { spans: source, logs: [], metrics: [] },
+    const result = await Effect.runPromise(
+      exportTelemetryEffect(configuration({ maxPendingBytes: 1_600 }), {
+        spans: source,
+        logs: [],
+        metrics: [],
+      }),
     );
     expect(result).toEqual({
       failed: false,
@@ -220,11 +264,13 @@ describe("bounded native OTLP exporter", () => {
     const fetchMock = vi.fn<typeof fetch>(async () => new Response(null));
     vi.stubGlobal("fetch", fetchMock);
     const { endTime: _endTime, ...started } = span();
-    const result = await exportTelemetry(configuration(), {
-      spans: [{ ...started, status: "started" }],
-      logs: [],
-      metrics: [],
-    });
+    const result = await Effect.runPromise(
+      exportTelemetryEffect(configuration(), {
+        spans: [{ ...started, status: "started" }],
+        logs: [],
+        metrics: [],
+      }),
+    );
     expect(result).toEqual({
       failed: false,
       droppedRecords: 1,
@@ -237,15 +283,17 @@ describe("bounded native OTLP exporter", () => {
     const fetchMock = vi.fn<typeof fetch>(async () => new Response(null));
     vi.stubGlobal("fetch", fetchMock);
     expect(
-      await exportTelemetry(configuration(), {
-        spans: [
-          span({
-            "seqlane.observation": { accepted: false, unsupported: () => 1 },
-          }),
-        ],
-        logs: [],
-        metrics: [],
-      }),
+      await Effect.runPromise(
+        exportTelemetryEffect(configuration(), {
+          spans: [
+            span({
+              "seqlane.observation": { accepted: false, unsupported: () => 1 },
+            }),
+          ],
+          logs: [],
+          metrics: [],
+        }),
+      ),
     ).toEqual({ failed: true, droppedRecords: 0, exportFailures: 1 });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/v1/metrics");
@@ -260,11 +308,15 @@ describe("bounded native OTLP exporter", () => {
         .mockResolvedValue(new Response(null, { status: 200 }));
       vi.stubGlobal("fetch", fetchMock);
       expect(
-        await exportTelemetry(configuration(), {
-          spans: [span()],
-          logs: [log()],
-          metrics: [{ name: "seqlane.invocations", value: 1, attributes: {} }],
-        }),
+        await Effect.runPromise(
+          exportTelemetryEffect(configuration(), {
+            spans: [span()],
+            logs: [log()],
+            metrics: [
+              { name: "seqlane.invocations", value: 1, attributes: {} },
+            ],
+          }),
+        ),
       ).toEqual({ failed: true, droppedRecords: 0, exportFailures: 1 });
       expect(fetchMock).toHaveBeenCalledTimes(3);
       expect(String(fetchMock.mock.calls[1]?.[0])).toContain("/v1/logs");
@@ -288,11 +340,13 @@ describe("bounded native OTLP exporter", () => {
       vi.fn<typeof fetch>(async () => new Response(JSON.stringify(response))),
     );
     expect(
-      await exportTelemetry(configuration(), {
-        spans: [span()],
-        logs: [],
-        metrics: [],
-      }),
+      await Effect.runPromise(
+        exportTelemetryEffect(configuration(), {
+          spans: [span()],
+          logs: [],
+          metrics: [],
+        }),
+      ),
     ).toEqual({ failed: true, droppedRecords: 0, exportFailures: 2 });
   });
 
@@ -304,11 +358,13 @@ describe("bounded native OTLP exporter", () => {
         vi.fn<typeof fetch>(async () => new Response(body)),
       );
       expect(
-        await exportTelemetry(configuration(), {
-          spans: [span()],
-          logs: [],
-          metrics: [],
-        }),
+        await Effect.runPromise(
+          exportTelemetryEffect(configuration(), {
+            spans: [span()],
+            logs: [],
+            metrics: [],
+          }),
+        ),
       ).toEqual({ failed: true, droppedRecords: 0, exportFailures: 2 });
     },
   );
@@ -349,10 +405,12 @@ describe("bounded native OTLP exporter", () => {
         });
       }),
     );
-    const result = exportTelemetry(
-      configuration({ shutdownTimeoutMs: 100 }),
-      { spans: [span()], logs: [log()], metrics: [] },
-      clock,
+    const result = Effect.runPromise(
+      exportTelemetryEffect(configuration({ shutdownTimeoutMs: 100 }), {
+        spans: [span()],
+        logs: [log()],
+        metrics: [],
+      }).pipe(Effect.provideService(Clock.Clock, clock)),
     );
     await first;
     await Effect.runPromise(clock.adjust(60));
@@ -391,10 +449,12 @@ describe("bounded native OTLP exporter", () => {
           ),
       ),
     );
-    const result = exportTelemetry(
-      configuration({ shutdownTimeoutMs: 100 }),
-      { spans: [span()], logs: [], metrics: [] },
-      clock,
+    const result = Effect.runPromise(
+      exportTelemetryEffect(configuration({ shutdownTimeoutMs: 100 }), {
+        spans: [span()],
+        logs: [],
+        metrics: [],
+      }).pipe(Effect.provideService(Clock.Clock, clock)),
     );
     await started;
     await Effect.runPromise(clock.adjust(100));
@@ -434,13 +494,14 @@ describe("bounded native OTLP exporter", () => {
       const address = server.address();
       if (address === null || typeof address === "string")
         throw new Error("Expected TCP collector address");
-      const result = exportTelemetry(
-        configuration({
-          endpoint: `http://127.0.0.1:${address.port}`,
-          shutdownTimeoutMs: 100,
-        }),
-        { spans: [span()], logs: [], metrics: [] },
-        clock,
+      const result = Effect.runPromise(
+        exportTelemetryEffect(
+          configuration({
+            endpoint: `http://127.0.0.1:${address.port}`,
+            shutdownTimeoutMs: 100,
+          }),
+          { spans: [span()], logs: [], metrics: [] },
+        ).pipe(Effect.provideService(Clock.Clock, clock)),
       );
       await started;
       await Effect.runPromise(clock.adjust(100));

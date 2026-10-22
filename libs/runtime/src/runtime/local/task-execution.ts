@@ -4,6 +4,7 @@ import type {
   TaskId,
   TaskContext,
 } from "@seqlane/core";
+import type { Context } from "effect";
 import {
   LocalProcessCancelledError,
   LocalProcessTerminationError,
@@ -18,6 +19,7 @@ export {
 } from "./effect-process.js";
 
 export interface TaskExecutionRequest {
+  readonly nativeContext?: Context.Context<never>;
   readonly definition: TaskDefinition<unknown, unknown>;
   readonly input: unknown;
   readonly cwd: string;
@@ -31,31 +33,35 @@ export interface TaskExecutionRequest {
   readonly onOwnedProcessAcquired?: (pid: number) => Promise<void>;
 }
 
-function taskContext(
-  cwd: string,
-  taskId: TaskId,
-  invocationId: InvocationId,
-  signal: AbortSignal,
-  outputLimitBytes: number,
-  runAgent: TaskContext["runAgent"],
-  classify: NonNullable<TaskContext["classify"]> | undefined,
-  onUncertainActivity: TaskExecutionRequest["onUncertainActivity"],
-  onOwnedProcessAcquired: TaskExecutionRequest["onOwnedProcessAcquired"],
-): TaskContext {
+function taskContext(request: TaskExecutionRequest): TaskContext {
+  const {
+    cwd,
+    taskId,
+    invocationId,
+    signal,
+    runAgent,
+    classify,
+    onUncertainActivity,
+    onOwnedProcessAcquired,
+  } = request;
   const baseContext: TaskContext = {
-    exec: async (request) => {
+    exec: async (command) => {
       try {
-        return await runLocalProcess({
-          command: request.executable,
-          args: request.argv ?? [],
-          cwd,
-          taskId,
-          invocationId,
-          outputLimitBytes,
-          signal,
-          timeoutMs: request.timeoutMs,
-          onOwnedProcessAcquired,
-        });
+        return await runLocalProcess(
+          {
+            command: command.executable,
+            args: command.argv ?? [],
+            cwd,
+            taskId,
+            invocationId,
+            outputLimitBytes:
+              request.outputLimitBytes ?? DEFAULT_LOCAL_TASK_OUTPUT_LIMIT_BYTES,
+            signal,
+            timeoutMs: command.timeoutMs,
+            onOwnedProcessAcquired,
+          },
+          request.nativeContext,
+        );
       } catch (cause) {
         if (cause instanceof LocalProcessTerminationError) {
           onUncertainActivity?.({ reason: "timeout" });
@@ -71,17 +77,7 @@ function taskContext(
 export async function executeTask(
   request: TaskExecutionRequest,
 ): Promise<unknown> {
-  const context = taskContext(
-    request.cwd,
-    request.taskId,
-    request.invocationId,
-    request.signal,
-    request.outputLimitBytes ?? DEFAULT_LOCAL_TASK_OUTPUT_LIMIT_BYTES,
-    request.runAgent,
-    request.classify,
-    request.onUncertainActivity,
-    request.onOwnedProcessAcquired,
-  );
+  const context = taskContext(request);
   const output = await request.definition.execute({
     input: request.input,
     signal: request.signal,

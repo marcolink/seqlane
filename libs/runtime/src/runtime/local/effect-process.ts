@@ -1,4 +1,4 @@
-import { Duration, Effect, Layer, Option, Stream } from "effect";
+import { Context, Duration, Effect, Layer, Option, Stream } from "effect";
 import { ChildProcess } from "effect/process";
 import * as NodeChildProcessSpawner from "@effect/platform-node/NodeChildProcessSpawner";
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
@@ -243,6 +243,7 @@ function result(
 /** Execute one argv process through Effect's scoped Node process service. */
 export async function runLocalProcess(
   request: LocalProcessRequest,
+  nativeContext: Context.Context<never> = Context.empty(),
 ): Promise<LocalProcessResult> {
   validateOutputLimitBytes(request.outputLimitBytes);
   const timeoutMs = effectiveTimeoutMs(request.timeoutMs);
@@ -257,7 +258,7 @@ export async function runLocalProcess(
   let value: Option.Option<ProcessOutput>;
   let runCause: unknown;
   try {
-    value = await Effect.runPromise(processEffect.effect, {
+    value = await Effect.runPromiseWith(nativeContext)(processEffect.effect, {
       ...(request.signal === undefined ? {} : { signal: request.signal }),
     });
   } catch (cause) {

@@ -158,6 +158,7 @@ export function executeTaskNodeEffect(
       );
       const parentSpan = yield* Effect.currentParentSpan.pipe(Effect.option);
       const tracer = yield* Tracer.Tracer;
+      const nativeContext = yield* Effect.context<never>();
       const output = yield* withBodyPermit(
         Effect.suspend(() => {
           if (abortSignal.aborted)
@@ -175,6 +176,7 @@ export function executeTaskNodeEffect(
                 AbortSignal.any([abortSignal, fiberSignal]),
                 {
                   ...options,
+                  nativeContext,
                   ...(Option.isSome(parentSpan)
                     ? {
                         nativeTelemetry: {

@@ -50,6 +50,14 @@ export requires explicit `SEQLANE_TELEMETRY` configuration and a payload policy.
 Exporter failure cannot change a task result. Required event delivery failure
 remains an execution failure.
 
+The private `exportTelemetryEffect` composes into the hosted manager and CLI
+programs. Export inherits their native clock and scope; each execution owns its
+failure counters. Native JSON serialization and scoped HTTP retain byte-bounded
+batches, 64 KiB acknowledgements, rejection checks, and one total shutdown deadline.
+The pinned Effect 4.0.5 `OtlpExporter` uses item-count batches, reads complete
+response buffers, retries transport errors, and hides export failures. Its flusher
+waits only for exports it starts. These gaps require the bounded export boundary.
+
 ### Task execution and invocation policy
 
 Every task definition exposes one `execute({ input, signal, context })` contract.

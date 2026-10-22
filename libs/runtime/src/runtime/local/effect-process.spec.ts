@@ -5,6 +5,8 @@ import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { Effect } from "effect";
+import { TestClock } from "effect/testing";
 import { OwnedProcessRegistry } from "../../runner/owned-process-registry.js";
 import {
   LocalProcessCancelledError,
@@ -191,20 +193,53 @@ describe("Effect deterministic process integration", () => {
   });
 
   it("keeps bounded output emitted before a timeout", async () => {
-    await expect(
-      runLocalProcess(
-        request({
-          args: [
-            "-e",
-            "process.stdout.write('partial'); setInterval(() => undefined, 1000)",
-          ],
-          timeoutMs: 100,
-        }),
-      ),
-    ).rejects.toMatchObject({
-      name: LocalProcessTimeoutError.name,
-      result: { stdout: "partial", stderr: "", stdoutTruncated: false },
+    const workspace = await mkdtemp(join(tmpdir(), "seqlane-effect-process-"));
+    const controller = new AbortController();
+    let acquired!: () => void;
+    const registration = new Promise<void>((resolve) => {
+      acquired = resolve;
     });
+    let pending: ReturnType<typeof runLocalProcess> | undefined;
+    try {
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const nativeContext = yield* Effect.context<never>();
+          const readyPath = join(workspace, "ready");
+          pending = runLocalProcess(
+            request({
+              args: [
+                "-e",
+                "process.stdout.write('partial', () => require('node:fs').writeFileSync(process.argv[1], 'ready')); setInterval(() => undefined, 1000)",
+                readyPath,
+              ],
+              signal: controller.signal,
+              timeoutMs: 100,
+              onOwnedProcessAcquired: async () => {
+                acquired();
+              },
+            }),
+            nativeContext,
+          );
+          const assertion = expect(pending).rejects.toMatchObject({
+            name: LocalProcessTimeoutError.name,
+            result: { stdout: "partial", stderr: "", stdoutTruncated: false },
+          });
+          yield* Effect.promise(async () => {
+            await registration;
+            await expect.poll(() => readFile(readyPath, "utf8")).toBe("ready");
+            // Let the real pipe reader consume the acknowledged child write.
+            await new Promise<void>((resolve) => setImmediate(resolve));
+          });
+          yield* Effect.yieldNow;
+          yield* TestClock.adjust(100);
+          yield* Effect.promise(() => assertion);
+        }).pipe(Effect.provide(TestClock.layer())),
+      );
+    } finally {
+      controller.abort("test cleanup");
+      await pending?.catch(() => undefined);
+      await rm(workspace, { recursive: true, force: true });
+    }
   });
 
   it("eventually terminates the timed-out process", async () => {

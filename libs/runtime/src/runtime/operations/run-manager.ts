@@ -55,7 +55,7 @@ import {
 } from "../../runner/byte-bounded-event-queue.js";
 import { createNativeSpanCollector } from "../../private/telemetry/run-scope.js";
 import { createInProcessTelemetry } from "../../private/telemetry/collector.js";
-import { exportTelemetry } from "../../private/telemetry/otlp-exporter.js";
+import { exportTelemetryEffect } from "../../private/telemetry/otlp-exporter.js";
 import type { OperationalWorkflowRegistration } from "./types.js";
 import type { TelemetryConfiguration } from "../../private/telemetry/configuration.js";
 import {
@@ -436,11 +436,10 @@ export function createOperationalRunManager(options: {
         });
         const telemetryConfiguration = options.telemetryConfiguration;
         if (telemetryConfiguration !== undefined)
-          yield* Effect.tryPromise({
-            try: () =>
-              exportTelemetry(telemetryConfiguration, inspection.telemetry),
-            catch: (cause) => cause,
-          }).pipe(Effect.catchCause(() => Effect.void));
+          yield* exportTelemetryEffect(
+            telemetryConfiguration,
+            inspection.telemetry,
+          ).pipe(Effect.catchCause(() => Effect.void));
         yield* releaseEntry(entry, status);
       }).pipe(
         Effect.catchCause((cause) =>

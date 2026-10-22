@@ -474,6 +474,7 @@ export async function executeTaskNode(
           );
         };
         rawOutput = await executeTask({
+          nativeContext: options.nativeContext,
           definition,
           input,
           taskId: node.taskId,

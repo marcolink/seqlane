@@ -1,9 +1,10 @@
 import { runTest } from "./native-test-support.js";
 // @test-scope ./run-manager.ts
+// @test-scope ../../private/telemetry/otlp-exporter.ts
 // @test-scope ./sqlite-store.ts
 // @test-scope ./registration.ts
-import { afterEach, describe, expect, it } from "vitest";
-import { Clock, Effect, Fiber } from "effect";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { Clock, Deferred, Effect, Fiber } from "effect";
 import {
   buildWorkflow,
   createFlow,
@@ -20,6 +21,8 @@ import {
 } from "./sqlite-store.js";
 import type { OperationalStore } from "./sqlite-store.js";
 import { seqlaneExecutionEventSchema } from "@seqlane/protocol";
+import { TestClock } from "effect/testing";
+import { telemetryConfigurationSchema } from "../../private/telemetry/configuration.js";
 
 describe("hosted native run manager", () => {
   let close: (() => Promise<void>) | undefined;
@@ -30,6 +33,83 @@ describe("hosted native run manager", () => {
     await close?.();
     close = undefined;
     shutdown = undefined;
+    vi.unstubAllGlobals();
+  });
+
+  it("inherits the caller clock for hosted telemetry shutdown and preserves the successful outcome", async () => {
+    let aborted = false;
+    let requests = 0;
+    const result = await runTest(
+      Effect.gen(function* () {
+        const started = yield* Deferred.make<void>();
+        vi.stubGlobal(
+          "fetch",
+          vi.fn<typeof fetch>(async (_url, init) => {
+            requests += 1;
+            Deferred.doneUnsafe(started, Effect.void);
+            return new Promise<Response>((_resolve, reject) => {
+              init?.signal?.addEventListener(
+                "abort",
+                () => {
+                  aborted = true;
+                  reject(init.signal?.reason);
+                },
+                { once: true },
+              );
+            });
+          }),
+        );
+        const authored = createFlow({
+          id: "hosted-telemetry-clock",
+          input: z.string(),
+          output: z.string(),
+        })
+          .output(({ input }) => input)
+          .define();
+        const built = buildWorkflow(authored);
+        const store = yield* openOperationalStore("file::memory:");
+        const manager = yield* createOperationalRunManager({
+          workflows: [
+            createOperationalWorkflow({
+              key: "telemetry-clock",
+              plan: built.plan,
+              workflow: authored,
+              taskDefinitions: built.taskDefinitions,
+              validatorDefinitions: built.validatorDefinitions,
+              workflowDefinitions: built.workflowDefinitions,
+            }),
+          ],
+          store,
+          telemetryConfiguration: telemetryConfigurationSchema.parse({
+            endpoint: "https://collector.example",
+            payloadPolicy: "full",
+            shutdownTimeoutMs: 100,
+          }),
+        });
+        const fiber = yield* manager
+          .invoke("telemetry-clock", {
+            version: 1,
+            input: "preserved",
+          })
+          .pipe(Effect.forkChild);
+        yield* Deferred.await(started);
+        expect(aborted).toBe(false);
+        yield* TestClock.adjust(100);
+        expect(aborted).toBe(true);
+        const status = yield* Fiber.join(fiber);
+        const stored = yield* store.status(status.runId);
+        return { status, stored };
+      }).pipe(Effect.provide(TestClock.layer())),
+    );
+    expect(result.status.error).toBeUndefined();
+    expect(requests).toBe(1);
+    expect(aborted).toBe(true);
+    expect(result.status).toMatchObject({
+      status: "succeeded",
+      output: "preserved",
+      completeness: { inspection: "complete" },
+    });
+    expect(result.stored).toEqual(result.status);
   });
 
   it("inherits the request Clock and parent span through execution and SQL inspection", async () => {

@@ -1,7 +1,10 @@
-import { Effect } from "effect";
+import { Clock, Duration, Effect } from "effect";
+import { TestClock } from "effect/testing";
 // @test-scope ./task-execution.ts
 // @test-scope ./effect-process.ts
 // @test-scope ../invocation/invocation-execution.ts
+// @test-scope ../invocation/task-admission.ts
+// @test-scope ../invocation/invocation-support.ts
 // @test-scope ../compile/compile-plan.ts
 // @test-scope ../execution/model-preflight.ts
 // @test-scope ../session/session-preflight.ts
@@ -18,7 +21,7 @@ import type {
   TaskDefinitionRegistry,
   TaskNode,
 } from "@seqlane/core";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { OutputValidationError } from "../../index.js";
 import {
   runCompiledWorkflow,
@@ -29,6 +32,8 @@ import type { ExecutorResolvers } from "../execution/executor.js";
 import { preflightCompiledWorkflowModels } from "../execution/model-preflight.js";
 import { resolveCompiledWorkflowSessions } from "../session/session-preflight.js";
 import type { SessionResolver } from "../session/session-resolution.js";
+import { runCompiledGraphProgram } from "../execution/effect-plan.js";
+import { LocalProcessTimeoutError } from "./effect-process.js";
 
 const identitySchema: SeqlaneSchema = z.unknown();
 
@@ -67,6 +72,7 @@ function compileLocal(
     readonly executors?: ExecutorResolvers;
     readonly sessionResolver?: SessionResolver;
     readonly taskDefinitions?: TaskDefinitionRegistry;
+    readonly onOwnedProcessAcquired?: (pid: number) => Promise<void>;
   } = {},
 ) {
   const workspace = options.workspace ?? process.cwd();
@@ -83,6 +89,7 @@ function compileLocal(
     taskDefinitions:
       options.taskDefinitions ?? new Map([[definition.id, definition]]),
     events: options.events,
+    onOwnedProcessAcquired: options.onOwnedProcessAcquired,
   });
 }
 
@@ -235,6 +242,94 @@ describe("local task execution", () => {
       });
     },
   );
+
+  it("inherits the Plan clock across a task callback into context.exec", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "seqlane-local-"));
+    const controller = new AbortController();
+    let acquired!: () => void;
+    const registration = new Promise<void>((resolve) => {
+      acquired = resolve;
+    });
+    let pending: ReturnType<typeof Effect.runPromise> | undefined;
+    try {
+      const readyPath = join(workspace, "ready");
+      let timeout: unknown;
+      const definition: TaskDefinition = {
+        id: "local-inherited-clock",
+        input: identitySchema,
+        output: identitySchema,
+        execute: async ({ context }) => {
+          try {
+            return await context.exec({
+              executable: process.execPath,
+              argv: [
+                "-e",
+                "process.stdout.write('partial', () => require('node:fs').writeFileSync(process.argv[1], String(process.pid))); setInterval(() => undefined, 1000)",
+                readyPath,
+              ],
+              timeoutMs: 100,
+            });
+          } catch (cause) {
+            timeout = cause;
+            throw cause;
+          }
+        },
+      };
+      const compiled = compileLocal(
+        localPlan(localTaskNode(definition.id)),
+        definition,
+        {
+          workspace,
+          onOwnedProcessAcquired: async () => {
+            acquired();
+          },
+        },
+      );
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const nativeContext = yield* Effect.context<never>();
+          const sleep = vi.spyOn(yield* Clock.Clock, "sleep");
+          pending = Effect.runPromiseWith(nativeContext)(
+            runCompiledGraphProgram(
+              compiled,
+              compiled.plan.workflow.id,
+              controller.signal,
+              undefined,
+              0,
+            ),
+          );
+          const pid = yield* Effect.promise(async () => {
+            await registration;
+            const value = Number(await waitForFile(readyPath));
+            await new Promise<void>((resolve) => setImmediate(resolve));
+            return value;
+          });
+          yield* Effect.yieldNow;
+          expect(sleep).toHaveBeenCalledWith(Duration.millis(100));
+          yield* TestClock.adjust(99);
+          expect(timeout).toBeUndefined();
+          yield* TestClock.adjust(1);
+          const outcome = yield* Effect.promise(() => pending!);
+          expect(outcome).toMatchObject({ status: "failed" });
+          expect(timeout).toBeInstanceOf(LocalProcessTimeoutError);
+          expect(timeout).toMatchObject({
+            result: {
+              stdout: "partial",
+              stderr: "",
+              stdoutTruncated: false,
+              timedOut: true,
+              cancelled: false,
+            },
+          });
+          yield* Effect.promise(() => waitForProcessExit(pid));
+        }).pipe(Effect.provide(TestClock.layer())),
+      );
+    } finally {
+      controller.abort("test cleanup");
+      await pending?.catch(() => undefined);
+      await rm(workspace, { recursive: true, force: true });
+    }
+  });
 
   it("maps invalid local output to OutputValidationError and does not retain it", async () => {
     const cause = new Error("invalid output");

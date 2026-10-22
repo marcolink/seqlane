@@ -18,9 +18,11 @@ import type { RuntimeValidationResult } from "../validation/validation-results.j
 import type { JointAdmission } from "./joint-admission.js";
 
 import type { PreparedInvocationInput } from "./prepared-input.js";
-import type { Tracer } from "effect";
+import type { Context, Tracer } from "effect";
 
 export interface TaskExecutionOptions {
+  /** Native services captured before entering a Promise task callback. */
+  readonly nativeContext?: Context.Context<never>;
   readonly preparedInput?: PreparedInvocationInput;
   readonly invocationId: InvocationId;
   /** Effect-native context captured by the admission fiber for owned SDK calls. */
