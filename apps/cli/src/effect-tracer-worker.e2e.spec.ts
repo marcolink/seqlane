@@ -7,14 +7,17 @@
 // @test-scope ../../../libs/runtime/src/runtime/execution/settle-run-program.ts
 // @test-scope ../../../libs/runtime/src/runner/main.ts
 // @test-scope ../../../libs/runtime/src/runner/run.ts
+// @test-scope ../../../libs/runtime/src/classifier/system-one-client.ts
 
+import { EventEmitter } from "node:events";
 import { once } from "node:events";
 import { spawn } from "node:child_process";
-import { EventEmitter } from "node:events";
+import { createServer } from "node:http";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { startCompiledCli } from "./test-fixtures/effect-worker-test-support.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   isRunRequest,
@@ -136,6 +139,104 @@ afterAll(() => {
 });
 
 describe("Effect S1 runner worker", () => {
+  it("runs classifier preparation and deterministic consumption through the compiled Effect CLI", async () => {
+    const temporaryRoot = mkdtempSync(
+      join(tmpdir(), "seqlane-effect-classifier-"),
+    );
+    prepareExternalCli({
+      cliRoot,
+      destination: temporaryRoot,
+      runnerEntrypoint: "./dist/test-fixtures/effect-tracer-runner.js",
+    });
+    let requests = 0;
+    const server = createServer((incoming, outgoing) => {
+      const chunks: Buffer[] = [];
+      incoming.on("data", (chunk: Buffer) => chunks.push(chunk));
+      incoming.on("end", () => {
+        requests += 1;
+        expect(incoming.headers.authorization).toBe(
+          "Bearer effect-classifier-secret",
+        );
+        expect(
+          JSON.parse(Buffer.concat(chunks).toString("utf8")),
+        ).toMatchObject({
+          state: { diff: "prepared:compiled effect diff" },
+          questions: {
+            area: { type: "choice" },
+            priority: { type: "score" },
+            needsReview: { type: "noul" },
+          },
+        });
+        outgoing.writeHead(200, { "content-type": "application/json" });
+        outgoing.end(
+          JSON.stringify({
+            model: "jev-1.13.0",
+            answers: {
+              area: {
+                type: "choice",
+                choice: "runtime",
+                probabilities: { runtime: 0.8, docs: 0.2 },
+                confidence: 0.8,
+              },
+              priority: {
+                type: "score",
+                score: 0.8,
+                legend: { "0": "Low", "1": "High" },
+                probabilities: { "0": 0.2, "1": 0.8 },
+                confidence: 0.8,
+              },
+              needsReview: { type: "noul", noul: 0.63 },
+            },
+            usage: { input_tokens: 14, output_tokens: 7 },
+          }),
+        );
+      });
+    });
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address();
+    if (address === null || typeof address === "string")
+      throw new Error("Classifier fixture did not bind a TCP port");
+    try {
+      const invocation = startCompiledCli({
+        cliRoot: temporaryRoot,
+        args: [
+          "run",
+          `${workflowUrl}#effectClassifierWorkflow`,
+          "--input",
+          JSON.stringify({ diff: "compiled effect diff" }),
+          "--classifier-url",
+          `http://127.0.0.1:${address.port}/v1/systemone`,
+          "--classifier-model",
+          "jev-latest",
+          "--json",
+        ],
+        cwd: temporaryRoot,
+        env: {
+          ...process.env,
+          FORCE_COLOR: "0",
+          SEQLANE_CLASSIFIER_API_KEY: "effect-classifier-secret",
+        },
+      });
+      const { code, stdout, stderr } = await invocation.completed;
+      expect(code, stdout + stderr).toBe(0);
+      expect(stderr).toBe("");
+      expect(JSON.parse(stdout)).toMatchObject({
+        status: "succeeded",
+        output: { area: "runtime", priority: 0.8, reviewRequired: true },
+      });
+      expect(requests).toBe(1);
+      expect(stdout + stderr).not.toContain("effect-classifier-secret");
+      expect(existsSync(join(temporaryRoot, ".seqlane"))).toBe(false);
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      );
+      rmSync(temporaryRoot, { recursive: true, force: true });
+    }
+  }, 30_000);
+
   it("runs the compiled Oclif command through the injected Effect worker", async () => {
     temporaryRoot = mkdtempSync(join(tmpdir(), "seqlane-effect-cli-"));
     prepareExternalCli({

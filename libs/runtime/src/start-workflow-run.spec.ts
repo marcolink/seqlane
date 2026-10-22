@@ -706,49 +706,63 @@ describe("startWorkflowRun", () => {
         },
       },
     });
+    const consumedSchema = z.object({
+      area: z.string(),
+      reviewRequired: z.boolean(),
+      priority: z.number(),
+    });
+    const consumeClassifier = defineTask({
+      id: "direct.consume-classifier-result",
+      input: classifier.output,
+      output: consumedSchema,
+      execute: async ({ input }) => ({
+        area:
+          input.answers.area?.kind === "choice"
+            ? input.answers.area.selected
+            : "unknown",
+        reviewRequired:
+          input.answers.needsReview?.kind === "noul" &&
+          input.answers.needsReview.probability > 0.5,
+        priority:
+          input.answers.priority?.kind === "score"
+            ? input.answers.priority.value
+            : -1,
+      }),
+    });
     const classifierWorkflow = createFlow({
       id: "direct-classifier-workflow",
       input: classifierInputSchema,
-      output: classifier.output,
+      output: consumedSchema,
     })
       .task("prepare", prepare, ({ input }) => input)
       .task("classify", classifier, ({ tasks }) => tasks.prepare.output)
-      .output(({ tasks }) => tasks.classify.output)
+      .task("consume", consumeClassifier, ({ tasks }) => tasks.classify.output)
+      .output(({ tasks }) => tasks.consume.output)
       .define();
     const observations: Omit<InvocationObservationEvent, "metadata">[] = [];
-    const handle = startWorkflowRun({
-      workflow: buildWorkflow(classifierWorkflow),
-      input: { diff: "example diff" },
-      workspace: process.cwd(),
-      classifierConnection: {
-        url: `http://127.0.0.1:${address.port}/v1/systemone`,
-        model: "jev-latest",
-        apiKey,
+    const handle = startWorkflowRun(
+      {
+        workflow: buildWorkflow(classifierWorkflow),
+        input: { diff: "example diff" },
+        workspace: process.cwd(),
+        classifierConnection: {
+          url: `http://127.0.0.1:${address.port}/v1/systemone`,
+          model: "jev-latest",
+          apiKey,
+        },
+        identity: { workId: "work-classifier", runId: "run-classifier" },
+        events: { emit: () => undefined },
+        onObservation: (event) => observations.push(event),
       },
-      identity: { workId: "work-classifier", runId: "run-classifier" },
-      events: { emit: () => undefined },
-      onObservation: (event) => observations.push(event),
-    });
+      { program: createEffectPlanProgram },
+    );
 
     await expect(handle.outcome).resolves.toMatchObject({
       status: "succeeded",
       result: {
-        answers: {
-          area: {
-            kind: "choice",
-            selected: "runtime",
-            probabilities: { runtime: 0.8, docs: 0.2 },
-            confidence: 0.8,
-          },
-          priority: {
-            kind: "score",
-            value: 0.8,
-            legend: { "0": "Low", "1": "High" },
-            probabilities: { "0": 0.2, "1": 0.8 },
-            confidence: 0.8,
-          },
-          needsReview: { kind: "noul", probability: 0.63 },
-        },
+        area: "runtime",
+        reviewRequired: true,
+        priority: 0.8,
       },
     });
     expect(capturedAuthorization).toBe(`Bearer ${apiKey}`);

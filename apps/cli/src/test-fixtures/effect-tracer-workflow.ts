@@ -1,5 +1,13 @@
-import { createFlow, defineTask } from "@seqlane/core";
+import { createFlow, defineClassifierTask, defineTask } from "@seqlane/core";
 import { z } from "zod";
+
+if (
+  process.env.SEQLANE_CLASSIFIER_API_KEY ||
+  process.env.SEQLANE_RUNNER_CLASSIFIER_URL ||
+  process.env.SEQLANE_RUNNER_CLASSIFIER_MODEL
+) {
+  throw new Error("Classifier configuration leaked before workflow import");
+}
 
 const inputSchema = z.object({
   value: z.string(),
@@ -59,4 +67,65 @@ export const effectTracerWorkflow = createFlow({
 })
   .task("shell", shellTask, ({ input }) => input)
   .output(({ tasks }) => tasks.shell.output)
+  .define();
+
+const classifierInputSchema = z.object({ diff: z.string() });
+const preparedSchema = z.object({ diff: z.string() });
+const prepared = defineTask({
+  id: "effect-classifier.prepare",
+  input: classifierInputSchema,
+  output: preparedSchema,
+  execute: async ({ input }) => ({ diff: `prepared:${input.diff}` }),
+});
+const classifier = defineClassifierTask({
+  id: "effect-classifier.classify",
+  input: preparedSchema,
+  state: ({ diff }) => ({ diff }),
+  questions: {
+    area: {
+      kind: "choice",
+      instructions: "Which area changed?",
+      criteria: { runtime: "Runtime", docs: "Documentation" },
+    },
+    priority: {
+      kind: "score",
+      instructions: "How urgent is review?",
+      criteria: ["Low", "High"],
+    },
+    needsReview: { kind: "noul", instructions: "Does this diff need review?" },
+  },
+});
+const consumedSchema = z.object({
+  area: z.string(),
+  priority: z.number(),
+  reviewRequired: z.boolean(),
+});
+const consume = defineTask({
+  id: "effect-classifier.consume",
+  input: classifier.output,
+  output: consumedSchema,
+  execute: async ({ input }) => ({
+    area:
+      input.answers.area?.kind === "choice"
+        ? input.answers.area.selected
+        : "unknown",
+    priority:
+      input.answers.priority?.kind === "score"
+        ? input.answers.priority.value
+        : -1,
+    reviewRequired:
+      input.answers.needsReview?.kind === "noul" &&
+      input.answers.needsReview.probability > 0.5,
+  }),
+});
+
+export const effectClassifierWorkflow = createFlow({
+  id: "effect-classifier-worker-fixture",
+  input: classifierInputSchema,
+  output: consumedSchema,
+})
+  .task("prepare", prepared, ({ input }) => input)
+  .task("classify", classifier, ({ tasks }) => tasks.prepare.output)
+  .task("consume", consume, ({ tasks }) => tasks.classify.output)
+  .output(({ tasks }) => tasks.consume.output)
   .define();

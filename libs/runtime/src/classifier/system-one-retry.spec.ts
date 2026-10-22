@@ -1,12 +1,16 @@
 // @test-scope ./system-one-client.ts
+// @test-scope ./system-one-operation.ts
 // @test-scope ./system-one-retry.ts
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { Effect } from "effect";
+import { TestClock } from "effect/testing";
 import type { SeqlaneObservation } from "@seqlane/protocol";
 import {
   CLASSIFIER_TRANSPORT_BUDGET_MS,
   SystemOneClient,
 } from "./system-one-client.js";
+import { retryDelayFor } from "./system-one-retry.js";
 import {
   classifierRequest as request,
   classifierResponseBody as responseBody,
@@ -183,48 +187,66 @@ describe("System One retry policy", () => {
   });
 
   it("does not retry when Retry-After cannot fit the remaining budget", async () => {
-    let now = 0;
+    const clock = await Effect.runPromise(Effect.scoped(TestClock.make()));
+    let requests = 0;
+    const observations: SeqlaneObservation[] = [];
+    let started!: () => void;
+    const fetchStarted = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    let respond!: (response: Response) => void;
+    const client = new SystemOneClient(
+      { url: "https://localhost/v1/systemone", model: "jev-latest" },
+      async () => {
+        requests += 1;
+        started();
+        return new Promise<Response>((resolve) => {
+          respond = resolve;
+        });
+      },
+      clock,
+    );
+
+    const classification = client.classify(
+      request,
+      new AbortController().signal,
+      (observation) => observations.push(observation),
+    );
+    await fetchStarted;
+    await Effect.runPromise(clock.adjust(19_500));
+    respond(
+      new Response("busy", {
+        status: 429,
+        headers: { "retry-after": "1" },
+      }),
+    );
+    await expect(classification).rejects.toMatchObject({ code: "transport" });
+    expect(requests).toBe(1);
+    expect(observations).toHaveLength(1);
+    expect(retryDelayFor(0, "1", Date.now(), 500)).toBeUndefined();
+  });
+
+  it("preserves the last attempt failure when the deadline expires in backoff", async () => {
+    vi.useFakeTimers();
     let requests = 0;
     const observations: SeqlaneObservation[] = [];
     const client = new SystemOneClient(
       { url: "https://localhost/v1/systemone", model: "jev-latest" },
       async () => {
         requests += 1;
-        now = CLASSIFIER_TRANSPORT_BUDGET_MS - 500;
-        return new Response("busy", {
-          status: 429,
-          headers: { "retry-after": "1" },
+        return new Promise<Response>((resolve) => {
+          setTimeout(
+            () => resolve(new Response("busy", { status: 429 })),
+            19_800,
+          );
         });
       },
-      () => now,
-    );
-
-    await expect(
-      client.classify(request, new AbortController().signal, (observation) =>
-        observations.push(observation),
-      ),
-    ).rejects.toMatchObject({ code: "transport" });
-    expect(requests).toBe(1);
-    expect(observations).toHaveLength(1);
-  });
-
-  it("preserves the last attempt failure when the deadline expires in backoff", async () => {
-    vi.useFakeTimers();
-    let now = 0;
-    const observations: SeqlaneObservation[] = [];
-    const client = new SystemOneClient(
-      { url: "https://localhost/v1/systemone", model: "jev-latest" },
-      async () => new Response("busy", { status: 429 }),
-      () => now,
     );
     const classification = client.classify(
       request,
       new AbortController().signal,
       (observation) => {
         observations.push(observation);
-        setTimeout(() => {
-          now = CLASSIFIER_TRANSPORT_BUDGET_MS;
-        }, 100);
       },
     );
     const assertion = expect(classification).rejects.toMatchObject({
@@ -235,8 +257,10 @@ describe("System One retry policy", () => {
       }),
     });
 
+    await vi.advanceTimersByTimeAsync(19_800);
     await vi.advanceTimersByTimeAsync(200);
     await assertion;
+    expect(requests).toBe(1);
     expect(observations).toHaveLength(1);
     expect(observations[0]).toMatchObject({ state: "failed", attemptIndex: 0 });
   });
@@ -313,34 +337,34 @@ describe("System One retry policy", () => {
   });
 
   it("enforces the transport deadline while the response body is read", async () => {
-    let now = 0;
+    vi.useFakeTimers();
     const observations: SeqlaneObservation[] = [];
-    let reads = 0;
+    let bodySent = false;
     const body = new ReadableStream<Uint8Array>({
       pull(controller) {
-        reads += 1;
-        if (reads === 1) {
-          now = CLASSIFIER_TRANSPORT_BUDGET_MS - 1;
+        if (!bodySent) {
+          bodySent = true;
           controller.enqueue(
             new TextEncoder().encode(JSON.stringify(responseBody)),
           );
-          return;
         }
-        now = CLASSIFIER_TRANSPORT_BUDGET_MS;
-        controller.close();
       },
     });
     const client = new SystemOneClient(
       { url: "https://localhost/v1/systemone", model: "jev-latest" },
       async () => new Response(body, { status: 200 }),
-      () => now,
     );
 
-    await expect(
-      client.classify(request, new AbortController().signal, (observation) =>
-        observations.push(observation),
-      ),
-    ).rejects.toMatchObject({ code: "deadline" });
+    const classification = client.classify(
+      request,
+      new AbortController().signal,
+      (observation) => observations.push(observation),
+    );
+    const assertion = expect(classification).rejects.toMatchObject({
+      code: "deadline",
+    });
+    await vi.advanceTimersByTimeAsync(20_000);
+    await assertion;
     expect(observations).toHaveLength(1);
     expect(observations[0]).toMatchObject({ state: "failed", attemptIndex: 0 });
   });
