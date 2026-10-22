@@ -18,7 +18,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { PlanCompiler } from "./compile-plan.js";
 import { compilePlan } from "./prepare-plan.js";
-import { executeSequentialProgram } from "../execution/program.js";
+import { executeSequentialProgram } from "../execution/workflow-run.test-support.js";
 import type { ExecutorRequest } from "../execution/executor.js";
 import { WORKFLOW_INPUT_NODE_ID } from "../plan/binding-resolution.js";
 import {

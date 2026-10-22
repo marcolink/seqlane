@@ -172,14 +172,6 @@ export function writeReplayEventsEffect(
   );
 }
 
-export function writeReplayEvents(
-  path: string,
-  stdout: { readonly write: (value: string) => void },
-  redactions: readonly string[] = [],
-): void {
-  Effect.runSync(writeReplayEventsEffect(path, stdout, redactions));
-}
-
 /** Render a decoded recording and finalize Ink-owned terminal resources. */
 export function renderReplayRecordingEffect(options: {
   readonly recording: SeqlaneRecording;

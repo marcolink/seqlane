@@ -1,5 +1,9 @@
-import { Clock, Duration, Effect } from "effect";
+import { Clock, Deferred, Duration, Effect, Fiber } from "effect";
 import { TestClock } from "effect/testing";
+// @test-scope ../../runner/profile/runtime-profile.ts
+// @test-scope ../execution/abortable.ts
+// @test-scope ../../classifier/system-one-client.ts
+// @test-scope ../../classifier/system-one-operation.ts
 // @test-scope ./task-execution.ts
 // @test-scope ./effect-process.ts
 // @test-scope ../invocation/invocation-execution.ts
@@ -33,6 +37,14 @@ import { preflightCompiledWorkflowModels } from "../execution/model-preflight.js
 import { resolveCompiledWorkflowSessions } from "../session/session-preflight.js";
 import type { SessionResolver } from "../session/session-resolution.js";
 import { runCompiledGraphProgram } from "../execution/effect-plan.js";
+import { executeAgentAdapterRequest } from "../../runner/profile/runtime-profile.js";
+import type { AgentAdapter } from "@seqlane/agent-adapter";
+import type { ClassifierTaskRunner } from "../../classifier/types.js";
+import { SystemOneClient } from "../../classifier/system-one-client.js";
+import {
+  classifierRequest,
+  classifierResponseBody,
+} from "../../classifier/system-one-client-test-support.js";
 import { LocalProcessTimeoutError } from "./effect-process.js";
 
 const identitySchema: SeqlaneSchema = z.unknown();
@@ -67,6 +79,7 @@ function compileLocal(
   plan: Plan,
   definition: TaskDefinition<unknown, unknown>,
   options: {
+    readonly classifier?: ClassifierTaskRunner;
     readonly workspace?: string;
     readonly events?: { emit(event: SeqlaneEvent): void };
     readonly executors?: ExecutorResolvers;
@@ -89,6 +102,7 @@ function compileLocal(
     taskDefinitions:
       options.taskDefinitions ?? new Map([[definition.id, definition]]),
     events: options.events,
+    classifier: options.classifier,
     onOwnedProcessAcquired: options.onOwnedProcessAcquired,
   });
 }
@@ -329,6 +343,163 @@ describe("local task execution", () => {
       await pending?.catch(() => undefined);
       await rm(workspace, { recursive: true, force: true });
     }
+  });
+
+  it("inherits policy Clock through Plan, authored callback, agent queueing and actual adapter settlement", async () => {
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const queued = yield* Deferred.make<void>();
+        const admission = yield* Deferred.make<void>();
+        const started = yield* Deferred.make<void>();
+        const aborted = yield* Deferred.make<void>();
+        const settlement = yield* Deferred.make<void>();
+        let signal: AbortSignal | undefined;
+        let settled = false;
+        let completed = false;
+        const definition: TaskDefinition = {
+          id: "inherited-agent-clock",
+          input: identitySchema,
+          output: identitySchema,
+          execute: async ({ context }) =>
+            context.runAgent({ goal: "controlled fixture", timeoutMs: 100 }),
+        };
+        const adapter: AgentAdapter = {
+          capabilities: {
+            execute: true,
+            modelSelection: false,
+            structuredOutput: true,
+            sessionReuse: false,
+            checkpoint: false,
+            fork: false,
+            activity: false,
+            sessionUi: false,
+          },
+          execute: async (request) => {
+            signal = request.signal;
+            Deferred.doneUnsafe(queued, Effect.void);
+            await Effect.runPromise(Deferred.await(admission));
+            request.signal.addEventListener(
+              "abort",
+              () => Deferred.doneUnsafe(aborted, Effect.void),
+              { once: true },
+            );
+            request.onExecutionStarted();
+            Deferred.doneUnsafe(started, Effect.void);
+            await Effect.runPromise(Deferred.await(settlement));
+            settled = true;
+            return "late completion";
+          },
+        };
+        return yield* Effect.gen(function* () {
+          const compiled = compileLocal(
+            localPlan(localTaskNode(definition.id)),
+            definition,
+            {
+              executors: {
+                agent: () => ({
+                  execute: (request) =>
+                    executeAgentAdapterRequest(
+                      adapter,
+                      new Map([[definition.id, definition]]),
+                      undefined,
+                      request,
+                    ),
+                }),
+              },
+            },
+          );
+          const fiber = yield* runCompiledGraphProgram(
+            compiled,
+            compiled.plan.workflow.id,
+            new AbortController().signal,
+            undefined,
+            0,
+          ).pipe(
+            Effect.tap(() =>
+              Effect.sync(() => {
+                completed = true;
+              }),
+            ),
+            Effect.forkChild,
+          );
+          yield* Deferred.await(queued);
+          yield* TestClock.adjust(1_000);
+          expect(signal?.aborted).toBe(false);
+          yield* Deferred.succeed(admission, undefined);
+          yield* Deferred.await(started);
+          yield* TestClock.adjust(99);
+          expect(signal?.aborted).toBe(false);
+          yield* TestClock.adjust(1);
+          expect(signal?.aborted).toBe(true);
+          yield* Deferred.await(aborted);
+          expect(signal?.reason).toMatchObject({ name: "TimeoutError" });
+          expect(completed).toBe(false);
+          expect(settled).toBe(false);
+          yield* Deferred.succeed(settlement, undefined);
+          expect(yield* Fiber.join(fiber)).toMatchObject({ status: "failed" });
+          expect(settled).toBe(true);
+        }).pipe(Effect.ensuring(Deferred.succeed(settlement, undefined)));
+      }).pipe(Effect.provide(TestClock.layer())),
+    );
+  });
+
+  it("inherits policy Clock through Plan and authored classifier callback", async () => {
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        let requests = 0;
+        const started = yield* Deferred.make<void>();
+        const client = new SystemOneClient(
+          { url: "https://localhost/v1/systemone", model: "fixture" },
+          async () => {
+            Deferred.doneUnsafe(started, Effect.void);
+            return ++requests === 1
+              ? new Response("busy", { status: 429 })
+              : new Response(JSON.stringify(classifierResponseBody));
+          },
+        );
+        const definition: TaskDefinition = {
+          id: "inherited-classifier-clock",
+          input: identitySchema,
+          output: identitySchema,
+          execute: async ({ context }) => context.classify!(classifierRequest),
+        };
+        const compiled = compileLocal(
+          localPlan(localTaskNode(definition.id)),
+          definition,
+          {
+            classifier: (...args) => client.classify(...args),
+          },
+        );
+        const fiber = yield* runCompiledGraphProgram(
+          compiled,
+          compiled.plan.workflow.id,
+          new AbortController().signal,
+          undefined,
+          0,
+        ).pipe(Effect.forkChild);
+        yield* Effect.raceFirst(
+          Deferred.await(started),
+          Fiber.join(fiber).pipe(
+            Effect.flatMap((outcome) =>
+              Effect.die(
+                outcome.status === "failed"
+                  ? outcome.error
+                  : new Error(JSON.stringify(outcome)),
+              ),
+            ),
+          ),
+        );
+        yield* TestClock.adjust(199);
+        expect(requests).toBe(1);
+        yield* TestClock.adjust(1);
+        expect(requests).toBe(2);
+        expect(yield* Fiber.join(fiber)).toMatchObject({
+          status: "succeeded",
+          output: { model: "jev-1.13.0" },
+        });
+        expect(requests).toBe(2);
+      }).pipe(Effect.provide(TestClock.layer())),
+    );
   });
 
   it("maps invalid local output to OutputValidationError and does not retain it", async () => {

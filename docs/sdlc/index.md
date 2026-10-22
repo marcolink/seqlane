@@ -21,11 +21,14 @@ and tasks.
 - [Implementation tasks](./tasks/index.md)
 - [Document templates](./templates/)
 
-## Next implementation deliverable
+## Current implementation delivery
 
-[Deterministic policy timing](./tasks/2026-10-22-effect-v4-optimize-policy-clocks.md)
-is next in the sequential optimization follow-up. Each task links its prerequisite.
-The completed migration remains recorded in its original task outcomes.
+The seven-task optimization follow-up ends with
+[Deterministic policy timing](./tasks/2026-10-22-effect-v4-optimize-policy-clocks.md).
+Each task records its prerequisite, implementation and verification. The original
+migration remains recorded in its task outcomes. Feature-branch delivery and
+exact-head checks are tracked in [draft PR #180](https://github.com/marcolink/seqlane/pull/180).
+No default-branch merge or registry publication is claimed.
 
 ## Authority
 

@@ -1,5 +1,8 @@
 import { afterEach } from "vitest";
-import { Cause, Effect, Exit, Scope } from "effect";
+import { Effect, Exit, Scope } from "effect";
+import { buildWorkflow, type AuthoredWorkflow } from "@seqlane/core";
+import { createOperationalWorkflow } from "./registration.js";
+import type { OperationalWorkflowSource } from "./types.js";
 
 let scope = Scope.makeUnsafe();
 
@@ -7,14 +10,22 @@ let scope = Scope.makeUnsafe();
 export async function runTest<A, E>(
   effect: Effect.Effect<A, E, Scope.Scope>,
 ): Promise<A> {
-  const exit = await Effect.runPromiseExit(
+  return Effect.runPromise(
     effect.pipe(Effect.provideService(Scope.Scope, scope)),
   );
-  if (Exit.isFailure(exit)) throw Cause.squash(exit.cause);
-  return exit.value;
 }
 
 afterEach(async () => {
   await Effect.runPromise(Scope.close(scope, Exit.void));
   scope = Scope.makeUnsafe();
 });
+
+/** Register a real authored workflow; malformed Plan cases keep explicit setup. */
+export function registerAuthoredWorkflow<I, O>(
+  key: string,
+  workflow: AuthoredWorkflow<I, O>,
+  overrides: Pick<OperationalWorkflowSource, "eventSink"> = {},
+) {
+  const built = buildWorkflow(workflow);
+  return createOperationalWorkflow({ key, ...built, workflow, ...overrides });
+}

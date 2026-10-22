@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { Cause, Effect } from "effect";
 import {
   adoptDetachedProcess,
+  assertDirectory,
   cleanupDetachedProcess,
   completeDetachedProcessHandoff,
   detachedProcessOwnershipSchema,
@@ -13,7 +14,6 @@ import {
   type DetachedProcess,
   type DetachedProcessOwnership,
 } from "@seqlane/action-service-lifecycle";
-import { assertDirectory } from "./filesystem.js";
 import { buildRipwireArguments, buildRipwireEnvironment } from "./commands.js";
 import { checkMcpInitializeEffect, waitForMcpHealth } from "./readiness.js";
 import type { RipwireConfig } from "./config.js";
@@ -223,11 +223,14 @@ export function runRipwireLifecycle(
 
   return Effect.scoped(
     Effect.gen(function* () {
-      yield* Effect.tryPromise({
-        try: () => dependencies.assertDirectory(input.config.workingDirectory),
-        catch: (cause) =>
-          new Error("Ripwire working directory is invalid", { cause }),
-      });
+      yield* dependencies
+        .assertDirectory(input.config.workingDirectory)
+        .pipe(
+          Effect.mapError(
+            (cause) =>
+              new Error("Ripwire working directory is invalid", { cause }),
+          ),
+        );
       yield* Effect.tryPromise({
         try: () => dependencies.assertListenAvailable(input.config.listen),
         catch: (cause) =>

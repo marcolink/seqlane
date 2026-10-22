@@ -212,60 +212,38 @@ export interface CliTelemetryRun<A> extends CliTelemetryContext {
 export function withCliTelemetryEffect<A, E, R>(
   operation: (context: CliTelemetryContext) => Effect.Effect<A, E, R>,
 ): Effect.Effect<CliTelemetryRun<A>, E, R> {
-  const spans: Array<Tracer.NativeSpan> = [];
-  const collector = createInProcessTelemetry();
-  const tracer = createCollector(spans);
-  const logger = boundedLogger(collector);
-  const metricRegistry = new Map();
-  return Effect.gen(function* () {
-    const parent = yield* Effect.currentParentSpan.pipe(Effect.orDie);
-    const carrier = carrierFor(parent);
-    yield* Effect.log("seqlane.cli.run.started").pipe(
-      Effect.annotateLogs({ trace_id: parent.traceId, span_id: parent.spanId }),
+  return Effect.suspend(() => {
+    const spans: Array<Tracer.NativeSpan> = [];
+    const collector = createInProcessTelemetry();
+    const tracer = createCollector(spans);
+    const logger = boundedLogger(collector);
+    const metricRegistry = new Map();
+    return Effect.gen(function* () {
+      const parent = yield* Effect.currentParentSpan.pipe(Effect.orDie);
+      const carrier = carrierFor(parent);
+      yield* Effect.log("seqlane.cli.run.started").pipe(
+        Effect.annotateLogs({
+          trace_id: parent.traceId,
+          span_id: parent.spanId,
+        }),
+      );
+      const value = yield* operation({ carrier, collector });
+      return {
+        value,
+        carrier,
+        collector,
+        snapshot: () => ({
+          spans: spans.map(capturedSpan),
+          telemetry: collector.snapshot(),
+        }),
+      };
+    }).pipe(
+      Effect.withSpan("seqlane.cli.run", { kind: "internal" }),
+      Effect.provide(Logger.layer([logger])),
+      Effect.provideService(Tracer.Tracer, tracer),
+      Effect.provideService(Metric.MetricRegistry, metricRegistry),
     );
-    const value = yield* operation({ carrier, collector });
-    return {
-      value,
-      carrier,
-      collector,
-      snapshot: () => ({
-        spans: spans.map(capturedSpan),
-        telemetry: collector.snapshot(),
-      }),
-    };
-  }).pipe(
-    Effect.withSpan("seqlane.cli.run", { kind: "internal" }),
-    Effect.provide(Logger.layer([logger])),
-    Effect.provideService(Tracer.Tracer, tracer),
-    Effect.provideService(Metric.MetricRegistry, metricRegistry),
-  );
-}
-
-/** Runs the CLI operation beneath a real local parent span and captures spans in process. */
-export async function runCliWithTelemetry<A>(
-  operation: (
-    carrier: TraceCarrier,
-    collector: InProcessTelemetry,
-  ) => Promise<A>,
-): Promise<{
-  readonly value: A;
-  readonly spans: ReadonlyArray<CapturedSpan>;
-  readonly telemetry: ReturnType<InProcessTelemetry["snapshot"]>;
-}> {
-  const result = await Effect.runPromise(
-    withCliTelemetryEffect(({ carrier, collector }) =>
-      Effect.tryPromise({
-        try: () => operation(carrier, collector),
-        catch: (cause) => cause,
-      }),
-    ),
-  );
-  const snapshot = result.snapshot();
-  return {
-    value: result.value,
-    spans: snapshot.spans,
-    telemetry: snapshot.telemetry,
-  };
+  });
 }
 
 /** Starts a worker span beneath the validated CLI parent carrier. */

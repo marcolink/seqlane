@@ -35,11 +35,6 @@ export interface SequentialProgram {
   ) => Effect.Effect<readonly SequentialProgramStepResult[]>;
 }
 
-export type SequentialProgramResult =
-  | { readonly status: "cancelled" }
-  | { readonly status: "failed"; readonly error: unknown }
-  | { readonly status: "success" };
-
 const programOptionsSchema = z
   .object({ concurrency: z.number().int().positive().safe().optional() })
   .strict();
@@ -116,21 +111,6 @@ function assertAcyclic(
     visited.add(id);
   };
   for (const step of steps) visit(step.id);
-}
-
-export function executeSequentialProgram(
-  program: SequentialProgram,
-  signal?: AbortSignal,
-): Promise<SequentialProgramResult> {
-  if (signal?.aborted) return Promise.resolve({ status: "cancelled" });
-  const abortSignal = signal ?? new AbortController().signal;
-  return Effect.runPromise(runProgram(program, abortSignal)).then((results) => {
-    if (abortSignal.aborted) return { status: "cancelled" } as const;
-    const failed = results.find((result) => result.status === "failed");
-    return failed === undefined
-      ? ({ status: "success" } as const)
-      : ({ status: "failed", error: failed.error } as const);
-  });
 }
 
 /** Evaluate the graph inside a larger Effect program without a nested runtime. */

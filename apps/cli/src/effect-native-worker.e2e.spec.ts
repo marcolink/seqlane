@@ -272,122 +272,110 @@ describe.each(["opencode", "codex"] as const)(
       }
     }, 30_000);
 
-    it.skipIf(adapter !== "opencode")(
-      "exports one correlated CLI, worker, invocation, adapter, and observation trace",
-      async () => {
-        const peer = await nativePeer("opencode");
-        const batches: Array<{ path: string; body: string }> = [];
-        const telemetryServer = createServer((request, response) => {
-          const chunks: Buffer[] = [];
-          request.on("data", (chunk: Buffer) => chunks.push(chunk));
-          request.on("end", () => {
-            batches.push({
-              path: request.url ?? "",
-              body: Buffer.concat(chunks).toString("utf8"),
-            });
-            response
-              .writeHead(200, { "content-type": "application/json" })
-              .end("{}");
+    it("exports one correlated CLI, worker, invocation, adapter, and observation trace", async () => {
+      const peer = await nativePeer(adapter);
+      const batches: Array<{ path: string; body: string }> = [];
+      const telemetryServer = createServer((request, response) => {
+        const chunks: Buffer[] = [];
+        request.on("data", (chunk: Buffer) => chunks.push(chunk));
+        request.on("end", () => {
+          batches.push({
+            path: request.url ?? "",
+            body: Buffer.concat(chunks).toString("utf8"),
           });
+          response
+            .writeHead(200, { "content-type": "application/json" })
+            .end("{}");
         });
-        await new Promise<void>((resolve) =>
-          telemetryServer.listen(0, "127.0.0.1", resolve),
-        );
-        try {
-          const address = telemetryServer.address();
-          if (address === null || typeof address === "string") {
-            throw new Error("Telemetry test peer did not bind");
-          }
-          peer.environment[telemetryConfigurationEnvironment] = JSON.stringify({
-            endpoint: `http://127.0.0.1:${address.port}`,
-            payloadPolicy: "full",
-          });
-          const result = await runCli(
-            "opencode",
-            peer.environment,
-            "effectNativeMixedWorkflow",
-          );
-          expect(result.code, result.stderr).toBe(0);
-          expect(result.result).toMatchObject({
-            status: "succeeded",
-            output: nativeFixtureResult,
-          });
-          expect(result.stderr).not.toContain(
-            "seqlane telemetry export failed",
-          );
-          const trace = batches.find((batch) => batch.path === "/v1/traces");
-          expect(trace).toBeDefined();
-          const payload = otlpTracePayloadSchema.parse(JSON.parse(trace!.body));
-          const spans = payload.resourceSpans.flatMap((resource) =>
-            resource.scopeSpans.flatMap((scope) => scope.spans),
-          );
-          const cli = spans.find((span) => span.name === "seqlane.cli.run");
-          const worker = spans.find(
-            (span) => span.name === "seqlane.worker.run",
-          );
-          const runtime = spans.find(
-            (span) => span.name === "seqlane.runtime.execution",
-          );
-          const adapterSpan = spans.find(
-            (span) => span.name === "seqlane.adapter.execute",
-          );
-          const adapterInvocationId = adapterSpan?.attributes.find(
-            (attribute) => attribute.key === "seqlane.invocation.id",
-          )?.value.stringValue;
-          const invocation = spans.find(
-            (span) =>
-              span.name === "seqlane.invocation" &&
-              span.attributes.some(
-                (attribute) =>
-                  attribute.key === "seqlane.invocation.id" &&
-                  attribute.value.stringValue === adapterInvocationId,
-              ),
-          );
-          expect(
-            spans.filter((span) => span.name === "seqlane.adapter.execute"),
-          ).toHaveLength(1);
-          const observation = spans.find((span) =>
-            span.attributes.some(
-              (attribute) => attribute.key === "seqlane.observation.id",
-            ),
-          );
-          const activity = spans.find((span) =>
-            span.attributes.some(
-              (attribute) => attribute.key === "seqlane.activity.id",
-            ),
-          );
-          expect(
-            worker,
-            JSON.stringify({
-              stderr: result.stderr,
-              names: spans.map((span) => span.name),
-            }),
-          ).toBeDefined();
-          expect(worker?.traceId).toBe(cli?.traceId);
-          expect(worker?.parentSpanId).toBe(cli?.spanId);
-          expect(runtime?.parentSpanId).toBe(worker?.spanId);
-          expect(invocation?.parentSpanId).toBe(runtime?.spanId);
-          expect(adapterSpan?.parentSpanId).toBe(invocation?.spanId);
-          expect(observation?.parentSpanId).toBe(adapterSpan?.spanId);
-          expect(activity?.parentSpanId).toBe(adapterSpan?.spanId);
-          expect(spans.every((span) => span.traceId === cli?.traceId)).toBe(
-            true,
-          );
-          expect(batches.some((batch) => batch.path === "/v1/logs")).toBe(true);
-          expect(batches.some((batch) => batch.path === "/v1/metrics")).toBe(
-            true,
-          );
-        } finally {
-          await peer.close();
-          await new Promise<void>((resolve, reject) =>
-            telemetryServer.close((error) =>
-              error ? reject(error) : resolve(),
-            ),
-          );
+      });
+      await new Promise<void>((resolve) =>
+        telemetryServer.listen(0, "127.0.0.1", resolve),
+      );
+      try {
+        const address = telemetryServer.address();
+        if (address === null || typeof address === "string") {
+          throw new Error("Telemetry test peer did not bind");
         }
-      },
-      30_000,
-    );
+        peer.environment[telemetryConfigurationEnvironment] = JSON.stringify({
+          endpoint: `http://127.0.0.1:${address.port}`,
+          payloadPolicy: "full",
+        });
+        const result = await runCli(
+          adapter,
+          peer.environment,
+          "effectNativeMixedWorkflow",
+        );
+        expect(result.code, result.stderr).toBe(0);
+        expect(result.result).toMatchObject({
+          status: "succeeded",
+          output: nativeFixtureResult,
+        });
+        expect(result.stderr).not.toContain("seqlane telemetry export failed");
+        const trace = batches.find((batch) => batch.path === "/v1/traces");
+        expect(trace).toBeDefined();
+        const payload = otlpTracePayloadSchema.parse(JSON.parse(trace!.body));
+        const spans = payload.resourceSpans.flatMap((resource) =>
+          resource.scopeSpans.flatMap((scope) => scope.spans),
+        );
+        const cli = spans.find((span) => span.name === "seqlane.cli.run");
+        const worker = spans.find((span) => span.name === "seqlane.worker.run");
+        const runtime = spans.find(
+          (span) => span.name === "seqlane.runtime.execution",
+        );
+        const adapterSpan = spans.find(
+          (span) => span.name === "seqlane.adapter.execute",
+        );
+        const adapterInvocationId = adapterSpan?.attributes.find(
+          (attribute) => attribute.key === "seqlane.invocation.id",
+        )?.value.stringValue;
+        const invocation = spans.find(
+          (span) =>
+            span.name === "seqlane.invocation" &&
+            span.attributes.some(
+              (attribute) =>
+                attribute.key === "seqlane.invocation.id" &&
+                attribute.value.stringValue === adapterInvocationId,
+            ),
+        );
+        expect(
+          spans.filter((span) => span.name === "seqlane.adapter.execute"),
+        ).toHaveLength(1);
+        const observation = spans.find((span) =>
+          span.attributes.some(
+            (attribute) => attribute.key === "seqlane.observation.id",
+          ),
+        );
+        const activity = spans.find((span) =>
+          span.attributes.some(
+            (attribute) => attribute.key === "seqlane.activity.id",
+          ),
+        );
+        expect(
+          worker,
+          JSON.stringify({
+            stderr: result.stderr,
+            names: spans.map((span) => span.name),
+          }),
+        ).toBeDefined();
+        expect(worker?.traceId).toBe(cli?.traceId);
+        expect(worker?.parentSpanId).toBe(cli?.spanId);
+        expect(runtime?.parentSpanId).toBe(worker?.spanId);
+        expect(invocation?.parentSpanId).toBe(runtime?.spanId);
+        expect(adapterSpan?.parentSpanId).toBe(invocation?.spanId);
+        expect(observation?.parentSpanId).toBe(adapterSpan?.spanId);
+        expect(activity?.parentSpanId).toBe(adapterSpan?.spanId);
+        expect(spans.every((span) => span.traceId === cli?.traceId)).toBe(true);
+        expect(batches.some((batch) => batch.path === "/v1/logs")).toBe(true);
+        expect(batches.some((batch) => batch.path === "/v1/metrics")).toBe(
+          true,
+        );
+      } finally {
+        await peer.close();
+        await new Promise<void>((resolve, reject) =>
+          telemetryServer.close((error) => (error ? reject(error) : resolve())),
+        );
+      }
+    }, 30_000);
 
     it("preserves complete native observations and activity values over worker IPC", async () => {
       const peer = await nativePeer(adapter);

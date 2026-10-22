@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 // @test-scope ./replay.ts
 
 import {
@@ -9,7 +10,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { writeReplayEvents } from "./replay.js";
+import { writeReplayEventsEffect } from "./replay.js";
 
 const directories: string[] = [];
 
@@ -56,9 +57,11 @@ describe("replay event output", () => {
     );
 
     let output = "";
-    writeReplayEvents(path, { write: (value) => (output += value) }, [
-      "secret-work-id",
-    ]);
+    Effect.runSync(
+      writeReplayEventsEffect(path, { write: (value) => (output += value) }, [
+        "secret-work-id",
+      ]),
+    );
 
     expect(output).not.toContain("secret-work-id");
     const lines = output.trimEnd().split("\n");
@@ -111,11 +114,13 @@ describe("replay event output", () => {
     );
 
     let output = "";
-    writeReplayEvents(path, { write: (value) => (output += value) }, [
-      'a"b-secret',
-      "back\\slash\\nline",
-      "runI",
-    ]);
+    Effect.runSync(
+      writeReplayEventsEffect(path, { write: (value) => (output += value) }, [
+        'a"b-secret',
+        "back\\slash\\nline",
+        "runI",
+      ]),
+    );
 
     const lines = output.trimEnd().split("\n");
     expect(lines).toHaveLength(2);
@@ -168,7 +173,9 @@ describe("replay event output", () => {
 
     let output = "";
     expect(() =>
-      writeReplayEvents(path, { write: (value) => (output += value) }),
+      Effect.runSync(
+        writeReplayEventsEffect(path, { write: (value) => (output += value) }),
+      ),
     ).toThrow("Invalid recording event JSON");
     const lines = output.trimEnd().split("\n");
     expect(lines).toHaveLength(1);

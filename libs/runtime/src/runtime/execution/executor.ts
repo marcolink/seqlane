@@ -1,3 +1,4 @@
+import type { Context } from "effect";
 import type {
   ModelSelection,
   AgentTaskRequest,
@@ -77,6 +78,8 @@ export class UntrackedMutatingBackgroundProcessError extends Error {
 }
 
 export interface ExecutorRequest {
+  /** Native services retained across the authored Promise callback. */
+  readonly nativeContext?: Context.Context<never>;
   readonly taskDefinition?: TaskDefinition;
   readonly modelSelection?: ModelSelection;
   readonly invocationId: string;

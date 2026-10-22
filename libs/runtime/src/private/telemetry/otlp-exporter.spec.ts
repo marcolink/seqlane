@@ -1,7 +1,7 @@
 // @test-scope ./otlp-exporter.ts
 // @test-scope ./otlp-projection.ts
 // @test-scope ./otlp-acknowledgement.ts
-import { Clock, Effect } from "effect";
+import { Deferred, Effect, Fiber } from "effect";
 import { createServer } from "node:http";
 import { TestClock } from "effect/testing";
 import { jsonValueSchema } from "@seqlane/core";
@@ -370,104 +370,92 @@ describe("bounded native OTLP exporter", () => {
   );
 
   it("shares one shutdown deadline across signal batches and aborts the in-flight request", async () => {
-    const clock = await Effect.runPromise(Effect.scoped(TestClock.make()));
-    let firstStarted!: () => void;
-    const first = new Promise<void>((resolve) => {
-      firstStarted = resolve;
-    });
-    let secondStarted!: () => void;
-    const second = new Promise<void>((resolve) => {
-      secondStarted = resolve;
-    });
-    let respond!: (value: Response) => void;
-    let aborted = false;
-    let requests = 0;
-    vi.stubGlobal(
-      "fetch",
-      vi.fn<typeof fetch>(async (_url, init) => {
-        requests += 1;
-        if (requests === 1) {
-          firstStarted();
-          return new Promise<Response>((resolve) => {
-            respond = resolve;
-          });
-        }
-        secondStarted();
-        return new Promise<Response>((_resolve, reject) => {
-          init?.signal?.addEventListener(
-            "abort",
-            () => {
-              aborted = true;
-              reject(init.signal?.reason);
-            },
-            { once: true },
-          );
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const first = yield* Deferred.make<void>();
+        const second = yield* Deferred.make<void>();
+        const response = yield* Deferred.make<Response>();
+        let aborted = false;
+        let requests = 0;
+        vi.stubGlobal(
+          "fetch",
+          vi.fn<typeof fetch>(async (_url, init) => {
+            requests += 1;
+            if (requests === 1) {
+              Deferred.doneUnsafe(first, Effect.void);
+              return Effect.runPromise(Deferred.await(response));
+            }
+            Deferred.doneUnsafe(second, Effect.void);
+            return new Promise<Response>((_resolve, reject) =>
+              init?.signal?.addEventListener(
+                "abort",
+                () => {
+                  aborted = true;
+                  reject(init.signal?.reason);
+                },
+                { once: true },
+              ),
+            );
+          }),
+        );
+        const fiber = yield* exportTelemetryEffect(
+          configuration({ shutdownTimeoutMs: 100 }),
+          { spans: [span()], logs: [log()], metrics: [] },
+        ).pipe(Effect.forkChild);
+        yield* Deferred.await(first);
+        yield* TestClock.adjust(60);
+        yield* Deferred.succeed(response, new Response(null));
+        yield* Deferred.await(second);
+        yield* TestClock.adjust(40);
+        expect(yield* Fiber.join(fiber)).toEqual({
+          failed: true,
+          droppedRecords: 0,
+          exportFailures: 1,
         });
-      }),
+        expect(requests).toBe(2);
+        expect(aborted).toBe(true);
+      }).pipe(Effect.provide(TestClock.layer())),
     );
-    const result = Effect.runPromise(
-      exportTelemetryEffect(configuration({ shutdownTimeoutMs: 100 }), {
-        spans: [span()],
-        logs: [log()],
-        metrics: [],
-      }).pipe(Effect.provideService(Clock.Clock, clock)),
-    );
-    await first;
-    await Effect.runPromise(clock.adjust(60));
-    respond(new Response(null));
-    await second;
-    await Effect.runPromise(clock.adjust(40));
-    expect(await result).toEqual({
-      failed: true,
-      droppedRecords: 0,
-      exportFailures: 1,
-    });
-    expect(requests).toBe(2);
-    expect(aborted).toBe(true);
   });
 
   it("cancels a blocked response body within the total shutdown deadline", async () => {
-    const clock = await Effect.runPromise(Effect.scoped(TestClock.make()));
-    let bodyStarted!: () => void;
-    const started = new Promise<void>((resolve) => {
-      bodyStarted = resolve;
-    });
-    let cancelled = false;
-    vi.stubGlobal(
-      "fetch",
-      vi.fn<typeof fetch>(
-        async () =>
-          new Response(
-            new ReadableStream<Uint8Array>({
-              start() {
-                bodyStarted();
-              },
-              cancel() {
-                cancelled = true;
-              },
-            }),
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const started = yield* Deferred.make<void>();
+        let cancelled = false;
+        vi.stubGlobal(
+          "fetch",
+          vi.fn<typeof fetch>(
+            async () =>
+              new Response(
+                new ReadableStream<Uint8Array>({
+                  start() {
+                    Deferred.doneUnsafe(started, Effect.void);
+                  },
+                  cancel() {
+                    cancelled = true;
+                  },
+                }),
+              ),
           ),
-      ),
+        );
+        const fiber = yield* exportTelemetryEffect(
+          configuration({ shutdownTimeoutMs: 100 }),
+          { spans: [span()], logs: [], metrics: [] },
+        ).pipe(Effect.forkChild);
+        yield* Deferred.await(started);
+        yield* TestClock.adjust(100);
+        expect(yield* Fiber.join(fiber)).toEqual({
+          failed: true,
+          droppedRecords: 0,
+          exportFailures: 1,
+        });
+        expect(cancelled).toBe(true);
+      }).pipe(Effect.provide(TestClock.layer())),
     );
-    const result = Effect.runPromise(
-      exportTelemetryEffect(configuration({ shutdownTimeoutMs: 100 }), {
-        spans: [span()],
-        logs: [],
-        metrics: [],
-      }).pipe(Effect.provideService(Clock.Clock, clock)),
-    );
-    await started;
-    await Effect.runPromise(clock.adjust(100));
-    expect(await result).toEqual({
-      failed: true,
-      droppedRecords: 0,
-      exportFailures: 1,
-    });
-    expect(cancelled).toBe(true);
   });
 
   it("closes the real HTTP response when collector acknowledgement stalls", async () => {
-    const clock = await Effect.runPromise(Effect.scoped(TestClock.make()));
     let headersSent!: () => void;
     const started = new Promise<void>((resolve) => {
       headersSent = resolve;
@@ -494,23 +482,25 @@ describe("bounded native OTLP exporter", () => {
       const address = server.address();
       if (address === null || typeof address === "string")
         throw new Error("Expected TCP collector address");
-      const result = Effect.runPromise(
-        exportTelemetryEffect(
-          configuration({
-            endpoint: `http://127.0.0.1:${address.port}`,
-            shutdownTimeoutMs: 100,
-          }),
-          { spans: [span()], logs: [], metrics: [] },
-        ).pipe(Effect.provideService(Clock.Clock, clock)),
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const fiber = yield* exportTelemetryEffect(
+            configuration({
+              endpoint: `http://127.0.0.1:${address.port}`,
+              shutdownTimeoutMs: 100,
+            }),
+            { spans: [span()], logs: [], metrics: [] },
+          ).pipe(Effect.forkChild);
+          yield* Effect.promise(() => started);
+          yield* TestClock.adjust(100);
+          expect(yield* Fiber.join(fiber)).toEqual({
+            failed: true,
+            droppedRecords: 0,
+            exportFailures: 1,
+          });
+          yield* Effect.promise(() => closed);
+        }).pipe(Effect.provide(TestClock.layer())),
       );
-      await started;
-      await Effect.runPromise(clock.adjust(100));
-      expect(await result).toEqual({
-        failed: true,
-        droppedRecords: 0,
-        exportFailures: 1,
-      });
-      await closed;
     } finally {
       server.closeAllConnections();
       await new Promise<void>((resolve, reject) =>

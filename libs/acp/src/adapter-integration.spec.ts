@@ -10,16 +10,23 @@ import {
   readFileSync,
   rmSync,
 } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { InteractionRequiredError } from "@seqlane/core";
 import type { AgentAdapterRequest } from "@seqlane/agent-adapter";
 import type { AgentTaskRequest, TaskDefinition } from "@seqlane/core";
 import { createAcpAdapter } from "./adapter.js";
 import { createAcpTransport } from "./transport.js";
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const original = await importOriginal<typeof import("node:fs/promises")>();
+  return { ...original, readFile: vi.fn(original.readFile) };
+});
+const originalReadFile = vi.mocked(readFile).getMockImplementation()!;
 
 const fixture = fileURLToPath(
   new URL("./controlled-acp-agent.mjs", import.meta.url),
@@ -75,6 +82,7 @@ async function closeAdapter(
 }
 
 afterEach(async () => {
+  vi.mocked(readFile).mockReset().mockImplementation(originalReadFile);
   await Promise.all(
     adapters
       .splice(0)
@@ -564,22 +572,58 @@ describe("official SDK ACP v1 subprocess boundary", () => {
   });
 
   it.each([
-    ["frozen Error", Object.freeze(new Error("activity sink failed"))],
-    ["primitive", "activity sink failed"],
-    ["null", null],
-    ["undefined", undefined],
-  ])(
+    ["frozen Error", Object.freeze(new Error("activity sink failed")), false],
+    ["primitive", "activity sink failed", false],
+    ["null", null, false],
+    ["undefined", undefined, false],
+    ...(process.platform === "linux"
+      ? [["null during proc-stat disappearance", null, true] as const]
+      : []),
+  ] as const)(
     "stops native work before terminal callbacks when the %s activity sink fails",
-    async (_label, primary) => {
+    async (_label, primary, disappearDuringRead) => {
       const cwd = temporaryDirectory();
       const eventFile = join(cwd, "events");
       const exitFile = join(cwd, "exits");
-      const adapter = makeAdapter(
-        configuration(cwd, "cancel", false, exitFile, undefined, eventFile),
+      const launch = configuration(
+        cwd,
+        "cancel",
+        false,
+        exitFile,
+        undefined,
+        eventFile,
       );
+      const adapter = makeAdapter({
+        ...launch,
+        env: {
+          ...launch.env,
+          ...(disappearDuringRead ? { CONTROLLED_ACP_DELAY_EXIT: "true" } : {}),
+        },
+      });
       const terminal = new Error("terminal sink failed");
+      let acquiredPid: number | undefined;
+      let disappearanceObserved = false;
       const execution = adapter.execute(
         request(undefined, {
+          ...(disappearDuringRead
+            ? {
+                onOwnedProcessAcquired: async (pid: number) => {
+                  acquiredPid = pid;
+                  vi.mocked(readFile).mockImplementationOnce(async (path) => {
+                    expect(path).toBe(`/proc/${pid}/stat`);
+                    disappearanceObserved = true;
+                    process.kill(pid, "SIGKILL");
+                    await expect.poll(() => isProcessRunning(pid)).toBe(false);
+                    throw Object.assign(
+                      new Error("ESRCH: no such process, read"),
+                      {
+                        code: "ESRCH",
+                      },
+                    );
+                  });
+                },
+              }
+            : {}),
           onActivity: (activity) => {
             if (activity.state === "started") throw primary;
             appendFileSync(eventFile, "terminal\n");
@@ -596,6 +640,12 @@ describe("official SDK ACP v1 subprocess boundary", () => {
         readFileSync(eventFile, "utf8").indexOf("terminal\n"),
       );
       await closeAdapter(adapter);
+      if (disappearDuringRead) {
+        expect(disappearanceObserved).toBe(true);
+        expect(isProcessRunning(processIdSchema.parse(acquiredPid))).toBe(
+          false,
+        );
+      }
       await waitForFile(exitFile);
     },
   );

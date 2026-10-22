@@ -1,16 +1,11 @@
-import { runTest } from "./native-test-support.js";
+import { registerAuthoredWorkflow, runTest } from "./native-test-support.js";
 // @test-scope ./run-manager.ts
 // @test-scope ../../private/telemetry/otlp-exporter.ts
 // @test-scope ./sqlite-store.ts
 // @test-scope ./registration.ts
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Clock, Deferred, Effect, Fiber } from "effect";
-import {
-  buildWorkflow,
-  createFlow,
-  type Plan,
-  type TaskDefinition,
-} from "@seqlane/core";
+import { Deferred, Effect, Fiber } from "effect";
+import { createFlow, type Plan, type TaskDefinition } from "@seqlane/core";
 import { z } from "zod";
 import { createOperationalWorkflow } from "./registration.js";
 import { createOperationalRunManager } from "./run-manager.js";
@@ -66,19 +61,9 @@ describe("hosted native run manager", () => {
         })
           .output(({ input }) => input)
           .define();
-        const built = buildWorkflow(authored);
         const store = yield* openOperationalStore("file::memory:");
         const manager = yield* createOperationalRunManager({
-          workflows: [
-            createOperationalWorkflow({
-              key: "telemetry-clock",
-              plan: built.plan,
-              workflow: authored,
-              taskDefinitions: built.taskDefinitions,
-              validatorDefinitions: built.validatorDefinitions,
-              workflowDefinitions: built.workflowDefinitions,
-            }),
-          ],
+          workflows: [registerAuthoredWorkflow("telemetry-clock", authored)],
           store,
           telemetryConfiguration: telemetryConfigurationSchema.parse({
             endpoint: "https://collector.example",
@@ -120,48 +105,28 @@ describe("hosted native run manager", () => {
     })
       .output(({ input }) => input)
       .define();
-    const built = buildWorkflow(authored);
-    const workflow = createOperationalWorkflow({
-      key: "context",
-      plan: built.plan,
-      workflow: authored,
-      taskDefinitions: built.taskDefinitions,
-      validatorDefinitions: built.validatorDefinitions,
-      workflowDefinitions: built.workflowDefinitions,
-    });
+    const workflow = registerAuthoredWorkflow("context", authored);
     const millis = Date.parse("2040-01-01T12:00:00.000Z");
     const nanos = BigInt(millis) * 1_000_000n;
     const result = await runTest(
       Effect.gen(function* () {
-        const originalClock = yield* Clock.Clock;
-        const clock: Clock.Clock = {
-          sleep: (duration) => originalClock.sleep(duration),
-          monotonicTimeNanosUnsafe: () =>
-            originalClock.monotonicTimeNanosUnsafe(),
-          monotonicTimeNanos: originalClock.monotonicTimeNanos,
-          currentTimeMillisUnsafe: () => millis,
-          currentTimeMillis: Effect.succeed(millis),
-          currentTimeNanosUnsafe: () => nanos,
-          currentTimeNanos: Effect.succeed(nanos),
-        };
-        return yield* Effect.gen(function* () {
-          const store = yield* openOperationalStore("file::memory:");
-          const manager = yield* createOperationalRunManager({
-            workflows: [workflow],
-            store,
-          });
-          const parent = yield* Effect.makeSpan("request");
-          const status = yield* manager
-            .invoke("context", { version: 1, input: "context" })
-            .pipe(Effect.withParentSpan(parent));
-          const events = yield* manager.events(status.runId, {
-            afterSequence: 0,
-            limit: 100,
-          });
-          const trace = yield* manager.trace(status.runId);
-          return { status, events, trace, parent };
-        }).pipe(Effect.provideService(Clock.Clock, clock));
-      }),
+        yield* TestClock.setTime(millis);
+        const store = yield* openOperationalStore("file::memory:");
+        const manager = yield* createOperationalRunManager({
+          workflows: [workflow],
+          store,
+        });
+        const parent = yield* Effect.makeSpan("request");
+        const status = yield* manager
+          .invoke("context", { version: 1, input: "context" })
+          .pipe(Effect.withParentSpan(parent));
+        const events = yield* manager.events(status.runId, {
+          afterSequence: 0,
+          limit: 100,
+        });
+        const trace = yield* manager.trace(status.runId);
+        return { status, events, trace, parent };
+      }).pipe(Effect.provide(TestClock.layer())),
     );
     expect(result.status.error).toBeUndefined();
     expect(result.status).toMatchObject({
@@ -281,16 +246,9 @@ describe("hosted native run manager", () => {
     const authored = createFlow({ id: "hosted-echo", input, output })
       .output(({ input: value }) => value)
       .define();
-    const built = buildWorkflow(authored);
     const coreEvents: string[] = [];
     const emittedPlans: string[] = [];
-    const workflow = createOperationalWorkflow({
-      key: "echo",
-      plan: built.plan,
-      workflow: authored,
-      taskDefinitions: built.taskDefinitions,
-      validatorDefinitions: built.validatorDefinitions,
-      workflowDefinitions: built.workflowDefinitions,
+    const workflow = registerAuthoredWorkflow("echo", authored, {
       eventSink: () => ({
         emit: (event) => {
           coreEvents.push(event.type);
@@ -364,15 +322,7 @@ describe("hosted native run manager", () => {
     })
       .output(({ input: value }) => value)
       .define();
-    const built = buildWorkflow(authored);
-    const workflow = createOperationalWorkflow({
-      key: "failure",
-      plan: built.plan,
-      workflow: authored,
-      taskDefinitions: built.taskDefinitions,
-      validatorDefinitions: built.validatorDefinitions,
-      workflowDefinitions: built.workflowDefinitions,
-    });
+    const workflow = registerAuthoredWorkflow("failure", authored);
     const store = await runTest(openOperationalStore("file::memory:"));
     close = () => runTest(store.close());
     const failingStore: OperationalStore = {
@@ -764,15 +714,7 @@ describe("hosted native run manager", () => {
     })
       .output(({ input }: { readonly input: unknown }) => input)
       .define();
-    const built = buildWorkflow(authored);
-    const workflow = createOperationalWorkflow({
-      key: "invoke-cancel",
-      plan: built.plan,
-      workflow: authored,
-      taskDefinitions: built.taskDefinitions,
-      validatorDefinitions: built.validatorDefinitions,
-      workflowDefinitions: built.workflowDefinitions,
-    });
+    const workflow = registerAuthoredWorkflow("invoke-cancel", authored);
     const store = await runTest(openOperationalStore("file::memory:"));
     close = () => runTest(store.close());
     let release!: () => void;
@@ -1130,12 +1072,7 @@ describe("hosted native run manager", () => {
     })
       .output(({ input }: { readonly input: unknown }) => input)
       .define();
-    const built = buildWorkflow(authored);
-    const workflow = createOperationalWorkflow({
-      key: "capacity",
-      plan: built.plan,
-      workflow: authored,
-    });
+    const workflow = registerAuthoredWorkflow("capacity", authored);
     const store = await runTest(openOperationalStore("file::memory:"));
     close = () => runTest(store.close());
     let release!: () => void;

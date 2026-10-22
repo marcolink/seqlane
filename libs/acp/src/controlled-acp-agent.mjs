@@ -252,7 +252,9 @@ connection.closed.then(
     if (process.env.CONTROLLED_ACP_EXIT_FILE) {
       appendFileSync(process.env.CONTROLLED_ACP_EXIT_FILE, `${process.pid}\n`);
     }
-    process.exit(0);
+    if (process.env.CONTROLLED_ACP_DELAY_EXIT === "true") {
+      setTimeout(() => process.exit(0), 10_000);
+    } else process.exit(0);
   },
   (cause) => {
     process.stderr.write(`controlled ACP failure: ${String(cause)}\n`);

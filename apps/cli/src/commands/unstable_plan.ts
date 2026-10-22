@@ -70,13 +70,6 @@ export function createPlanCommandResultEffect(
   });
 }
 
-export function createPlanCommandResult(
-  workflowValue: string,
-  roots: Parameters<typeof discoverWorkflowDescriptors>[0],
-): Promise<PlanCommandResult> {
-  return Effect.runPromise(createPlanCommandResultEffect(workflowValue, roots));
-}
-
 export function renderPlanHuman(result: PlanCommandResult): string {
   const lines = [
     `Plan for ${escapeTerminalText(result.workflow.qualifiedName)}`,

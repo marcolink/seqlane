@@ -1,5 +1,6 @@
+import { awaitAbort } from "../runtime/execution/await-abort.js";
 import { randomUUID } from "node:crypto";
-import { Clock, Effect, Layer, Tracer } from "effect";
+import { Cause, Effect, Layer } from "effect";
 import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import * as HttpClient from "effect/http/HttpClient";
 import type {
@@ -19,7 +20,6 @@ import {
 } from "./payload-limits.js";
 import {
   ClassifierFailure,
-  type ClassifierExecutionTelemetry,
   type ClassifierObservationSink,
   type ClassifierTaskRunner,
   type PrivateClassifierConnection,
@@ -159,19 +159,12 @@ function prepareRequest(
   }
 }
 
-class ObservationSinkFailure extends Error {
-  constructor(readonly original: unknown) {
-    super("Classifier observation sink failed");
-  }
-}
-
 export class SystemOneClient {
   private readonly httpLayer: Layer.Layer<HttpClient.HttpClient>;
 
   constructor(
     private readonly connection?: PrivateClassifierConnection,
     fetchImplementation: typeof fetch = fetch,
-    private readonly testClock?: Clock.Clock,
   ) {
     const httpLayer = Layer.mergeAll(
       FetchHttpClient.layer,
@@ -181,86 +174,84 @@ export class SystemOneClient {
     this.httpLayer = httpLayer;
   }
 
-  async classify(
+  classify(
     input: ClassifierRequestInput,
     signal: AbortSignal,
     onObservation: ClassifierObservationSink,
-    telemetry?: ClassifierExecutionTelemetry,
-  ): Promise<ClassifierResult> {
-    signal.throwIfAborted();
-    const preparedRequest = prepareRequest(
-      input,
-      requestModelFor(this.connection),
-    );
-    const request = preparedRequest.request;
-    const connection = validateConnection(this.connection);
-    const credential =
-      connection.apiKey === undefined || connection.apiKey.length === 0
-        ? undefined
-        : connection.apiKey;
-    const observationId = randomUUID();
-    let sinkFailed = false;
-    let sinkFailure: unknown;
-    const observationSink: ClassifierObservationSink = (observation) => {
-      try {
-        onObservation(observation);
-      } catch (cause) {
-        sinkFailed = true;
-        sinkFailure = cause;
-        throw new ObservationSinkFailure(cause);
-      }
-    };
+  ): Effect.Effect<ClassifierResult, unknown> {
+    return Effect.suspend(() => {
+      let sinkFailure: { readonly value: unknown } | undefined;
+      let credential: string | undefined;
+      const httpLayer = this.httpLayer;
+      const connectionInput = this.connection;
+      const operation = Effect.gen(function* () {
+        signal.throwIfAborted();
+        const preparedRequest = prepareRequest(
+          input,
+          requestModelFor(connectionInput),
+        );
+        const request = preparedRequest.request;
+        const connection = validateConnection(connectionInput);
+        credential =
+          connection.apiKey === undefined || connection.apiKey.length === 0
+            ? undefined
+            : connection.apiKey;
+        const observationId = randomUUID();
+        const observationSink: ClassifierObservationSink = (observation) => {
+          try {
+            onObservation(observation);
+          } catch (cause) {
+            sinkFailure = { value: cause };
+            throw cause;
+          }
+        };
 
-    const program = runSystemOneOperation({
-      budgetMs: CLASSIFIER_TRANSPORT_BUDGET_MS,
-      maxAttempts: 4,
-      attempt: (attemptIndex) =>
-        executeSystemOneAttempt({
-          attemptIndex,
-          observationId,
-          connection,
-          credential,
-          request,
-          requestData: preparedRequest.requestData,
-          body: preparedRequest.body,
-          callerSignal: signal,
-          onObservation: observationSink,
-        }),
-    });
+        const program = runSystemOneOperation({
+          budgetMs: CLASSIFIER_TRANSPORT_BUDGET_MS,
+          maxAttempts: 4,
+          attempt: (attemptIndex) =>
+            executeSystemOneAttempt({
+              attemptIndex,
+              observationId,
+              connection,
+              credential,
+              request,
+              requestData: preparedRequest.requestData,
+              body: preparedRequest.body,
+              callerSignal: signal,
+              onObservation: observationSink,
+            }),
+        });
 
-    try {
-      const httpProvided = Effect.provide(program, this.httpLayer);
-      const tracedProvided =
-        telemetry === undefined
-          ? httpProvided
-          : Effect.provideService(
-              Effect.withParentSpan(httpProvided, telemetry.parentSpan),
-              Tracer.Tracer,
-              telemetry.tracer,
+        return yield* Effect.provide(program, httpLayer);
+      });
+      return operation.pipe(
+        Effect.raceFirst(awaitAbort(signal, "Classifier cancelled")),
+        Effect.catchCause((cause) => {
+          const original = Cause.squash(cause);
+          if (sinkFailure !== undefined) return Effect.fail(sinkFailure.value);
+          if (signal.aborted) return Effect.fail(signal.reason);
+          if (Cause.hasInterrupts(cause)) return Effect.failCause(cause);
+          if (
+            original instanceof ClassifierFailure ||
+            original instanceof RetryableSystemOneAttempt
+          ) {
+            return Effect.fail(
+              original instanceof RetryableSystemOneAttempt
+                ? original.failure
+                : original,
             );
-      const provided =
-        this.testClock === undefined
-          ? tracedProvided
-          : Effect.provideService(tracedProvided, Clock.Clock, this.testClock);
-      return await Effect.runPromise(provided, { signal });
-    } catch (cause) {
-      if (sinkFailed) throw sinkFailure;
-      if (cause instanceof ObservationSinkFailure) throw cause.original;
-      if (signal.aborted) signal.throwIfAborted();
-      if (
-        cause instanceof ClassifierFailure ||
-        cause instanceof RetryableSystemOneAttempt
-      ) {
-        throw cause instanceof RetryableSystemOneAttempt
-          ? cause.failure
-          : cause;
-      }
-      throw new ClassifierFailure(
-        "transport",
-        "Classifier request could not be completed",
-        { cause: safeTransportCause(cause, credential) },
+          }
+          return Effect.fail(
+            new ClassifierFailure(
+              "transport",
+              "Classifier request could not be completed",
+              { cause: safeTransportCause(original, credential) },
+            ),
+          );
+        }),
       );
-    }
+    });
   }
 }
 
@@ -268,8 +259,8 @@ export function createClassifierTaskRunner(
   connection: PrivateClassifierConnection,
 ): ClassifierTaskRunner {
   const client = new SystemOneClient(connection);
-  return (request, signal, onObservation, telemetry) =>
-    client.classify(request, signal, onObservation, telemetry);
+  return (request, signal, onObservation) =>
+    client.classify(request, signal, onObservation);
 }
 
 export function createClassifierTaskRunnerOption(

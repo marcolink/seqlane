@@ -92,7 +92,10 @@ output; spawn, timeout, cancellation, and output-limit failures reject the
 invocation. On POSIX, process-group termination is confirmed before the task
 settles. The canonical process result is `{ exitCode, stdout, stderr }`;
 richer process metadata remains private runtime detail. `context.runAgent` uses
-the executor selected by the invocation's session policy.
+the executor selected by the invocation's session policy. Native services and
+parent spans cross the authored Promise callback through one private captured
+Context. Agent deadlines inherit its Clock and start at adapter admission.
+Classifier HTTP and retry policy compose natively at that callback boundary.
 
 The private Effect Plan program runs each ready task as soon as its dependencies
 settle. Dependency waiters do not hold task-body permits; the shared program

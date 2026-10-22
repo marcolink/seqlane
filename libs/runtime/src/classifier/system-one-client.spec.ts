@@ -1,3 +1,4 @@
+import { TestClock } from "effect/testing";
 // @test-scope ./system-one-client.ts
 // @test-scope ./system-one-http-attempt.ts
 // @test-scope ./payload-limits.ts
@@ -6,7 +7,7 @@
 
 import { createServer, type RequestListener, type Server } from "node:http";
 import { once } from "node:events";
-import { Clock, Effect } from "effect";
+import { Clock, Context, Effect, Fiber } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ClassifierRequest, JsonValue } from "@seqlane/core";
 import type { SeqlaneObservation } from "@seqlane/protocol";
@@ -19,9 +20,10 @@ import {
   CLASSIFIER_MAX_STATE_BYTES,
 } from "./payload-limits.js";
 import {
+  classifyPromise,
   classifierRequest as request,
   classifierResponseBody as responseBody,
-} from "./system-one-client-fixtures.js";
+} from "./system-one-client-test-support.js";
 
 function causeChainText(cause: unknown): string {
   if (!(cause instanceof Error)) return String(cause);
@@ -123,7 +125,8 @@ describe("System One client", () => {
       apiKey,
     });
 
-    const result = await client.classify(
+    const result = await classifyPromise(
+      client,
       request,
       new AbortController().signal,
       (observation) => observations.push(observation),
@@ -196,7 +199,8 @@ describe("System One client", () => {
       model: "jev-latest",
     });
 
-    const result = await client.classify(
+    const result = await classifyPromise(
+      client,
       request,
       new AbortController().signal,
       (observation) => observations.push(observation),
@@ -245,14 +249,16 @@ describe("System One client", () => {
     });
 
     await expect(
-      client.classify(
+      classifyPromise(
+        client,
         deepRequest,
         new AbortController().signal,
         () => undefined,
       ),
     ).rejects.toMatchObject({ code: "request" });
     await expect(
-      client.classify(
+      classifyPromise(
+        client,
         { ...request, state: "x".repeat(CLASSIFIER_MAX_STATE_BYTES + 1) },
         new AbortController().signal,
         () => undefined,
@@ -282,7 +288,8 @@ describe("System One client", () => {
     );
 
     await expect(
-      client.classify(
+      classifyPromise(
+        client,
         { state: "example diff", questions },
         new AbortController().signal,
         () => undefined,
@@ -312,9 +319,12 @@ describe("System One client", () => {
       apiKey,
     });
 
-    const error = await client
-      .classify(request, new AbortController().signal, () => undefined)
-      .catch((cause: unknown) => cause);
+    const error = await classifyPromise(
+      client,
+      request,
+      new AbortController().signal,
+      () => undefined,
+    ).catch((cause: unknown) => cause);
     expect(error).toBeInstanceOf(ClassifierFailure);
     expect(String(error)).not.toContain(apiKey);
     expect(JSON.stringify(error)).not.toContain(apiKey);
@@ -344,7 +354,8 @@ describe("System One client", () => {
       model: "jev-latest",
     });
 
-    const result = await client.classify(
+    const result = await classifyPromise(
+      client,
       mixedRequest,
       new AbortController().signal,
       (observation) => observations.push(observation),
@@ -419,8 +430,11 @@ describe("System One client", () => {
     );
 
     await expect(
-      client.classify(mixedRequest, new AbortController().signal, (event) =>
-        observations.push(event),
+      classifyPromise(
+        client,
+        mixedRequest,
+        new AbortController().signal,
+        (event) => observations.push(event),
       ),
     ).rejects.toMatchObject({ code: "response" });
     expect(observations).toHaveLength(1);
@@ -445,7 +459,8 @@ describe("System One client", () => {
       },
     );
 
-    const result = await client.classify(
+    const result = await classifyPromise(
+      client,
       request,
       new AbortController().signal,
       () => undefined,
@@ -458,72 +473,78 @@ describe("System One client", () => {
   });
 
   it("keeps transport causes private when the original error includes the key", async () => {
-    vi.useFakeTimers();
-    const apiKey = "transport-private-key";
-    const observations: SeqlaneObservation[] = [];
-    const client = new SystemOneClient(
-      { url: "https://jev.example/v1/systemone", model: "jev-latest", apiKey },
-      async () => {
-        throw new Error(`network failure ${apiKey}`);
-      },
-    );
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const apiKey = "transport-private-key";
+        const observations: SeqlaneObservation[] = [];
+        const client = new SystemOneClient(
+          {
+            url: "https://jev.example/v1/systemone",
+            model: "jev-latest",
+            apiKey,
+          },
+          async () => {
+            throw new Error(`network failure ${apiKey}`);
+          },
+        );
 
-    const classification = client.classify(
-      request,
-      new AbortController().signal,
-      (observation) => observations.push(observation),
+        const classification = yield* client
+          .classify(request, new AbortController().signal, (observation) =>
+            observations.push(observation),
+          )
+          .pipe(Effect.forkChild);
+        yield* TestClock.adjust(1_400);
+        const error = yield* Effect.flip(Fiber.join(classification));
+        expect(error).toBeInstanceOf(ClassifierFailure);
+        expect(String(error)).not.toContain(apiKey);
+        expect(JSON.stringify(error)).not.toContain(apiKey);
+        const failureCause = (error as Error & { cause?: unknown }).cause;
+        expect(failureCause).toBeInstanceOf(Error);
+        expect(causeChainText(failureCause)).toContain(
+          "Classifier transport cause redacted",
+        );
+        expect(
+          JSON.stringify({
+            message: (error as Error).message,
+            cause: failureCause,
+          }),
+        ).not.toContain(apiKey);
+        expect(observations).toHaveLength(4);
+        expect(JSON.stringify(observations)).not.toContain(apiKey);
+      }).pipe(Effect.provide(TestClock.layer())),
     );
-    const errorPromise = classification.catch((cause: unknown) => cause);
-    await vi.advanceTimersByTimeAsync(1_400);
-    const error = await errorPromise;
-    expect(error).toBeInstanceOf(ClassifierFailure);
-    expect(String(error)).not.toContain(apiKey);
-    expect(JSON.stringify(error)).not.toContain(apiKey);
-    const failureCause = (error as Error & { cause?: unknown }).cause;
-    expect(failureCause).toBeInstanceOf(Error);
-    expect(causeChainText(failureCause)).toContain(
-      "Classifier transport cause redacted",
-    );
-    expect(
-      JSON.stringify({
-        message: (error as Error).message,
-        cause: failureCause,
-      }),
-    ).not.toContain(apiKey);
-    expect(observations).toHaveLength(4);
-    expect(JSON.stringify(observations)).not.toContain(apiKey);
   });
 
   it("retains harmless transport causes", async () => {
-    vi.useFakeTimers();
-    const client = new SystemOneClient(
-      {
-        url: "https://jev.example/v1/systemone",
-        model: "jev-latest",
-        apiKey: "fixture-safe-cause-key",
-      },
-      async () => {
-        throw new Error("socket closed before headers");
-      },
-    );
-    const classification = client.classify(
-      request,
-      new AbortController().signal,
-      () => undefined,
-    );
-    const errorPromise = classification.catch((cause: unknown) => cause);
-    await vi.advanceTimersByTimeAsync(1_400);
-    const error = await errorPromise;
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const client = new SystemOneClient(
+          {
+            url: "https://jev.example/v1/systemone",
+            model: "jev-latest",
+            apiKey: "fixture-safe-cause-key",
+          },
+          async () => {
+            throw new Error("socket closed before headers");
+          },
+        );
+        const classification = yield* client
+          .classify(request, new AbortController().signal, () => undefined)
+          .pipe(Effect.forkChild);
+        yield* TestClock.adjust(1_400);
+        const error = yield* Effect.flip(Fiber.join(classification));
 
-    expect(
-      causeChainText((error as Error & { cause?: unknown }).cause),
-    ).toContain("socket closed before headers");
-    expect(
-      JSON.stringify({
-        message: (error as Error).message,
-        cause: (error as Error & { cause?: unknown }).cause,
-      }),
-    ).not.toContain("fixture-safe-cause-key");
+        expect(
+          causeChainText((error as Error & { cause?: unknown }).cause),
+        ).toContain("socket closed before headers");
+        expect(
+          JSON.stringify({
+            message: (error as Error).message,
+            cause: (error as Error & { cause?: unknown }).cause,
+          }),
+        ).not.toContain("fixture-safe-cause-key");
+      }).pipe(Effect.provide(TestClock.layer())),
+    );
   });
 
   it.each(["key", "model", "noul"])(
@@ -543,7 +564,8 @@ describe("System One client", () => {
       );
 
       await expect(
-        client.classify(
+        classifyPromise(
+          client,
           { ...request, state: "keyboard change" },
           new AbortController().signal,
           () => undefined,
@@ -565,8 +587,11 @@ describe("System One client", () => {
     );
 
     await expect(
-      client.classify(request, new AbortController().signal, (observation) =>
-        observations.push(observation),
+      classifyPromise(
+        client,
+        request,
+        new AbortController().signal,
+        (observation) => observations.push(observation),
       ),
     ).rejects.toMatchObject({ code: "response" });
     expect(observations).toHaveLength(1);
@@ -610,11 +635,12 @@ describe("System One client", () => {
         { url: "https://localhost/v1/systemone", model: "jev-latest" },
         fixture.fetchImplementation,
       );
-      const error = await client
-        .classify(request, new AbortController().signal, (observation) =>
-          observations.push(observation),
-        )
-        .catch((cause: unknown) => cause);
+      const error = await classifyPromise(
+        client,
+        request,
+        new AbortController().signal,
+        (observation) => observations.push(observation),
+      ).catch((cause: unknown) => cause);
 
       expect(error, fixture.phase).toMatchObject({ code: fixture.code });
       expect(observations, fixture.phase).toHaveLength(1);
@@ -653,9 +679,14 @@ describe("System One client", () => {
         new Response(JSON.stringify(providerResponse), { status: 200 }),
     );
     await expect(
-      client.classify(request, new AbortController().signal, (observation) => {
-        observations.push(observation);
-      }),
+      classifyPromise(
+        client,
+        request,
+        new AbortController().signal,
+        (observation) => {
+          observations.push(observation);
+        },
+      ),
     ).rejects.toMatchObject({ code: "response" });
     expect(observations[0]?.model).toMatchObject({
       response: providerResponse,
@@ -676,9 +707,14 @@ describe("System One client", () => {
       async () => new Response(responseWithSecretUsage, { status: 200 }),
     );
     await expect(
-      client.classify(request, new AbortController().signal, (observation) => {
-        observations.push(observation);
-      }),
+      classifyPromise(
+        client,
+        request,
+        new AbortController().signal,
+        (observation) => {
+          observations.push(observation);
+        },
+      ),
     ).rejects.toMatchObject({ code: "response" });
     expect(observations).toHaveLength(1);
     expect(observations[0]?.model).not.toHaveProperty("response");
@@ -687,6 +723,8 @@ describe("System One client", () => {
   });
 
   it("enforces the deadline after observation delivery", async () => {
+    // The synchronous observer cannot yield TestClock.adjust. This seam models
+    // CPU time consumed inside the callback, not an asynchronous policy wait.
     vi.useFakeTimers();
     const observations: unknown[] = [];
     const client = new SystemOneClient(
@@ -695,10 +733,15 @@ describe("System One client", () => {
     );
 
     await expect(
-      client.classify(request, new AbortController().signal, (observation) => {
-        observations.push(observation);
-        vi.advanceTimersByTime(CLASSIFIER_TRANSPORT_BUDGET_MS);
-      }),
+      classifyPromise(
+        client,
+        request,
+        new AbortController().signal,
+        (observation) => {
+          observations.push(observation);
+          vi.advanceTimersByTime(CLASSIFIER_TRANSPORT_BUDGET_MS);
+        },
+      ),
     ).rejects.toMatchObject({ code: "deadline" });
     expect(observations).toHaveLength(1);
   });
@@ -718,13 +761,18 @@ describe("System One client", () => {
     const client = new SystemOneClient(
       { url: "https://localhost/v1/systemone", model: "jev-latest" },
       async () => new Response(JSON.stringify(responseBody), { status: 200 }),
-      clock,
     );
     await expect(
-      client.classify(request, new AbortController().signal, (observation) => {
-        observations.push(observation);
-        monotonicNanos = BigInt(CLASSIFIER_TRANSPORT_BUDGET_MS) * 1_000_000n;
-      }),
+      classifyPromise(
+        client,
+        request,
+        new AbortController().signal,
+        (observation) => {
+          observations.push(observation);
+          monotonicNanos = BigInt(CLASSIFIER_TRANSPORT_BUDGET_MS) * 1_000_000n;
+        },
+        Context.make(Clock.Clock, clock),
+      ),
     ).rejects.toMatchObject({ code: "deadline" });
     expect(observations).toHaveLength(1);
     expect(observations[0]).toMatchObject({
@@ -750,7 +798,7 @@ describe("System One client", () => {
         },
       );
       await expect(
-        client.classify(request, new AbortController().signal, () => {
+        classifyPromise(client, request, new AbortController().signal, () => {
           throw sinkFailure;
         }),
       ).rejects.toBe(sinkFailure);
@@ -768,7 +816,12 @@ describe("System One client", () => {
       model: "jev-latest",
     });
     await expect(
-      client.classify(request, new AbortController().signal, () => undefined),
+      classifyPromise(
+        client,
+        request,
+        new AbortController().signal,
+        () => undefined,
+      ),
     ).rejects.toMatchObject({ code: "response" });
   });
 
@@ -782,7 +835,12 @@ describe("System One client", () => {
       },
     );
     await expect(
-      client.classify(request, new AbortController().signal, () => undefined),
+      classifyPromise(
+        client,
+        request,
+        new AbortController().signal,
+        () => undefined,
+      ),
     ).rejects.toMatchObject({ code: "response" });
     expect(requests).toBe(1);
   });
@@ -794,9 +852,14 @@ describe("System One client", () => {
       async () => new Response(new Uint8Array([0xff]), { status: 200 }),
     );
     await expect(
-      client.classify(request, new AbortController().signal, (observation) => {
-        observations.push(observation);
-      }),
+      classifyPromise(
+        client,
+        request,
+        new AbortController().signal,
+        (observation) => {
+          observations.push(observation);
+        },
+      ),
     ).rejects.toMatchObject({ code: "response" });
     expect(observations).toHaveLength(1);
     expect(observations[0]?.model.error).toContain("response");
@@ -820,7 +883,7 @@ describe("System One client", () => {
       model: "jev-latest",
     });
     await expect(
-      client.classify(request, controller.signal, () => undefined),
+      classifyPromise(client, request, controller.signal, () => undefined),
     ).rejects.toBe(cancellation);
     await closed;
     expect(controller.signal.aborted).toBe(true);

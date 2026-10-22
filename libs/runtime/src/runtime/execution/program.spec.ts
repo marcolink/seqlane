@@ -1,12 +1,9 @@
+import { executeSequentialProgram } from "./workflow-run.test-support.js";
 // @test-scope ./program.ts
 // @test-scope ./run-sequential-graph.ts
 import { describe, expect, it, vi } from "vitest";
 import { Effect } from "effect";
-import {
-  createSequentialProgram,
-  executeSequentialProgram,
-  runProgram,
-} from "./program.js";
+import { createSequentialProgram, runProgram } from "./program.js";
 
 describe("private sequential program runner", () => {
   it("runs steps once in order with cancellation signals", async () => {

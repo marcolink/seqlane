@@ -16,6 +16,7 @@
 // @test-scope ./run-execution.ts
 // @test-scope ../../../libs/runtime/src/classifier/system-one-client.ts
 
+import { Effect } from "effect";
 import { EventEmitter } from "node:events";
 import { once } from "node:events";
 import { spawn } from "node:child_process";
@@ -32,7 +33,7 @@ import {
   type SeqlaneExecutionEvent,
 } from "@seqlane/protocol";
 import { launchRunner } from "./runner-client.js";
-import { runCliWithTelemetry } from "@seqlane/runtime/private/telemetry";
+import { withCliTelemetryEffect } from "@seqlane/runtime/private/telemetry";
 import { encodeTraceCarrier } from "@seqlane/protocol/private/trace-carrier";
 import { telemetryConfigurationEnvironment } from "@seqlane/runtime/private/telemetry";
 import { z } from "zod";
@@ -612,23 +613,32 @@ describe("Effect S1 runner worker", () => {
   });
 
   it("propagates the real CLI parent span into compiled worker events", async () => {
-    const { value, spans } = await runCliWithTelemetry(async (carrier) => {
-      events.length = 0;
-      const client = launchRunner(request({ value: "correlated" }), {
-        runnerPath,
-        cwd: repositoryRoot,
-        environment: {
-          ...process.env,
-          [traceCarrierEnvironment]: encodeTraceCarrier(carrier),
-        },
-        onExecutionEvent: (event) => events.push(event),
-      });
-      try {
-        return await client.result;
-      } finally {
-        client.close();
-      }
-    });
+    const captured = await Effect.runPromise(
+      withCliTelemetryEffect(({ carrier }) =>
+        Effect.tryPromise({
+          try: async () => {
+            events.length = 0;
+            const client = launchRunner(request({ value: "correlated" }), {
+              runnerPath,
+              cwd: repositoryRoot,
+              environment: {
+                ...process.env,
+                [traceCarrierEnvironment]: encodeTraceCarrier(carrier),
+              },
+              onExecutionEvent: (event) => events.push(event),
+            });
+            try {
+              return await client.result;
+            } finally {
+              client.close();
+            }
+          },
+          catch: (cause) => cause,
+        }),
+      ),
+    );
+    const { value } = captured;
+    const { spans } = captured.snapshot();
 
     expect(value).toMatchObject({
       status: 0,

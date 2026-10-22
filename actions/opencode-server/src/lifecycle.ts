@@ -1,13 +1,13 @@
 import { Effect } from "effect";
 import {
   adoptDetachedProcess,
+  assertDirectory,
   completeDetachedProcessHandoff,
   detachedProcessOwnershipSchema,
   spawnDetached,
   type DetachedProcess,
   type SpawnDetachedOptions,
 } from "@seqlane/action-service-lifecycle";
-import { assertDirectory } from "./filesystem.js";
 import { waitForHttpHealth } from "./readiness.js";
 
 export interface OpenCodeLifecycleInput {
@@ -93,11 +93,12 @@ export function startOpenCodeEffect(
 
   return Effect.scoped(
     Effect.gen(function* () {
-      yield* Effect.tryPromise({
-        try: () => assertDirectory(input.workingDirectory),
-        catch: (cause) =>
-          new Error("OpenCode working directory is invalid", { cause }),
-      });
+      yield* assertDirectory(input.workingDirectory).pipe(
+        Effect.mapError(
+          (cause) =>
+            new Error("OpenCode working directory is invalid", { cause }),
+        ),
+      );
       const service = yield* spawnDetached(options);
       yield* persistOwnership(service, hooks);
       yield* adoptDetachedProcess(service);

@@ -161,6 +161,7 @@ export async function executeAgentAdapterRequest(
   const deadline = createExecutionDeadline(
     request.signal,
     agentTaskTimeoutMsSchema.parse(request.agent?.timeoutMs),
+    request.nativeContext,
   );
   try {
     deadline.signal.throwIfAborted();

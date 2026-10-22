@@ -17,3 +17,5 @@ export {
   type ProcessIdentity,
   type ProcessMember,
 } from "./schemas.js";
+
+export { assertDirectory } from "./directory.js";

@@ -1,5 +1,5 @@
 import { PreparedInvocationInput } from "./prepared-input.js";
-import { Effect, Tracer } from "effect";
+import { Context, Effect } from "effect";
 import type {
   AgentTaskRequest,
   SeqlaneInvocationMetrics,
@@ -63,25 +63,16 @@ function runNativeClientCall<A>(
   options: TaskExecutionOptions,
   name: string,
   attributes: Readonly<Record<string, string | number | boolean>>,
-  call: (parentSpan?: Tracer.AnySpan) => Promise<A>,
+  call: (nativeContext: Context.Context<never>) => Effect.Effect<A, unknown>,
 ): Promise<A> {
-  const native = options.nativeTelemetry;
-  if (native === undefined) return call();
   const effect = Effect.gen(function* () {
-    const parentSpan = yield* Effect.currentSpan;
-    return yield* Effect.tryPromise({
-      try: () => call(parentSpan),
-      catch: (cause) => cause,
-    });
-  }).pipe(
-    Effect.withSpan(name, {
-      parent: native.parentSpan,
-      kind: "client",
-      attributes,
-    }),
-    Effect.provideService(Tracer.Tracer, native.tracer),
+    return yield* call(yield* Effect.context<never>());
+  });
+  return Effect.runPromiseWith(options.nativeContext ?? Context.empty())(
+    options.nativeContext === undefined
+      ? effect
+      : Effect.withSpan(effect, name, { kind: "client", attributes }),
   );
-  return Effect.runPromise(effect);
 }
 
 function effectiveModelSelection(
@@ -432,44 +423,49 @@ export async function executeTaskNode(
               "seqlane.invocation.id": invocationId,
               "seqlane.adapter.kind": "agent",
             },
-            () =>
-              executor.execute({
-                taskDefinition: definition,
-                modelSelection:
-                  effectiveModelSelection(context, invocationId, session) ??
-                  context.workflowModel,
-                invocationId,
-                taskId: node.taskId,
-                executor: node.taskId,
-                input,
-                agent: agentRequest,
-                signal: abortSignal,
-                onMetrics: (value) => {
-                  metrics = value;
-                },
-                onDiagnostic: (message) => {
-                  context.events.emit({
-                    type: "invocation.output",
-                    workId: context.workId,
-                    runId: context.runId,
+            (nativeContext) =>
+              Effect.tryPromise({
+                try: () =>
+                  executor.execute({
+                    nativeContext,
+                    taskDefinition: definition,
+                    modelSelection:
+                      effectiveModelSelection(context, invocationId, session) ??
+                      context.workflowModel,
                     invocationId,
-                    policy: "persistent",
-                    channel: "task",
-                    content: message,
-                    ...optionalIteration(options.iteration),
-                  });
-                },
-                onActivity: emitActivity,
-                onObservation: (observation) =>
-                  context.onObservation?.(
-                    invocationId,
-                    observation,
-                    options.iteration,
-                  ),
-                onEffect: (termination) => effects.track(termination),
-                onUncertainActivity: reportUncertainActivity,
-                onChildSession: reportChildSession,
-                onBackgroundProcess: reportBackgroundProcess,
+                    taskId: node.taskId,
+                    executor: node.taskId,
+                    input,
+                    agent: agentRequest,
+                    signal: abortSignal,
+                    onMetrics: (value) => {
+                      metrics = value;
+                    },
+                    onDiagnostic: (message) => {
+                      context.events.emit({
+                        type: "invocation.output",
+                        workId: context.workId,
+                        runId: context.runId,
+                        invocationId,
+                        policy: "persistent",
+                        channel: "task",
+                        content: message,
+                        ...optionalIteration(options.iteration),
+                      });
+                    },
+                    onActivity: emitActivity,
+                    onObservation: (observation) =>
+                      context.onObservation?.(
+                        invocationId,
+                        observation,
+                        options.iteration,
+                      ),
+                    onEffect: (termination) => effects.track(termination),
+                    onUncertainActivity: reportUncertainActivity,
+                    onChildSession: reportChildSession,
+                    onBackgroundProcess: reportBackgroundProcess,
+                  }),
+                catch: (cause) => cause,
               }),
           );
         };
@@ -496,23 +492,13 @@ export async function executeTaskNode(
                     {
                       "seqlane.invocation.id": invocationId,
                     },
-                    (parentSpan) =>
-                      classifier(
-                        request,
-                        abortSignal,
-                        (observation) =>
-                          context.onObservation?.(
-                            invocationId,
-                            observation,
-                            options.iteration,
-                          ),
-                        parentSpan === undefined ||
-                          options.nativeTelemetry === undefined
-                          ? undefined
-                          : {
-                              tracer: options.nativeTelemetry.tracer,
-                              parentSpan,
-                            },
+                    () =>
+                      classifier(request, abortSignal, (observation) =>
+                        context.onObservation?.(
+                          invocationId,
+                          observation,
+                          options.iteration,
+                        ),
                       ),
                   ),
               }),

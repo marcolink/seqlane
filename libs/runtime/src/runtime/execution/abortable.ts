@@ -1,23 +1,19 @@
-import { Effect, Fiber } from "effect";
+import { awaitAbort } from "./await-abort.js";
+import { Context, Effect, Fiber } from "effect";
 
 export async function raceWithAbort<T>(
   promise: Promise<T>,
   signal: AbortSignal,
 ): Promise<T> {
   signal.throwIfAborted();
-  let rejectAbort!: (cause: unknown) => void;
-  const aborted = new Promise<never>((_resolve, reject) => {
-    rejectAbort = reject;
-  });
-  const onAbort = (): void => rejectAbort(signal.reason);
-  signal.addEventListener("abort", onAbort, { once: true });
-  try {
-    const result = await Promise.race([promise, aborted]);
-    signal.throwIfAborted();
-    return result;
-  } finally {
-    signal.removeEventListener("abort", onAbort);
-  }
+  const result = await Effect.runPromise(
+    Effect.raceFirst(
+      Effect.tryPromise({ try: () => promise, catch: (cause) => cause }),
+      awaitAbort(signal, "Task execution cancelled"),
+    ),
+  );
+  signal.throwIfAborted();
+  return result;
 }
 
 /**
@@ -72,6 +68,7 @@ export interface ExecutionDeadline {
 export function createExecutionDeadline(
   signal: AbortSignal,
   timeoutMs: number,
+  nativeContext: Context.Context<never> = Context.empty(),
 ): ExecutionDeadline {
   const controller = new AbortController();
   let started = false;
@@ -88,7 +85,7 @@ export function createExecutionDeadline(
     start: () => {
       if (started || controller.signal.aborted) return;
       started = true;
-      timeoutFiber = Effect.runFork(
+      timeoutFiber = Effect.runForkWith(nativeContext)(
         Effect.sleep(`${timeoutMs} millis`).pipe(
           Effect.flatMap(() =>
             Effect.sync(() =>

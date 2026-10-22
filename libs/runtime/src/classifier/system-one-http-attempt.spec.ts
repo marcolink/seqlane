@@ -1,14 +1,15 @@
 // @test-scope ./system-one-client.ts
 // @test-scope ./system-one-http-attempt.ts
 
+import { SystemOneClient } from "./system-one-client.js";
 import { describe, expect, it } from "vitest";
 import type { SeqlaneObservation } from "@seqlane/protocol";
-import { SystemOneClient } from "./system-one-client.js";
 import { CLASSIFIER_MAX_BODY_BYTES } from "./payload-limits.js";
 import {
+  classifyPromise,
   classifierRequest as request,
   classifierResponseBody as responseBody,
-} from "./system-one-client-fixtures.js";
+} from "./system-one-client-test-support.js";
 
 describe("bounded System One response decoding", () => {
   it("preserves provider extras with a BOM and a split UTF-8 character at the byte limit", async () => {
@@ -32,8 +33,11 @@ describe("bounded System One response decoding", () => {
     );
 
     await expect(
-      client.classify(request, new AbortController().signal, (observation) =>
-        observations.push(observation),
+      classifyPromise(
+        client,
+        request,
+        new AbortController().signal,
+        (observation) => observations.push(observation),
       ),
     ).resolves.toMatchObject({
       answers: { needsReview: { probability: 0.63 } },
@@ -79,8 +83,11 @@ describe("bounded System One response decoding", () => {
       );
 
       await expect(
-        client.classify(request, new AbortController().signal, (observation) =>
-          observations.push(observation),
+        classifyPromise(
+          client,
+          request,
+          new AbortController().signal,
+          (observation) => observations.push(observation),
         ),
       ).rejects.toMatchObject({ code: "response", message });
       expect(requests).toBe(1);

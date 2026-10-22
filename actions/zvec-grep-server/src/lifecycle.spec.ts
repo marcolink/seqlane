@@ -46,7 +46,7 @@ function dependencies(
   overrides: Partial<ZvecGrepLifecycleDependencies> = {},
 ): ZvecGrepLifecycleDependencies {
   return {
-    assertDirectory: vi.fn(async () => undefined),
+    assertDirectory: vi.fn(() => Effect.void),
     runCommand: vi.fn(() => Effect.void),
     runReadinessCommand: vi.fn(() => Effect.void),
     waitForCommandHealth: vi.fn((check) => check()),
@@ -61,9 +61,11 @@ describe("zvec-grep lifecycle", () => {
   it("runs setup, saves ownership, adopts, and passes readiness before handoff", async () => {
     const events: string[] = [];
     const deps = dependencies({
-      assertDirectory: vi.fn(async () => {
-        events.push("validate");
-      }),
+      assertDirectory: vi.fn(() =>
+        Effect.sync(() => {
+          events.push("validate");
+        }),
+      ),
       runCommand: vi.fn(({ args }) =>
         Effect.sync(() => {
           events.push(args[2] === "version" ? "resolve" : "index");

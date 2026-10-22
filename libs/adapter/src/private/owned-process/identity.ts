@@ -27,7 +27,10 @@ const windowsIdentitySchema = z
     CreationDate: z.string().min(1),
   })
   .strict();
-const missingProcessErrorSchema = z.object({ code: z.literal("ENOENT") });
+// Linux procfs can lose the task after open, so read reports ESRCH instead of ENOENT.
+const missingProcessErrorSchema = z.object({
+  code: z.enum(["ENOENT", "ESRCH"]),
+});
 const missingDarwinProcessErrorSchema = z.object({
   code: z.literal(1),
   stdout: z.literal(""),

@@ -549,11 +549,9 @@ async function boundedFetchRequest(
     evaluate: () => body,
     onError: (cause) => cause,
   });
-  const bodyExit = await Effect.runPromiseExit(boundedBodyBytes(bodyStream), {
+  const bytes = await Effect.runPromise(boundedBodyBytes(bodyStream), {
     signal: request.signal,
   });
-  if (Exit.isFailure(bodyExit)) throw Cause.squash(bodyExit.cause);
-  const bytes = bodyExit.value;
   return new globalThis.Request(request.url, {
     method: request.method,
     headers: request.headers,
@@ -693,9 +691,7 @@ export async function createNativeOperationalHost(
       }
     },
     async inspectTrace(traceId) {
-      const exit = await services.runPromiseExit(manager.trace(traceId));
-      if (Exit.isFailure(exit)) throw Cause.squash(exit.cause);
-      return exit.value;
+      return services.runPromise(manager.trace(traceId));
     },
     async listen() {
       if (disposed) throw new Error("Operational host is closed");

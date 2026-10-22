@@ -40,7 +40,7 @@ function dependencies(
   overrides: Partial<RipwireLifecycleDependencies> = {},
 ): RipwireLifecycleDependencies {
   return {
-    assertDirectory: vi.fn(() => Promise.resolve()),
+    assertDirectory: vi.fn(() => Effect.void),
     assertListenAvailable: vi.fn(() => Promise.resolve()),
     spawnDetached: vi.fn(() => Effect.succeed(service)),
     adoptDetachedProcess: vi.fn(() => Effect.void),
@@ -67,7 +67,9 @@ describe("Ripwire lifecycle", () => {
   it("saves validated process and sentinel identities before readiness handoff", async () => {
     const events: string[] = [];
     const deps = dependencies({
-      assertDirectory: vi.fn(async () => void events.push("validate")),
+      assertDirectory: vi.fn(() =>
+        Effect.sync(() => void events.push("validate")),
+      ),
       assertListenAvailable: vi.fn(async () => void events.push("port")),
       spawnDetached: vi.fn((options) => {
         events.push(`spawn:${options.cwd}`);

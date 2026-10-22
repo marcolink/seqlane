@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 
 import * as core from "@actions/core";
 import { Effect } from "effect";
-import { assertDirectory } from "./filesystem.js";
+import { assertDirectory } from "@seqlane/action-service-lifecycle";
 import { parseRipwireInputs } from "./config.js";
 import {
   installRipwire,
@@ -84,11 +84,11 @@ export async function run(): Promise<void> {
   const logPath = runnerTempPath("ripwire.log");
   let install: Awaited<ReturnType<typeof installRipwire>> | undefined;
   const program = Effect.gen(function* () {
-    yield* Effect.tryPromise({
-      try: () => assertDirectory(config.workingDirectory),
-      catch: (cause) =>
-        new Error("Ripwire working directory is invalid", { cause }),
-    });
+    yield* assertDirectory(config.workingDirectory).pipe(
+      Effect.mapError(
+        (cause) => new Error("Ripwire working directory is invalid", { cause }),
+      ),
+    );
     install = yield* Effect.tryPromise({
       try: (signal) =>
         installRipwire({ version: config.version, runnerTemp, signal }),

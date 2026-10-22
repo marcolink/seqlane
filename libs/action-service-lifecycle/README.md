@@ -3,6 +3,9 @@
 Private, Toolkit-free process supervision for the OpenCode, zvec-grep, and
 Ripwire service Actions. Public Action inputs and saved state remain Zod-owned.
 
+`assertDirectory` uses the native FileSystem service for their working-directory
+preflight. Each Action retains its own contextual error and original cause.
+
 `spawnDetached` acquires an anchored service in an Effect scope. The Action must
 persist validated process and sentinel identities, wait for `adoptDetachedProcess`
 to receive the resident acknowledgment, and finish readiness checks before it

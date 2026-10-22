@@ -1,4 +1,4 @@
-import { Cause, Duration, Effect, Exit } from "effect";
+import { Duration, Effect } from "effect";
 
 export const DEFAULT_IPC_ACK_TIMEOUT_MS = 5_000;
 
@@ -49,10 +49,7 @@ export function sendWithAcknowledgement(
 
     return Effect.sync(removeAbortListener);
   });
-  return Effect.runPromiseExit(
+  return Effect.runPromise(
     Effect.timeout(acknowledgement, Duration.millis(timeoutMs)),
-  ).then((exit) => {
-    if (Exit.isFailure(exit)) return Promise.reject(Cause.squash(exit.cause));
-    return undefined;
-  });
+  );
 }

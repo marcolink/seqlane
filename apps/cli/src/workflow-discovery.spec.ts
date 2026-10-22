@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 // @test-scope ./workflow-discovery.ts
 // @test-scope ./workflow-reference.ts
 // @test-scope ./commands/unstable_plan.ts
@@ -23,7 +24,7 @@ import {
   workflowDescriptorRecord,
 } from "./workflow-discovery.js";
 import {
-  createPlanCommandResult,
+  createPlanCommandResultEffect,
   renderPlanHuman,
 } from "./commands/unstable_plan.js";
 import { createRunRequest } from "./commands/run.js";
@@ -222,7 +223,9 @@ describe("workflow discovery", () => {
         `,
       );
       writeDescriptor(roots.repository, "plan.json", descriptor("plan"));
-      const result = await createPlanCommandResult("plan", roots);
+      const result = await Effect.runPromise(
+        createPlanCommandResultEffect("plan", roots),
+      );
       const unsafeResult = {
         ...result,
         workflow: {
@@ -290,7 +293,9 @@ describe("workflow discovery", () => {
       );
       writeDescriptor(roots.repository, "plan.json", descriptor("plan"));
 
-      const result = await createPlanCommandResult("plan", roots);
+      const result = await Effect.runPromise(
+        createPlanCommandResultEffect("plan", roots),
+      );
 
       expect(result.plan.workflow.id).toBe("plan-only");
       expect(result.plan.nodes).toMatchObject([{ taskId: "never-executed" }]);

@@ -4,13 +4,13 @@ import { fileURLToPath } from "node:url";
 import { Cause, Effect } from "effect";
 import {
   adoptDetachedProcess,
+  assertDirectory,
   completeDetachedProcessHandoff,
   detachedProcessOwnershipSchema,
   spawnDetached,
   type DetachedProcess,
   type SpawnDetachedOptions,
 } from "@seqlane/action-service-lifecycle";
-import { assertDirectory } from "./filesystem.js";
 import { buildZvecCommandPlan } from "./commands.js";
 import {
   runCommand,
@@ -117,11 +117,14 @@ export function runZvecGrepLifecycle(
 ): Effect.Effect<void, Error | Cause.TimeoutError> {
   return Effect.scoped(
     Effect.gen(function* () {
-      yield* Effect.tryPromise({
-        try: () => dependencies.assertDirectory(input.projectDirectory),
-        catch: (cause) =>
-          new Error("zvec-grep project directory is invalid", { cause }),
-      });
+      yield* dependencies
+        .assertDirectory(input.projectDirectory)
+        .pipe(
+          Effect.mapError(
+            (cause) =>
+              new Error("zvec-grep project directory is invalid", { cause }),
+          ),
+        );
 
       const [resolveCommand, indexCommand, serverCommand, readinessCommand] =
         buildZvecCommandPlan({

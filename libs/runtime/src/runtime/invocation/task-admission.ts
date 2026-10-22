@@ -1,4 +1,5 @@
-import { Cause, Effect, Exit, Option, Tracer } from "effect";
+import { awaitAbort } from "../execution/await-abort.js";
+import { Cause, Effect, Exit, Option } from "effect";
 import type { TaskNode } from "@seqlane/core";
 import {
   invocationCreationOrdinal,
@@ -156,8 +157,6 @@ export function executeTaskNodeEffect(
           }),
         { interruptible: true },
       );
-      const parentSpan = yield* Effect.currentParentSpan.pipe(Effect.option);
-      const tracer = yield* Tracer.Tracer;
       const nativeContext = yield* Effect.context<never>();
       const output = yield* withBodyPermit(
         Effect.suspend(() => {
@@ -177,14 +176,6 @@ export function executeTaskNodeEffect(
                 {
                   ...options,
                   nativeContext,
-                  ...(Option.isSome(parentSpan)
-                    ? {
-                        nativeTelemetry: {
-                          tracer,
-                          parentSpan: parentSpan.value,
-                        },
-                      }
-                    : {}),
                   terminationTimeoutMs,
                   preparedInput,
                   admission,
@@ -199,7 +190,10 @@ export function executeTaskNodeEffect(
             Effect.flatMap(
               Effect.exit(
                 restore(
-                  Effect.raceFirst(execution, awaitAbortSignal(abortSignal)),
+                  Effect.raceFirst(
+                    execution,
+                    awaitAbort(abortSignal, "Task execution cancelled"),
+                  ),
                 ),
               ),
               (exit) => {
@@ -238,7 +232,7 @@ export function executeTaskNodeEffect(
               restore(
                 Effect.raceFirst(
                   afterBody(output, retainUnconfirmed, terminationTimeoutMs),
-                  awaitAbortSignal(abortSignal),
+                  awaitAbort(abortSignal, "Task execution cancelled"),
                 ),
               ),
             ),
@@ -275,18 +269,6 @@ export function executeTaskNodeEffect(
     context.workspaceLocks.quarantine(resource, uncertainty);
     return uncertainty;
   }
-}
-
-function awaitAbortSignal(signal: AbortSignal): Effect.Effect<never, unknown> {
-  const failure = () =>
-    signal.aborted ? signal.reason : new Error("Task execution cancelled");
-  if (signal.aborted) return Effect.fail(failure());
-  return Effect.callback((resume) => {
-    const onAbort = (): void => resume(Effect.fail(failure()));
-    signal.addEventListener("abort", onAbort, { once: true });
-    if (signal.aborted) onAbort();
-    return Effect.sync(() => signal.removeEventListener("abort", onAbort));
-  });
 }
 
 function observeLateFailure(

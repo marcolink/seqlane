@@ -23,7 +23,7 @@ import {
   type OperationalTraceInspection,
   type OperationalWorkflow,
 } from "@seqlane/protocol";
-import { Cause, Duration, Effect, Exit, Result, Schedule } from "effect";
+import { Duration, Effect, Result, Schedule } from "effect";
 import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientRequest from "effect/http/HttpClientRequest";
@@ -379,7 +379,7 @@ export class OperationalClient {
     effect: Effect.Effect<T, unknown, HttpClient.HttpClient>,
     signal?: AbortSignal,
   ): Promise<T> {
-    return Effect.runPromiseExit(
+    return Effect.runPromise(
       effect.pipe(
         Effect.provide(FetchHttpClient.layer),
         Effect.provideService(FetchHttpClient.Fetch, globalThis.fetch),
@@ -388,9 +388,7 @@ export class OperationalClient {
         }),
       ),
       signal === undefined ? undefined : { signal },
-    ).then((exit) => {
-      if (Exit.isSuccess(exit)) return exit.value;
-      const cause = Cause.squash(exit.cause);
+    ).catch((cause: unknown) => {
       if (cause instanceof OperationalClientError) throw cause;
       if (signal?.aborted) {
         throw new OperationalClientError(

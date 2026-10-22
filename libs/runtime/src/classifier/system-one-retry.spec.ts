@@ -2,8 +2,8 @@
 // @test-scope ./system-one-operation.ts
 // @test-scope ./system-one-retry.ts
 
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { Effect } from "effect";
+import { describe, expect, it } from "vitest";
+import { Cause, Deferred, Effect, Exit, Fiber } from "effect";
 import { TestClock } from "effect/testing";
 import type { SeqlaneObservation } from "@seqlane/protocol";
 import {
@@ -14,89 +14,91 @@ import { retryDelayFor } from "./system-one-retry.js";
 import {
   classifierRequest as request,
   classifierResponseBody as responseBody,
-} from "./system-one-client-fixtures.js";
+} from "./system-one-client-test-support.js";
 
-afterEach(() => {
-  vi.useRealTimers();
-});
+function classify(
+  client: SystemOneClient,
+  observations: SeqlaneObservation[] = [],
+  signal = new AbortController().signal,
+) {
+  return client.classify(request, signal, (observation) =>
+    observations.push(observation),
+  );
+}
+
+const connection = {
+  url: "https://localhost/v1/systemone",
+  model: "jev-latest",
+};
+const success = () =>
+  new Response(JSON.stringify(responseBody), { status: 200 });
 
 describe("System One retry policy", () => {
   it.each([429, 529, 500, 503, 599])(
     "retries transient HTTP status %s",
     async (status) => {
-      vi.useFakeTimers();
-      let requests = 0;
-      const client = new SystemOneClient(
-        { url: "https://localhost/v1/systemone", model: "jev-latest" },
-        async () => {
-          requests += 1;
-          return requests === 1
-            ? new Response("temporary", { status })
-            : new Response(JSON.stringify(responseBody), { status: 200 });
-        },
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          let requests = 0;
+          const client = new SystemOneClient(connection, async () =>
+            ++requests === 1
+              ? new Response("temporary", { status })
+              : success(),
+          );
+          const fiber = yield* classify(client).pipe(Effect.forkChild);
+          yield* TestClock.adjust(199);
+          expect(requests).toBe(1);
+          yield* TestClock.adjust(1);
+          expect(yield* Fiber.join(fiber)).toMatchObject({
+            model: "jev-1.13.0",
+          });
+          expect(requests).toBe(2);
+        }).pipe(Effect.provide(TestClock.layer())),
       );
-      const classification = client.classify(
-        request,
-        new AbortController().signal,
-        () => undefined,
-      );
-      const assertion = expect(classification).resolves.toMatchObject({
-        model: "jev-1.13.0",
-      });
-
-      await vi.advanceTimersByTimeAsync(200);
-      await assertion;
-      expect(requests).toBe(2);
     },
   );
 
   it("retries a network failure with the same request and exchange identity", async () => {
-    vi.useFakeTimers();
-    let requests = 0;
-    const observations: SeqlaneObservation[] = [];
-    const client = new SystemOneClient(
-      { url: "https://localhost/v1/systemone", model: "jev-latest" },
-      async () => {
-        requests += 1;
-        if (requests === 1) throw new Error("socket closed before headers");
-        return new Response(JSON.stringify(responseBody), { status: 200 });
-      },
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        let requests = 0;
+        const observations: SeqlaneObservation[] = [];
+        const client = new SystemOneClient(connection, async () => {
+          if (++requests === 1) throw new Error("socket closed before headers");
+          return success();
+        });
+        const fiber = yield* classify(client, observations).pipe(
+          Effect.forkChild,
+        );
+        yield* TestClock.adjust(200);
+        expect(yield* Fiber.join(fiber)).toMatchObject({ model: "jev-1.13.0" });
+        expect(requests).toBe(2);
+        expect(observations.map(({ attemptIndex }) => attemptIndex)).toEqual([
+          0, 1,
+        ]);
+        expect(observations[0]?.observationId).toBe(
+          observations[1]?.observationId,
+        );
+        expect(observations.map(({ state }) => state)).toEqual([
+          "failed",
+          "succeeded",
+        ]);
+      }).pipe(Effect.provide(TestClock.layer())),
     );
-    const classification = client.classify(
-      request,
-      new AbortController().signal,
-      (observation) => observations.push(observation),
-    );
-    const assertion = expect(classification).resolves.toMatchObject({
-      model: "jev-1.13.0",
-    });
-
-    await vi.advanceTimersByTimeAsync(200);
-    await assertion;
-    expect(requests).toBe(2);
-    expect(observations.map(({ attemptIndex }) => attemptIndex)).toEqual([
-      0, 1,
-    ]);
-    expect(observations[0]?.observationId).toBe(observations[1]?.observationId);
-    expect(observations[0]?.state).toBe("failed");
-    expect(observations[1]?.state).toBe("succeeded");
   });
 
   it.each([400, 401, 403, 404, 422])(
     "does not retry nonretryable HTTP status %s",
     async (status) => {
-      vi.useFakeTimers();
       let requests = 0;
-      const client = new SystemOneClient(
-        { url: "https://localhost/v1/systemone", model: "jev-latest" },
-        async () => {
-          requests += 1;
-          return new Response("not retryable", { status });
-        },
-      );
-
+      const client = new SystemOneClient(connection, async () => {
+        requests += 1;
+        return new Response("not retryable", { status });
+      });
       await expect(
-        client.classify(request, new AbortController().signal, () => undefined),
+        Effect.runPromise(
+          classify(client).pipe(Effect.provide(TestClock.layer())),
+        ),
       ).rejects.toMatchObject({ code: "transport" });
       expect(requests).toBe(1);
     },
@@ -119,216 +121,200 @@ describe("System One retry policy", () => {
   ])(
     "uses a valid Retry-After minimum and falls back for invalid value $value",
     async ({ value, requestAt, delayMs }) => {
-      vi.useFakeTimers();
-      vi.setSystemTime(new Date(requestAt ?? "2026-09-24T10:00:00.000Z"));
-      let requests = 0;
-      const client = new SystemOneClient(
-        { url: "https://localhost/v1/systemone", model: "jev-latest" },
-        async () => {
-          requests += 1;
-          if (requests !== 1) {
-            return new Response(JSON.stringify(responseBody), { status: 200 });
-          }
-          return new Response("busy", {
-            status: 429,
-            headers: { "retry-after": value },
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          yield* TestClock.setTime(
+            Date.parse(requestAt ?? "2026-09-24T10:00:00.000Z"),
+          );
+          let requests = 0;
+          const client = new SystemOneClient(connection, async () =>
+            ++requests === 1
+              ? new Response("busy", {
+                  status: 429,
+                  headers: { "retry-after": value },
+                })
+              : success(),
+          );
+          const fiber = yield* classify(client).pipe(Effect.forkChild);
+          yield* TestClock.adjust(delayMs - 1);
+          expect(requests).toBe(1);
+          yield* TestClock.adjust(1);
+          expect(yield* Fiber.join(fiber)).toMatchObject({
+            model: "jev-1.13.0",
           });
-        },
+          expect(requests).toBe(2);
+        }).pipe(Effect.provide(TestClock.layer())),
       );
-      const classification = client.classify(
-        request,
-        new AbortController().signal,
-        () => undefined,
-      );
-      const assertion = expect(classification).resolves.toMatchObject({
-        model: "jev-1.13.0",
-      });
-
-      await vi.advanceTimersByTimeAsync(0);
-      await vi.advanceTimersByTimeAsync(delayMs - 1);
-      expect(requests).toBe(1);
-      await vi.advanceTimersByTimeAsync(1);
-      await assertion;
-      expect(requests).toBe(2);
     },
   );
 
   it("stops after four attempts and records each failure under one observation ID", async () => {
-    vi.useFakeTimers();
-    let requests = 0;
-    const observations: SeqlaneObservation[] = [];
-    const client = new SystemOneClient(
-      { url: "https://localhost/v1/systemone", model: "jev-latest" },
-      async () => {
-        requests += 1;
-        return new Response("unavailable", { status: 503 });
-      },
-    );
-    const classification = client.classify(
-      request,
-      new AbortController().signal,
-      (observation) => observations.push(observation),
-    );
-    const assertion = expect(classification).rejects.toMatchObject({
-      code: "transport",
-      message: "Classifier endpoint returned HTTP 503",
-    });
-
-    await vi.advanceTimersByTimeAsync(1_400);
-    await assertion;
-    expect(requests).toBe(4);
-    expect(observations).toHaveLength(4);
-    expect(observations.map(({ attemptIndex }) => attemptIndex)).toEqual([
-      0, 1, 2, 3,
-    ]);
-    expect(
-      new Set(observations.map(({ observationId }) => observationId)).size,
-    ).toBe(1);
-  });
-
-  it("does not retry when Retry-After cannot fit the remaining budget", async () => {
-    const clock = await Effect.runPromise(Effect.scoped(TestClock.make()));
-    let requests = 0;
-    const observations: SeqlaneObservation[] = [];
-    let started!: () => void;
-    const fetchStarted = new Promise<void>((resolve) => {
-      started = resolve;
-    });
-    let respond!: (response: Response) => void;
-    const client = new SystemOneClient(
-      { url: "https://localhost/v1/systemone", model: "jev-latest" },
-      async () => {
-        requests += 1;
-        started();
-        return new Promise<Response>((resolve) => {
-          respond = resolve;
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        let requests = 0;
+        const observations: SeqlaneObservation[] = [];
+        const client = new SystemOneClient(connection, async () => {
+          requests += 1;
+          return new Response("unavailable", { status: 503 });
         });
-      },
-      clock,
+        const fiber = yield* classify(client, observations).pipe(
+          Effect.forkChild,
+        );
+        yield* TestClock.adjust(1_400);
+        expect(yield* Effect.flip(Fiber.join(fiber))).toMatchObject({
+          code: "transport",
+          message: "Classifier endpoint returned HTTP 503",
+        });
+        expect(requests).toBe(4);
+        expect(observations).toHaveLength(4);
+        expect(observations.map(({ attemptIndex }) => attemptIndex)).toEqual([
+          0, 1, 2, 3,
+        ]);
+        expect(
+          new Set(observations.map(({ observationId }) => observationId)).size,
+        ).toBe(1);
+      }).pipe(Effect.provide(TestClock.layer())),
     );
-
-    const classification = client.classify(
-      request,
-      new AbortController().signal,
-      (observation) => observations.push(observation),
-    );
-    await fetchStarted;
-    await Effect.runPromise(clock.adjust(19_500));
-    respond(
-      new Response("busy", {
-        status: 429,
-        headers: { "retry-after": "1" },
-      }),
-    );
-    await expect(classification).rejects.toMatchObject({ code: "transport" });
-    expect(requests).toBe(1);
-    expect(observations).toHaveLength(1);
-    expect(retryDelayFor(0, "1", Date.now(), 500)).toBeUndefined();
   });
 
-  it("preserves the last attempt failure when the deadline expires in backoff", async () => {
-    vi.useFakeTimers();
-    let requests = 0;
-    const observations: SeqlaneObservation[] = [];
-    const client = new SystemOneClient(
-      { url: "https://localhost/v1/systemone", model: "jev-latest" },
-      async () => {
-        requests += 1;
-        return new Promise<Response>((resolve) => {
-          setTimeout(
-            () => resolve(new Response("busy", { status: 429 })),
-            19_800,
+  it.each([
+    { elapsed: 19_500, retryAfter: "1" },
+    { elapsed: 19_800, retryAfter: "0" },
+  ])(
+    "does not retry when Retry-After cannot fit the remaining budget ($elapsed)",
+    async ({ elapsed, retryAfter }) => {
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          let requests = 0;
+          const observations: SeqlaneObservation[] = [];
+          const response = yield* Deferred.make<Response>();
+          const client = new SystemOneClient(connection, async () => {
+            requests += 1;
+            return Effect.runPromise(Deferred.await(response));
+          });
+          const fiber = yield* classify(client, observations).pipe(
+            Effect.forkChild,
           );
-        });
-      },
-    );
-    const classification = client.classify(
-      request,
-      new AbortController().signal,
-      (observation) => {
-        observations.push(observation);
-      },
-    );
-    const assertion = expect(classification).rejects.toMatchObject({
-      code: "deadline",
-      cause: expect.objectContaining({
-        code: "transport",
-        message: expect.stringContaining("HTTP 429"),
-      }),
-    });
+          yield* TestClock.adjust(elapsed);
+          yield* Deferred.succeed(
+            response,
+            new Response("busy", {
+              status: 429,
+              headers: { "retry-after": retryAfter },
+            }),
+          );
+          expect(yield* Effect.flip(Fiber.join(fiber))).toMatchObject({
+            code: "transport",
+          });
+          expect(requests).toBe(1);
+          expect(observations).toHaveLength(1);
+          expect(retryDelayFor(0, "1", 0, 500)).toBeUndefined();
+        }).pipe(Effect.provide(TestClock.layer())),
+      );
+    },
+  );
 
-    await vi.advanceTimersByTimeAsync(19_800);
-    await vi.advanceTimersByTimeAsync(200);
-    await assertion;
-    expect(requests).toBe(1);
-    expect(observations).toHaveLength(1);
-    expect(observations[0]).toMatchObject({ state: "failed", attemptIndex: 0 });
+  it("preserves the last attempt failure when the deadline expires during a retry", async () => {
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        let requests = 0;
+        const observations: SeqlaneObservation[] = [];
+        const response = yield* Deferred.make<Response>();
+        const client = new SystemOneClient(connection, async (_url, init) => {
+          requests += 1;
+          if (requests > 1)
+            return new Promise<Response>((_resolve, reject) =>
+              init?.signal?.addEventListener(
+                "abort",
+                () => reject(init.signal?.reason),
+                { once: true },
+              ),
+            );
+          return Effect.runPromise(Deferred.await(response));
+        });
+        const fiber = yield* classify(client, observations).pipe(
+          Effect.forkChild,
+        );
+        yield* TestClock.adjust(19_799);
+        yield* Deferred.succeed(
+          response,
+          new Response("busy", { status: 429 }),
+        );
+        yield* TestClock.adjust(201);
+        expect(yield* Effect.flip(Fiber.join(fiber))).toMatchObject({
+          code: "deadline",
+          cause: expect.objectContaining({
+            code: "transport",
+            message: expect.stringContaining("HTTP 429"),
+          }),
+        });
+        expect(requests).toBe(2);
+        expect(observations).toHaveLength(2);
+        expect(observations[0]).toMatchObject({
+          state: "failed",
+          attemptIndex: 0,
+        });
+      }).pipe(Effect.provide(TestClock.layer())),
+    );
   });
 
   it("stops backoff when the caller aborts", async () => {
-    vi.useFakeTimers();
-    const controller = new AbortController();
-    const cancellation = new Error("caller cancelled");
-    const observations: SeqlaneObservation[] = [];
-    let requests = 0;
-    const client = new SystemOneClient(
-      { url: "https://localhost/v1/systemone", model: "jev-latest" },
-      async () => {
-        requests += 1;
-        return new Response("busy", { status: 429 });
-      },
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const controller = new AbortController();
+        const cancellation = new Error("caller cancelled");
+        const observations: SeqlaneObservation[] = [];
+        let requests = 0;
+        const client = new SystemOneClient(connection, async () => {
+          requests += 1;
+          return new Response("busy", { status: 429 });
+        });
+        const fiber = yield* classify(
+          client,
+          observations,
+          controller.signal,
+        ).pipe(Effect.forkChild);
+        yield* TestClock.adjust(50);
+        controller.abort(cancellation);
+        expect(yield* Effect.flip(Fiber.join(fiber))).toBe(cancellation);
+        expect(requests).toBe(1);
+        expect(observations).toHaveLength(1);
+        expect(observations[0]).toMatchObject({
+          state: "failed",
+          attemptIndex: 0,
+        });
+      }).pipe(Effect.provide(TestClock.layer())),
     );
-    const classification = client.classify(
-      request,
-      controller.signal,
-      (observation) => {
-        observations.push(observation);
-        setTimeout(() => controller.abort(cancellation), 50);
-      },
-    );
-    const assertion = expect(classification).rejects.toBe(cancellation);
-
-    await vi.advanceTimersByTimeAsync(50);
-    await assertion;
-    expect(requests).toBe(1);
-    expect(observations).toHaveLength(1);
-    expect(observations[0]).toMatchObject({ state: "failed", attemptIndex: 0 });
   });
 
   it("lets caller cancellation win when it races with a provider response", async () => {
-    vi.useFakeTimers();
     const controller = new AbortController();
     const cancellation = new Error("caller cancelled");
     const observations: SeqlaneObservation[] = [];
     const client = new SystemOneClient(
-      { url: "https://localhost/v1/systemone", model: "jev-latest" },
+      connection,
       async (_url, init) =>
         new Promise<Response>((resolve, reject) => {
-          const requestSignal = init?.signal;
-          if (requestSignal === null || requestSignal === undefined) {
-            reject(new Error("request signal missing"));
-            return;
-          }
-          requestSignal.addEventListener(
-            "abort",
-            () =>
-              resolve(
-                new Response(JSON.stringify(responseBody), { status: 200 }),
-              ),
-            { once: true },
-          );
-          setTimeout(() => controller.abort(cancellation), 50);
+          const signal = init?.signal;
+          if (signal === null || signal === undefined)
+            return reject(new Error("request signal missing"));
+          signal.addEventListener("abort", () => resolve(success()), {
+            once: true,
+          });
         }),
     );
-    const classification = client.classify(
-      request,
-      controller.signal,
-      (observation) => observations.push(observation),
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const fiber = yield* classify(
+          client,
+          observations,
+          controller.signal,
+        ).pipe(Effect.forkChild);
+        yield* TestClock.adjust(50);
+        controller.abort(cancellation);
+        expect(yield* Effect.flip(Fiber.join(fiber))).toBe(cancellation);
+      }).pipe(Effect.provide(TestClock.layer())),
     );
-    const assertion = expect(classification).rejects.toBe(cancellation);
-
-    await vi.advanceTimersByTimeAsync(50);
-    await assertion;
     expect(observations).toHaveLength(1);
     expect(observations[0]).toMatchObject({
       state: "cancelled",
@@ -336,8 +322,47 @@ describe("System One retry policy", () => {
     });
   });
 
+  it("preserves native interruption and aborts the in-flight HTTP request", async () => {
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const started = yield* Deferred.make<void>();
+        const controller = new AbortController();
+        let aborted = false;
+        const observations: SeqlaneObservation[] = [];
+        const client = new SystemOneClient(
+          connection,
+          async (_url, init) =>
+            new Promise<Response>((_resolve, reject) => {
+              init?.signal?.addEventListener(
+                "abort",
+                () => {
+                  aborted = true;
+                  reject(init.signal?.reason);
+                },
+                { once: true },
+              );
+              Deferred.doneUnsafe(started, Effect.void);
+            }),
+        );
+        const fiber = yield* classify(
+          client,
+          observations,
+          controller.signal,
+        ).pipe(Effect.forkChild);
+        yield* Deferred.await(started);
+        yield* Fiber.interrupt(fiber);
+        const exit = yield* Fiber.await(fiber);
+        expect(
+          Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause),
+        ).toBe(true);
+        expect(aborted).toBe(true);
+        expect(controller.signal.aborted).toBe(false);
+        expect(observations).toHaveLength(1);
+      }).pipe(Effect.provide(TestClock.layer())),
+    );
+  });
+
   it("enforces the transport deadline while the response body is read", async () => {
-    vi.useFakeTimers();
     const observations: SeqlaneObservation[] = [];
     let bodySent = false;
     const body = new ReadableStream<Uint8Array>({
@@ -351,20 +376,20 @@ describe("System One retry policy", () => {
       },
     });
     const client = new SystemOneClient(
-      { url: "https://localhost/v1/systemone", model: "jev-latest" },
+      connection,
       async () => new Response(body, { status: 200 }),
     );
-
-    const classification = client.classify(
-      request,
-      new AbortController().signal,
-      (observation) => observations.push(observation),
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const fiber = yield* classify(client, observations).pipe(
+          Effect.forkChild,
+        );
+        yield* TestClock.adjust(20_000);
+        expect(yield* Effect.flip(Fiber.join(fiber))).toMatchObject({
+          code: "deadline",
+        });
+      }).pipe(Effect.provide(TestClock.layer())),
     );
-    const assertion = expect(classification).rejects.toMatchObject({
-      code: "deadline",
-    });
-    await vi.advanceTimersByTimeAsync(20_000);
-    await assertion;
     expect(observations).toHaveLength(1);
     expect(observations[0]).toMatchObject({ state: "failed", attemptIndex: 0 });
   });
@@ -372,63 +397,63 @@ describe("System One retry policy", () => {
   it.each([0, 1])(
     "aborts a pending request within the shared budget after %s retries",
     async (retries) => {
-      vi.useFakeTimers();
-      let requests = 0;
-      let aborted = false;
-      const observations: SeqlaneObservation[] = [];
-      const client = new SystemOneClient(
-        { url: "https://localhost/v1/systemone", model: "jev-latest" },
-        async (_url, init) =>
-          new Promise<Response>((resolve, reject) => {
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          let requests = 0;
+          let aborted = false;
+          const observations: SeqlaneObservation[] = [];
+          const response = yield* Deferred.make<Response>();
+          const client = new SystemOneClient(connection, async (_url, init) => {
             requests += 1;
-            if (requests <= retries) {
-              setTimeout(
-                () => resolve(new Response("busy", { status: 503 })),
-                10_000,
+            if (requests <= retries)
+              return Effect.runPromise(Deferred.await(response));
+            return new Promise<Response>((_resolve, reject) => {
+              const signal = init?.signal;
+              if (signal === null || signal === undefined)
+                return reject(new Error("request signal missing"));
+              signal.addEventListener(
+                "abort",
+                () => {
+                  aborted = true;
+                  reject(signal.reason);
+                },
+                { once: true },
               );
-              return;
-            }
-            const requestSignal = init?.signal;
-            if (requestSignal === null || requestSignal === undefined) {
-              reject(new Error("request signal missing"));
-              return;
-            }
-            requestSignal.addEventListener(
-              "abort",
-              () => {
-                aborted = true;
-                reject(requestSignal.reason);
-              },
-              { once: true },
+            });
+          });
+          const fiber = yield* classify(client, observations).pipe(
+            Effect.forkChild,
+          );
+          if (retries > 0) {
+            yield* TestClock.adjust(10_000);
+            yield* Deferred.succeed(
+              response,
+              new Response("busy", { status: 503 }),
             );
-          }),
+          }
+          yield* TestClock.adjust(
+            CLASSIFIER_TRANSPORT_BUDGET_MS - (retries > 0 ? 10_000 : 0),
+          );
+          expect(yield* Effect.flip(Fiber.join(fiber))).toMatchObject({
+            code: "deadline",
+            ...(retries === 0
+              ? {}
+              : {
+                  cause: expect.objectContaining({
+                    code: "transport",
+                    message: "Classifier endpoint returned HTTP 503",
+                  }),
+                }),
+          });
+          expect(aborted).toBe(true);
+          expect(requests).toBe(retries + 1);
+          expect(observations).toHaveLength(retries + 1);
+          expect(observations[retries]).toMatchObject({
+            state: "failed",
+            attemptIndex: retries,
+          });
+        }).pipe(Effect.provide(TestClock.layer())),
       );
-      const classification = client.classify(
-        request,
-        new AbortController().signal,
-        (observation) => observations.push(observation),
-      );
-      const assertion = expect(classification).rejects.toMatchObject({
-        code: "deadline",
-        ...(retries === 0
-          ? {}
-          : {
-              cause: expect.objectContaining({
-                code: "transport",
-                message: "Classifier endpoint returned HTTP 503",
-              }),
-            }),
-      });
-
-      await vi.advanceTimersByTimeAsync(CLASSIFIER_TRANSPORT_BUDGET_MS);
-      await assertion;
-      expect(aborted).toBe(true);
-      expect(requests).toBe(retries + 1);
-      expect(observations).toHaveLength(retries + 1);
-      expect(observations[retries]).toMatchObject({
-        state: "failed",
-        attemptIndex: retries,
-      });
     },
   );
 });

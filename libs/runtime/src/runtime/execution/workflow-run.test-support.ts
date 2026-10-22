@@ -1,10 +1,12 @@
-// @test-scope ./effect-plan.ts
-// @test-scope ./settle-run-program.ts
-
 import { RuntimeError, type SeqlaneRunOutcome } from "@seqlane/core";
 import type { CompiledPlan } from "../compile/compile-plan.js";
 import { runCompiledGraphProgram } from "./effect-plan.js";
 import { publishRunOutcome, settleRunProgram } from "./settle-run-program.js";
+import { Effect } from "effect";
+import { runProgram, type SequentialProgram } from "./program.js";
+
+// @test-scope ./effect-plan.ts
+// @test-scope ./settle-run-program.ts
 
 export interface ActiveWorkflowRun {
   readonly outcome: Promise<SeqlaneRunOutcome>;
@@ -78,4 +80,24 @@ export async function runCompiledWorkflow(
   compiled: CompiledPlan,
 ): Promise<SeqlaneRunOutcome> {
   return startCompiledWorkflow(compiled).outcome;
+}
+
+export type SequentialProgramResult =
+  | { readonly status: "cancelled" }
+  | { readonly status: "failed"; readonly error: unknown }
+  | { readonly status: "success" };
+
+export function executeSequentialProgram(
+  program: SequentialProgram,
+  signal?: AbortSignal,
+): Promise<SequentialProgramResult> {
+  if (signal?.aborted) return Promise.resolve({ status: "cancelled" });
+  const abortSignal = signal ?? new AbortController().signal;
+  return Effect.runPromise(runProgram(program, abortSignal)).then((results) => {
+    if (abortSignal.aborted) return { status: "cancelled" } as const;
+    const failed = results.find((result) => result.status === "failed");
+    return failed === undefined
+      ? ({ status: "success" } as const)
+      : ({ status: "failed", error: failed.error } as const);
+  });
 }
