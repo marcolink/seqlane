@@ -1,5 +1,6 @@
+import { openCodeEffect } from "./effect-boundary.js";
 import { InteractionRequiredError } from "@seqlane/core";
-import { Effect, Semaphore, Stream } from "effect";
+import { Cause, Effect, Semaphore, Stream } from "effect";
 import type { ModelSelection } from "@seqlane/core";
 import { z } from "zod";
 import { OpenCodeExecutorError } from "./errors.js";
@@ -431,245 +432,240 @@ async function createOpenCodeRunForSession(
         promptSemaphore,
         1,
       )(
-        Effect.tryPromise({
-          try: async () => {
-            closer.assertOpen();
-            if (aborted || signal?.aborted || request.signal?.aborted) {
-              throw executorError("run was cancelled before task submission");
-            }
+        Effect.gen(function* () {
+          closer.assertOpen();
+          if (aborted || signal?.aborted || request.signal?.aborted) {
+            throw executorError("run was cancelled before task submission");
+          }
 
+          const selected = yield* openCodeEffect(() => outputState.resolve());
+          const effectiveStrategy = request.strategy ?? selected.strategy;
+          async function abortPromptSession(
+            originalFailure?: unknown,
+          ): Promise<void> {
+            const hasOriginalFailure = arguments.length > 0;
             try {
-              const selected = await outputState.resolve();
-              const effectiveStrategy = request.strategy ?? selected.strategy;
-              async function abortPromptSession(
-                originalFailure?: unknown,
-              ): Promise<void> {
-                const hasOriginalFailure = arguments.length > 0;
-                try {
-                  await abort();
-                } catch (cause) {
-                  request.onUncertainActivity?.({
-                    reason: "timeout",
-                    termination: abortPromise,
-                  });
-                  throw executorError(
-                    "external session termination was not confirmed",
-                    hasOriginalFailure
-                      ? new AggregateError([originalFailure, cause])
-                      : cause,
-                  );
-                }
-                try {
-                  activeDispatcher?.finish();
-                } catch (cause) {
-                  throw executorError(
-                    "canonical event sink failed during prompt cleanup",
-                    new AggregateError(
-                      hasOriginalFailure ? [originalFailure, cause] : [cause],
-                    ),
-                  );
-                }
-              }
-              const effectiveRequest: OpenCodePrompt = {
-                ...request,
-                strategy: effectiveStrategy,
-                retryCount: selected.retryCount,
-                ...(configuredSelection === undefined
-                  ? {}
-                  : {
-                      selection: configuredSelection,
-                      ...(configuredSelection.reasoning === undefined
-                        ? {}
-                        : { variant: configuredSelection.reasoning }),
-                    }),
-              };
-              const dispatcher = createAttemptTransitionDispatcher({
-                onActivity: request.onActivity,
-                onObservation: request.onObservation,
-              });
-              activeDispatcher = dispatcher;
-              let monitoredResult: MonitoredPromptResult<OpenCodePromptResult>;
-              try {
-                monitoredResult = await runMonitoredPrompt({
-                  transport,
-                  sessionID,
-                  runSignal: runController.signal,
-                  requestSignal: request.signal,
-                  onUncertainActivity: request.onUncertainActivity,
-                  abortSession: abortPromptSession,
-                  observeEvents: (events, monitorSignal, onStarted) =>
-                    waitForInteraction(
-                      events,
-                      sessionID,
-                      monitorSignal,
-                      dispatcher,
-                      request.onUncertainActivity,
-                      (message) =>
-                        reportEventDiagnostic(request.onDiagnostic, message),
-                      onStarted,
-                    ),
-                  beforePrompt: async () => {
-                    if (
-                      effectiveStrategy === "prompt" &&
-                      (request.onActivity !== undefined ||
-                        request.onObservation !== undefined)
-                    ) {
-                      await snapshotPromptMessageHistory(
-                        transport,
-                        sessionID,
-                        request.signal ?? runController.signal,
-                        messageHistory,
-                        (message) =>
-                          reportEventDiagnostic(request.onDiagnostic, message),
-                      );
-                    }
-                    request.onExecutionStarted?.();
-                  },
-                  prompt: async (promptSignal) => {
-                    const response = await transport.prompt(
-                      sessionID,
-                      effectiveRequest,
-                      promptSignal,
-                    );
-                    request.onNativeResponse?.(response);
-                    return response;
-                  },
-                  handleResponse: async (response) => {
-                    const parsed = parseOpenCodePromptResponse(
-                      response,
-                      effectiveStrategy,
-                    );
-                    if (parsed.checkpoint.sessionId !== sessionID) {
-                      throw executorError(
-                        "prompt response belonged to another session",
-                      );
-                    }
-                    if (effectiveStrategy === "prompt") {
-                      await reconcilePromptObservations({
-                        transport,
-                        sessionID,
-                        signal: request.signal ?? runController.signal,
-                        response,
-                        dispatcher,
-                        history: messageHistory,
-                        onDiagnostic: (message) =>
-                          reportEventDiagnostic(request.onDiagnostic, message),
-                      });
-                    } else {
-                      dispatchMessageObservations(
-                        [response],
-                        sessionID,
-                        dispatcher,
-                        undefined,
-                        (message) =>
-                          reportEventDiagnostic(request.onDiagnostic, message),
-                      );
-                    }
-                    if (
-                      effectiveStrategy === "native" &&
-                      transport.listMessages
-                    ) {
-                      try {
-                        await transport.listMessages(
-                          sessionID,
-                          request.signal ?? runController.signal,
-                        );
-                      } catch (cause) {
-                        if (isNativeReadbackCompatibilityError(cause)) {
-                          outputState.markNativeReadbackIncompatible(
-                            selected.version,
-                          );
-                          throw new StructuredOutputCompatibilityError(
-                            selected.version,
-                            sessionID,
-                            cause,
-                          );
-                        }
-                        throw executorError(
-                          "could not read the external session",
-                          cause,
-                        );
-                      }
-                    }
-                    terminalCheckpoint = parsed.checkpoint;
-                    return {
-                      structured: parsed.structured,
-                      ...(parsed.text === undefined
-                        ? {}
-                        : { text: parsed.text }),
-                      nativeResponse: response,
-                      ...(parsed.metrics === undefined
-                        ? {}
-                        : { metrics: parsed.metrics }),
-                      ...(parsed.observation === undefined
-                        ? {}
-                        : { observation: parsed.observation }),
-                    };
-                  },
-                });
-              } finally {
-                if (activeDispatcher === dispatcher)
-                  activeDispatcher = undefined;
-              }
-
-              if (monitoredResult.type === "cancelled") {
-                dispatcher.finish();
-                throw executorError("run was cancelled during task submission");
-              }
-              if (monitoredResult.type === "monitor-error") {
-                request.onRunInvalidated?.();
-                try {
-                  dispatcher.finish();
-                } catch (terminalCause) {
-                  throw executorError(
-                    "canonical event sink failed during prompt cleanup",
-                    new AggregateError(
-                      [monitoredResult.cause, terminalCause],
-                      "OpenCode monitor and terminal event sinks failed",
-                    ),
-                  );
-                }
-                throw executorError(
-                  "could not monitor external interaction requirements",
-                  monitoredResult.cause,
-                );
-              }
-              if (monitoredResult.type === "interaction") {
-                request.onRunInvalidated?.();
-                dispatcher.finish();
-                throw new InteractionRequiredError("user-input");
-              }
-              if (monitoredResult.type === "transport-error") {
-                if (
-                  effectiveStrategy === "native" &&
-                  isNativeReadbackCompatibilityError(monitoredResult.cause)
-                ) {
-                  outputState.markNativeReadbackIncompatible(selected.version);
-                  throw new StructuredOutputCompatibilityError(
-                    selected.version,
-                    sessionID,
-                    monitoredResult.cause,
-                  );
-                }
-                request.onUncertainActivity?.({ reason: "disconnect" });
-                throw executorError(
-                  "structured task request failed",
-                  monitoredResult.cause,
-                );
-              }
-              return monitoredResult.response;
+              await abort();
             } catch (cause) {
-              if (cause instanceof InteractionRequiredError) throw cause;
-              if (
+              request.onUncertainActivity?.({
+                reason: "timeout",
+                termination: abortPromise,
+              });
+              throw executorError(
+                "external session termination was not confirmed",
+                hasOriginalFailure
+                  ? new AggregateError([originalFailure, cause])
+                  : cause,
+              );
+            }
+            try {
+              activeDispatcher?.finish();
+            } catch (cause) {
+              throw executorError(
+                "canonical event sink failed during prompt cleanup",
+                new AggregateError(
+                  hasOriginalFailure ? [originalFailure, cause] : [cause],
+                ),
+              );
+            }
+          }
+          const effectiveRequest: OpenCodePrompt = {
+            ...request,
+            strategy: effectiveStrategy,
+            retryCount: selected.retryCount,
+            ...(configuredSelection === undefined
+              ? {}
+              : {
+                  selection: configuredSelection,
+                  ...(configuredSelection.reasoning === undefined
+                    ? {}
+                    : { variant: configuredSelection.reasoning }),
+                }),
+          };
+          const dispatcher = createAttemptTransitionDispatcher({
+            onActivity: request.onActivity,
+            onObservation: request.onObservation,
+          });
+          activeDispatcher = dispatcher;
+          const monitoredResult: MonitoredPromptResult<OpenCodePromptResult> =
+            yield* runMonitoredPrompt({
+              transport,
+              sessionID,
+              runSignal: runController.signal,
+              requestSignal: request.signal,
+              onUncertainActivity: request.onUncertainActivity,
+              abortSession: abortPromptSession,
+              observeEvents: (events, monitorSignal, onStarted) =>
+                waitForInteraction(
+                  events,
+                  sessionID,
+                  monitorSignal,
+                  dispatcher,
+                  request.onUncertainActivity,
+                  (message) =>
+                    reportEventDiagnostic(request.onDiagnostic, message),
+                  onStarted,
+                ),
+              beforePrompt: async () => {
+                if (
+                  effectiveStrategy === "prompt" &&
+                  (request.onActivity !== undefined ||
+                    request.onObservation !== undefined)
+                ) {
+                  await snapshotPromptMessageHistory(
+                    transport,
+                    sessionID,
+                    request.signal ?? runController.signal,
+                    messageHistory,
+                    (message) =>
+                      reportEventDiagnostic(request.onDiagnostic, message),
+                  );
+                }
+                request.onExecutionStarted?.();
+              },
+              prompt: async (promptSignal) => {
+                const response = await transport.prompt(
+                  sessionID,
+                  effectiveRequest,
+                  promptSignal,
+                );
+                request.onNativeResponse?.(response);
+                return response;
+              },
+              handleResponse: async (response) => {
+                const parsed = parseOpenCodePromptResponse(
+                  response,
+                  effectiveStrategy,
+                );
+                if (parsed.checkpoint.sessionId !== sessionID) {
+                  throw executorError(
+                    "prompt response belonged to another session",
+                  );
+                }
+                if (effectiveStrategy === "prompt") {
+                  await reconcilePromptObservations({
+                    transport,
+                    sessionID,
+                    signal: request.signal ?? runController.signal,
+                    response,
+                    dispatcher,
+                    history: messageHistory,
+                    onDiagnostic: (message) =>
+                      reportEventDiagnostic(request.onDiagnostic, message),
+                  });
+                } else {
+                  dispatchMessageObservations(
+                    [response],
+                    sessionID,
+                    dispatcher,
+                    undefined,
+                    (message) =>
+                      reportEventDiagnostic(request.onDiagnostic, message),
+                  );
+                }
+                if (effectiveStrategy === "native" && transport.listMessages) {
+                  try {
+                    await transport.listMessages(
+                      sessionID,
+                      request.signal ?? runController.signal,
+                    );
+                  } catch (cause) {
+                    if (isNativeReadbackCompatibilityError(cause)) {
+                      outputState.markNativeReadbackIncompatible(
+                        selected.version,
+                      );
+                      throw new StructuredOutputCompatibilityError(
+                        selected.version,
+                        sessionID,
+                        cause,
+                      );
+                    }
+                    throw executorError(
+                      "could not read the external session",
+                      cause,
+                    );
+                  }
+                }
+                terminalCheckpoint = parsed.checkpoint;
+                return {
+                  structured: parsed.structured,
+                  ...(parsed.text === undefined ? {} : { text: parsed.text }),
+                  nativeResponse: response,
+                  ...(parsed.metrics === undefined
+                    ? {}
+                    : { metrics: parsed.metrics }),
+                  ...(parsed.observation === undefined
+                    ? {}
+                    : { observation: parsed.observation }),
+                };
+              },
+            }).pipe(
+              Effect.ensuring(
+                Effect.sync(() => {
+                  if (activeDispatcher === dispatcher)
+                    activeDispatcher = undefined;
+                }),
+              ),
+            );
+
+          if (monitoredResult.type === "cancelled") {
+            dispatcher.finish();
+            throw executorError("run was cancelled during task submission");
+          }
+          if (monitoredResult.type === "monitor-error") {
+            request.onRunInvalidated?.();
+            try {
+              dispatcher.finish();
+            } catch (terminalCause) {
+              throw executorError(
+                "canonical event sink failed during prompt cleanup",
+                new AggregateError(
+                  [monitoredResult.cause, terminalCause],
+                  "OpenCode monitor and terminal event sinks failed",
+                ),
+              );
+            }
+            throw executorError(
+              "could not monitor external interaction requirements",
+              monitoredResult.cause,
+            );
+          }
+          if (monitoredResult.type === "interaction") {
+            request.onRunInvalidated?.();
+            dispatcher.finish();
+            throw new InteractionRequiredError("user-input");
+          }
+          if (monitoredResult.type === "transport-error") {
+            if (
+              effectiveStrategy === "native" &&
+              isNativeReadbackCompatibilityError(monitoredResult.cause)
+            ) {
+              outputState.markNativeReadbackIncompatible(selected.version);
+              throw new StructuredOutputCompatibilityError(
+                selected.version,
+                sessionID,
+                monitoredResult.cause,
+              );
+            }
+            request.onUncertainActivity?.({ reason: "disconnect" });
+            throw executorError(
+              "structured task request failed",
+              monitoredResult.cause,
+            );
+          }
+          return monitoredResult.response;
+        }).pipe(
+          Effect.catchCause((failure) => {
+            const cause = Cause.squash(failure);
+            return Effect.fail(
+              cause instanceof InteractionRequiredError ||
                 cause instanceof OpenCodeExecutorError ||
                 cause instanceof StructuredOutputCompatibilityError
-              )
-                throw cause;
-              throw executorError("structured task request failed", cause);
-            }
-          },
-          catch: (cause) => cause,
-        }),
+                ? cause
+                : executorError("structured task request failed", cause),
+            );
+          }),
+        ),
       ),
     );
     void operation.catch(() => undefined);

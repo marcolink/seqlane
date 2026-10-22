@@ -33,6 +33,9 @@ Prompt completion performs one bounded tail drain. Prompt-mode completion also
 reconciles newly persisted assistant message tool parts when the history stream
 does not expose the activity event. Closing a run cancels active local
 requests, interrupts the remote session, and waits for bounded cleanup.
+The prompt semaphore, monitor, and cancellation fibers share one Effect
+context. SDK signals and late settlement remain owned at the adapter edge.
+An interrupted fiber alone does not confirm external session termination.
 
 OpenCode `skill` calls remain distinguishable from tools in activity events.
 When the native event exposes a skill name, the adapter preserves that name and

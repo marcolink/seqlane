@@ -84,6 +84,26 @@ async function createTransport(body: string): Promise<{
 }
 
 describe("Codex app-server transport", () => {
+  it("registers cancellation before an outbound write can abort synchronously", async () => {
+    const { child, transport } = await createTransport(`
+      if (message.method === "initialize") { ${writeResponse(initializeResult, "message.id")} }
+      else if (message.id !== undefined) { ${writeResponse({ ok: true }, "message.id")} }
+    `);
+    const controller = new AbortController();
+    const write = child.stdin.write.bind(child.stdin);
+    child.stdin.write = ((chunk: string | Uint8Array, ...args: unknown[]) => {
+      if (String(chunk).includes('"method":"cancel-during-write"'))
+        controller.abort(false);
+      return (write as (...values: unknown[]) => boolean)(chunk, ...args);
+    }) as typeof child.stdin.write;
+    await expect(
+      transport.request("cancel-during-write", {}, controller.signal),
+    ).rejects.toBe(false);
+    // The cancelled response remains a known tombstone; the same connection survives it.
+    await expect(transport.request("next", {})).resolves.toEqual({ ok: true });
+    await transport.close();
+  });
+
   it("surfaces a safe request rejection while retaining the server error as cause", async () => {
     const { transport } = await createTransport(`
       if (message.method === "initialize") {

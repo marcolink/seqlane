@@ -857,85 +857,93 @@ describe("Codex AgentAdapter", () => {
     });
   });
 
-  it("preserves termination failure when it wins after interrupt acknowledgement", async () => {
-    const transport = new FakeTransport();
-    transport.emitCompletion = false;
-    transport.completeAfterInterrupt = false;
-    const controller = new AbortController();
-    const activities: AgentActivity[] = [];
-    const adapter = createCodexAdapterForTransport(transport, configuration, {
-      modelSelection: selection,
-    });
-    const cancellationCause = new Error("task cancelled");
-    const terminationCause = new Error("Codex app-server failed to exit");
-    const execution = adapter.execute(
-      request({
-        signal: controller.signal,
-        onActivity: (activity) => activities.push(activity),
-      }),
-    );
+  it.each([
+    new Error("Codex app-server failed to exit"),
+    false,
+    0,
+    null,
+    undefined,
+  ])(
+    "preserves termination failure %s after interrupt acknowledgement",
+    async (terminationCause) => {
+      const transport = new FakeTransport();
+      transport.emitCompletion = false;
+      transport.completeAfterInterrupt = false;
+      const controller = new AbortController();
+      const activities: AgentActivity[] = [];
+      const adapter = createCodexAdapterForTransport(transport, configuration, {
+        modelSelection: selection,
+      });
+      const cancellationCause = new Error("task cancelled");
+      const execution = adapter.execute(
+        request({
+          signal: controller.signal,
+          onActivity: (activity) => activities.push(activity),
+        }),
+      );
 
-    for (
-      let index = 0;
-      index < 20 &&
-      !transport.requests.some((value) => value.method === "turn/start");
-      index += 1
-    ) {
-      await Promise.resolve();
-    }
-    transport.emit({
-      kind: "notification",
-      notification: {
-        method: "item/started",
-        params: {
-          threadId: "thread-1",
-          turnId: "turn-1",
-          item: {
-            id: "tool-open",
-            type: "commandExecution",
-            input: { command: "sleep 60" },
+      for (
+        let index = 0;
+        index < 20 &&
+        !transport.requests.some((value) => value.method === "turn/start");
+        index += 1
+      ) {
+        await Promise.resolve();
+      }
+      transport.emit({
+        kind: "notification",
+        notification: {
+          method: "item/started",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            item: {
+              id: "tool-open",
+              type: "commandExecution",
+              input: { command: "sleep 60" },
+            },
+            startedAtMs: 10,
           },
-          startedAtMs: 10,
         },
-      },
-    });
-    controller.abort(cancellationCause);
-    for (
-      let index = 0;
-      index < 20 && !transport.interruptAcknowledged;
-      index += 1
-    ) {
+      });
+      controller.abort(cancellationCause);
+      for (
+        let index = 0;
+        index < 20 && !transport.interruptAcknowledged;
+        index += 1
+      ) {
+        await Promise.resolve();
+      }
       await Promise.resolve();
-    }
-    await Promise.resolve();
-    expect(transport.interruptAcknowledged).toBe(true);
-    expect(activities.map((activity) => activity.state)).toEqual(["started"]);
+      expect(transport.interruptAcknowledged).toBe(true);
+      expect(activities.map((activity) => activity.state)).toEqual(["started"]);
 
-    transport.fail(terminationCause);
-    let rejection: unknown;
-    try {
-      await execution;
-    } catch (cause) {
-      rejection = cause;
-    }
-    expect(rejection).toMatchObject({ code: "cancellation" });
-    if (!(rejection instanceof Error)) {
-      throw new Error("Codex cancellation rejection was not an Error");
-    }
-    let cause: unknown = rejection.cause;
-    while (cause instanceof Error && !(cause instanceof AggregateError)) {
-      cause = cause.cause;
-    }
-    expect(cause).toBeInstanceOf(AggregateError);
-    if (!(cause instanceof AggregateError)) {
-      throw new Error("Codex cancellation did not retain its causes");
-    }
-    expect(cause.errors).toEqual([cancellationCause, terminationCause]);
-    expect(activities.map((activity) => activity.state)).toEqual([
-      "started",
-      "failed",
-    ]);
-  });
+      transport.fail(terminationCause);
+      let rejection: unknown;
+      try {
+        await execution;
+      } catch (cause) {
+        rejection = cause;
+      }
+      expect(rejection).toMatchObject({ code: "cancellation" });
+      if (!(rejection instanceof Error)) {
+        throw new Error("Codex cancellation rejection was not an Error");
+      }
+      let cause: unknown = rejection.cause;
+      while (cause instanceof Error && !(cause instanceof AggregateError)) {
+        cause = cause.cause;
+      }
+      expect(cause).toBeInstanceOf(AggregateError);
+      if (!(cause instanceof AggregateError)) {
+        throw new Error("Codex cancellation did not retain its causes");
+      }
+      expect(cause.errors).toEqual([cancellationCause, terminationCause]);
+      expect(activities.map((activity) => activity.state)).toEqual([
+        "started",
+        "failed",
+      ]);
+    },
+  );
 
   it("fails tool activity left open when a completed turn omits item completion", async () => {
     const transport = new FakeTransport();

@@ -23,7 +23,7 @@ and tasks.
 
 ## Next implementation deliverable
 
-[Native adapter coordination](./tasks/2026-10-22-effect-v4-optimize-adapter-coordination.md)
+[Transactional admission](./tasks/2026-10-22-effect-v4-optimize-transactional-admission.md)
 is next in the sequential optimization follow-up. Each task links its prerequisite.
 The completed migration remains recorded in its original task outcomes.
 

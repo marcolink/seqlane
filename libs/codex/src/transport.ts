@@ -1,6 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
-import { Clock, Effect, Exit, Scope } from "effect";
+import { Clock, Deferred, Effect, Exit, Scope } from "effect";
+import { codexEffect } from "./effect-boundary.js";
 import { CodexAdapterError, CodexProtocolError } from "./errors.js";
 import {
   MAX_JSONL_OUTBOUND_MESSAGE_BYTES,
@@ -63,14 +64,7 @@ export interface CodexTransportOptions {
 
 interface PendingRequest {
   readonly method: string;
-  readonly resolve: (value: unknown) => void;
-  readonly reject: (cause: unknown) => void;
-  readonly signal?: AbortSignal;
-  readonly onAbort?: () => void;
-}
-
-function toError(cause: unknown): Error {
-  return cause instanceof Error ? cause : new Error(String(cause));
+  readonly result: Deferred.Deferred<unknown, unknown>;
 }
 
 function rejectedRequestMessage(method: string, code: number): string {
@@ -240,10 +234,8 @@ export async function createCodexTransportForProcess(
   const pending = new Map<CodexRequestId, PendingRequest>();
   const ignoredResponses = new Map<CodexRequestId, number>();
   const listeners = new Set<(message: CodexInboundMessage) => void>();
-  let terminationSettled = false;
-  let terminationRequested = false;
-  let terminationFailed = false;
-  let terminationCause: unknown;
+  const terminated = Deferred.makeUnsafe<void, unknown>();
+  let terminationFailure: { readonly cause: unknown } | undefined;
   let cleanupFailure: { readonly cause: unknown } | undefined;
   let shutdown: Promise<void> | undefined;
   const identityCapture: Promise<
@@ -258,27 +250,21 @@ export async function createCodexTransportForProcess(
           error: new Error("Process group ownership is unavailable"),
         });
   const processScope = Effect.runSync(Scope.make());
-  let resolveTermination!: () => void;
-  let rejectTermination!: (cause: unknown) => void;
-  const termination = new Promise<void>((resolve, reject) => {
-    resolveTermination = resolve;
-    rejectTermination = reject;
-  });
+  const termination = Effect.runPromise(Deferred.await(terminated));
   void termination.catch(() => undefined);
 
   const settleTermination = (): void => {
-    if (terminationSettled) return;
-    terminationSettled = true;
-    if (terminationFailed) rejectTermination(terminationCause);
-    else resolveTermination();
+    Deferred.doneUnsafe(
+      terminated,
+      terminationFailure === undefined
+        ? Effect.void
+        : Effect.fail(terminationFailure.cause),
+    );
   };
 
   const recordCleanupFailure = (cause: unknown): void => {
     cleanupFailure = { cause };
-    if (!terminationFailed) {
-      terminationFailed = true;
-      terminationCause = cause;
-    }
+    terminationFailure ??= { cause };
   };
 
   const pruneIgnoredResponses = (): void => {
@@ -304,19 +290,25 @@ export async function createCodexTransportForProcess(
   };
 
   const rejectPending = (cause: unknown): void => {
-    const error = toError(cause);
     for (const [id, request] of pending) {
-      if (request.onAbort !== undefined && request.signal !== undefined) {
-        request.signal.removeEventListener("abort", request.onAbort);
-      }
       pending.delete(id);
-      request.reject(error);
+      Deferred.doneUnsafe(request.result, Effect.fail(cause));
     }
   };
 
+  const awaitGracefulClose = (): Promise<boolean> =>
+    Effect.runPromise(
+      Deferred.await(terminated).pipe(
+        Effect.as(true),
+        Effect.timeoutOrElse({
+          duration: SHUTDOWN_GRACE_MS,
+          orElse: () => Effect.succeed(false),
+        }),
+      ),
+    );
+
   const requestChildTermination = (): Promise<void> => {
-    if (terminationRequested) return shutdown ?? Promise.resolve();
-    terminationRequested = true;
+    if (shutdown !== undefined) return shutdown;
     try {
       child.stdin.destroy();
     } catch {
@@ -333,17 +325,7 @@ export async function createCodexTransportForProcess(
           } catch {
             // Best-effort leader cleanup after identity capture failed.
           }
-          const exited = await Effect.runPromise(
-            Effect.raceFirst(
-              Effect.sleep(`${SHUTDOWN_GRACE_MS} millis`).pipe(
-                Effect.as(false),
-              ),
-              Effect.tryPromise({
-                try: () => termination.then(() => true),
-                catch: (cause) => cause,
-              }),
-            ),
-          );
+          const exited = await awaitGracefulClose();
           if (!exited) child.kill("SIGKILL");
           await withDeadline(
             termination,
@@ -374,15 +356,7 @@ export async function createCodexTransportForProcess(
       } catch {
         // Best-effort process cleanup for an injected child process.
       }
-      const exited = await Effect.runPromise(
-        Effect.raceFirst(
-          Effect.sleep(`${SHUTDOWN_GRACE_MS} millis`).pipe(Effect.as(false)),
-          Effect.tryPromise({
-            try: () => termination.then(() => true),
-            catch: (cause) => cause,
-          }),
-        ),
-      );
+      const exited = await awaitGracefulClose();
       if (!exited) {
         try {
           child.kill("SIGKILL");
@@ -405,8 +379,7 @@ export async function createCodexTransportForProcess(
 
   const fail = (cause: unknown): void => {
     if (state !== "open") return;
-    terminationFailed = true;
-    terminationCause = cause;
+    terminationFailure = { cause };
     state = "closing";
     rejectPending(cause);
     ignoredResponses.clear();
@@ -449,19 +422,19 @@ export async function createCodexTransportForProcess(
         return;
       }
       pending.delete(message.id);
-      if (request.onAbort !== undefined && request.signal !== undefined) {
-        request.signal.removeEventListener("abort", request.onAbort);
-      }
       if (message.error !== undefined) {
-        request.reject(
-          new CodexAdapterError(
-            "execution",
-            rejectedRequestMessage(request.method, message.error.code),
-            message.error,
+        Deferred.doneUnsafe(
+          request.result,
+          Effect.fail(
+            new CodexAdapterError(
+              "execution",
+              rejectedRequestMessage(request.method, message.error.code),
+              message.error,
+            ),
           ),
         );
       } else {
-        request.resolve(message.result);
+        Deferred.doneUnsafe(request.result, Effect.succeed(message.result));
       }
       return;
     }
@@ -526,8 +499,7 @@ export async function createCodexTransportForProcess(
         "execution",
         `Codex app-server disconnected (${code ?? signal ?? "unknown"})`,
       );
-      terminationFailed = true;
-      terminationCause = cause;
+      terminationFailure = { cause };
       rejectPending(cause);
     }
     state = "closed";
@@ -551,7 +523,7 @@ export async function createCodexTransportForProcess(
           ),
         );
       }
-      if (!terminationRequested) {
+      if (shutdown === undefined) {
         try {
           child.stdin.end();
         } catch {
@@ -585,32 +557,41 @@ export async function createCodexTransportForProcess(
           ),
         );
       const id = nextId++;
-      return new Promise((resolve, reject) => {
-        const onAbort = (): void => {
-          pending.delete(id);
-          ignoreResponse(id);
-          reject(
-            signal?.reason ??
-              new CodexAdapterError(
-                "cancellation",
-                "Codex request was cancelled",
-              ),
-          );
-        };
-        if (signal?.aborted) {
-          onAbort();
-          return;
-        }
-        pending.set(id, { method, resolve, reject, signal, onAbort });
-        try {
-          writeMessage(child, { jsonrpc: "2.0", id, method, params });
-        } catch (cause) {
-          pending.delete(id);
-          reject(cause);
-          return;
-        }
-        signal?.addEventListener("abort", onAbort, { once: true });
-      });
+      if (signal?.aborted) return Promise.reject(signal.reason);
+      const result = Deferred.makeUnsafe<unknown, unknown>();
+      const onAbort = (): void => {
+        if (pending.delete(id)) ignoreResponse(id);
+        Deferred.doneUnsafe(result, Effect.fail(signal?.reason));
+      };
+      return Effect.runPromise(
+        Effect.acquireUseRelease(
+          Effect.sync(() =>
+            signal?.addEventListener("abort", onAbort, { once: true }),
+          ),
+          () =>
+            Effect.gen(function* () {
+              if (signal?.aborted) return yield* Effect.fail(signal.reason);
+              yield* Effect.try({
+                try: () => {
+                  pending.set(id, { method, result });
+                  try {
+                    writeMessage(child, { jsonrpc: "2.0", id, method, params });
+                  } catch (cause) {
+                    pending.delete(id);
+                    throw cause;
+                  }
+                },
+                catch: (cause) => cause,
+              });
+              return yield* Deferred.await(result);
+            }),
+          () =>
+            Effect.sync(() => {
+              signal?.removeEventListener("abort", onAbort);
+              if (pending.delete(id)) ignoreResponse(id);
+            }),
+        ),
+      );
     },
     respond(requestId, response) {
       if (state !== "open") {
@@ -639,11 +620,11 @@ export async function createCodexTransportForProcess(
           cleanupFailure.cause,
         );
       }
-      if (!terminationSettled) {
+      if (!Deferred.isDoneUnsafe(terminated)) {
         throw new CodexAdapterError(
           "cancellation",
           "Codex app-server process termination was not confirmed",
-          terminationCause,
+          terminationFailure?.cause,
         );
       }
     },
@@ -654,10 +635,7 @@ export async function createCodexTransportForProcess(
   Effect.runSync(
     Scope.addFinalizer(
       processScope,
-      Effect.tryPromise({
-        try: closeProcess,
-        catch: (cause) => cause,
-      }).pipe(Effect.catch(() => Effect.void)),
+      codexEffect(closeProcess).pipe(Effect.catch(() => Effect.void)),
     ),
   );
 

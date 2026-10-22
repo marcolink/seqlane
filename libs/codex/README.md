@@ -5,7 +5,10 @@ Internal Codex app-server adapter for Seqlane. This package is public on npm so
 Codex app-server process, validates its JSONL protocol, and translates completed
 turns into the internal `AgentAdapter` contract. The runtime selects it through internal
 `SEQLANE_RUNTIME_ADAPTER_CONFIG` and owns its process for each run.
-Effect scopes own the shared run connection and each child-process lifetime.
+Effect scopes own the shared run connection, each child-process lifetime, and
+turn termination observers. Native Deferred values correlate request responses
+and turn completion. Request abort listeners are installed before writes and
+removed when the request settles.
 
 `executable` is optional. When omitted, the runtime resolves `codex` from
 `PATH`. A configured absolute path is preferred; if it is unavailable, the
