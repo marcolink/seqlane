@@ -12,6 +12,7 @@ import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { Effect } from "effect";
 import { installArchive } from "./archive.js";
 import { resolvePlatform } from "./platform.js";
 import { releaseAssetUrl } from "./release.js";
@@ -35,14 +36,16 @@ describe("installArchive", () => {
         cacheDir: vi.fn(),
       };
       await expect(
-        installArchive({
-          metadata,
-          platform: resolvePlatform("linux", "x64"),
-          version: "1.18.27",
-          toolCachePort: toolCache,
-          verifyExecutable: vi.fn(),
-          temporaryDirectory: root,
-        }),
+        Effect.runPromise(
+          installArchive({
+            metadata,
+            platform: resolvePlatform("linux", "x64"),
+            version: "1.18.27",
+            toolCachePort: toolCache,
+            verifyExecutable: vi.fn(),
+            temporaryDirectory: root,
+          }),
+        ),
       ).rejects.toThrow(/SHA-256/);
       expect(toolCache.extractTar).not.toHaveBeenCalled();
       await expect(access(archive)).rejects.toThrow();
@@ -82,22 +85,24 @@ describe("installArchive", () => {
       };
 
       await expect(
-        installArchive({
-          metadata: {
-            tag: "v1.18.27",
-            assetName: "opencode-linux-x64.tar.gz",
-            downloadUrl: releaseAssetUrl(
-              "1.18.27",
-              "opencode-linux-x64.tar.gz",
-            ),
-            sha256: digest,
-          },
-          platform: resolvePlatform("linux", "x64"),
-          version: "1.18.27",
-          toolCachePort: toolCache,
-          verifyExecutable,
-          temporaryDirectory: root,
-        }),
+        Effect.runPromise(
+          installArchive({
+            metadata: {
+              tag: "v1.18.27",
+              assetName: "opencode-linux-x64.tar.gz",
+              downloadUrl: releaseAssetUrl(
+                "1.18.27",
+                "opencode-linux-x64.tar.gz",
+              ),
+              sha256: digest,
+            },
+            platform: resolvePlatform("linux", "x64"),
+            version: "1.18.27",
+            toolCachePort: toolCache,
+            verifyExecutable,
+            temporaryDirectory: root,
+          }),
+        ),
       ).resolves.toBe(join(installation, "opencode"));
       await expect(access(archive)).rejects.toThrow();
       await expect(access(installation)).resolves.toBeUndefined();
@@ -146,6 +151,64 @@ describe("installArchive", () => {
       };
 
       await expect(
+        Effect.runPromise(
+          installArchive({
+            metadata: {
+              tag: "v1.18.27",
+              assetName: "opencode-linux-x64.tar.gz",
+              downloadUrl: releaseAssetUrl(
+                "1.18.27",
+                "opencode-linux-x64.tar.gz",
+              ),
+              sha256: digest,
+            },
+            platform: resolvePlatform("linux", "x64"),
+            version: "1.18.27",
+            toolCachePort: toolCache,
+            verifyExecutable,
+            temporaryDirectory: root,
+          }),
+        ),
+      ).rejects.toThrow("placed executable mismatch");
+      expect(verifyExecutable).toHaveBeenLastCalledWith(
+        join(installation, "opencode"),
+        "1.18.27",
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+  it("aborts and drains a canceled archive download before cleanup", async () => {
+    const root = await mkdtemp(join(tmpdir(), "setup-opencode-test-"));
+    const controller = new AbortController();
+    let started!: () => void;
+    const didStart = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const archive = join(root, "late-archive");
+    let resolveDownload!: (path: string) => void;
+    let settled = false;
+    const extracted = vi.fn();
+    const toolCache = {
+      downloadTool: vi.fn(
+        (
+          _url: string,
+          _signal: AbortSignal,
+          onAllocated: (path: string) => void,
+        ) =>
+          new Promise<string>((resolve) => {
+            onAllocated(archive);
+            void writeFile(archive, "late download");
+            started();
+            resolveDownload = resolve;
+          }),
+      ),
+      extractTar: extracted,
+      extractZip: extracted,
+      cacheDir: vi.fn(),
+    };
+    try {
+      const running = Effect.runPromise(
         installArchive({
           metadata: {
             tag: "v1.18.27",
@@ -154,19 +217,30 @@ describe("installArchive", () => {
               "1.18.27",
               "opencode-linux-x64.tar.gz",
             ),
-            sha256: digest,
+            sha256: "0".repeat(64),
           },
           platform: resolvePlatform("linux", "x64"),
           version: "1.18.27",
           toolCachePort: toolCache,
-          verifyExecutable,
+          verifyExecutable: vi.fn(),
           temporaryDirectory: root,
         }),
-      ).rejects.toThrow("placed executable mismatch");
-      expect(verifyExecutable).toHaveBeenLastCalledWith(
-        join(installation, "opencode"),
-        "1.18.27",
+        { signal: controller.signal },
       );
+      void running
+        .finally(() => {
+          settled = true;
+        })
+        .catch(() => undefined);
+      await didStart;
+      controller.abort(new Error("download canceled"));
+      await Promise.resolve();
+      expect(settled).toBe(false);
+      resolveDownload(archive);
+      await expect(running).rejects.toBeDefined();
+      expect(settled).toBe(true);
+      await expect(access(archive)).rejects.toThrow();
+      expect(extracted).not.toHaveBeenCalled();
     } finally {
       await rm(root, { recursive: true, force: true });
     }

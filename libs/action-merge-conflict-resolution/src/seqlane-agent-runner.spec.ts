@@ -146,6 +146,45 @@ describe("Seqlane agent runner", () => {
     expect(runtimeStop).toHaveBeenCalledTimes(1);
   });
 
+  it("interrupts an active acquisition when the Action shutdown signal fires", async () => {
+    const shutdown = new AbortController();
+    const reason = new Error("runner received SIGTERM");
+    const runtimeStop = vi.fn(async () => undefined);
+    let acquiredSignal: AbortSignal | undefined;
+    const runner = createSeqlaneAgentRunner({
+      workspace: "/tmp/agent",
+      workflow,
+      shutdownSignal: shutdown.signal,
+      openCode: {
+        start: async () => ({
+          connection: { url: "http://127.0.0.1:4096" },
+          stop: runtimeStop,
+        }),
+      },
+      createAgentRuntime: (_connection, _workspace, signal) => {
+        acquiredSignal = signal;
+        return new Promise((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason), {
+            once: true,
+          });
+        });
+      },
+    });
+
+    const resolution = runner.resolve({
+      paths: ["src/file.ts"],
+      baseRevision: "a".repeat(40),
+      headRevision: "b".repeat(40),
+    });
+    await vi.waitFor(() => expect(acquiredSignal).toBeDefined());
+    shutdown.abort(reason);
+
+    await expect(resolution).rejects.toMatchObject({ cause: reason });
+    expect(acquiredSignal?.aborted).toBe(true);
+    await runner.stop?.();
+    expect(runtimeStop).toHaveBeenCalledOnce();
+  });
+
   it("rejects overlapping resolutions and accepts a new attempt after settlement", async () => {
     const acquisitionError = new Error("agent runtime acquisition failed");
     let acquisitionCount = 0;

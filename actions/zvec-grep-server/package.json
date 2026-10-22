@@ -8,12 +8,13 @@
   },
   "files": [
     "action.yml",
-    "dist",
-    "process-anchor.js"
+    "dist"
   ],
   "dependencies": {
     "@actions/core": "3.0.1",
-    "@seqlane/action-service-lifecycle": "workspace:*"
+    "@seqlane/action-service-lifecycle": "workspace:*",
+    "effect": "4.0.5",
+    "zod": "4.6.6"
   },
   "engines": {
     "node": ">=24.0.0",

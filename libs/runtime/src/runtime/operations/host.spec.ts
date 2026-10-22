@@ -385,7 +385,7 @@ describe("native hosted HTTP transport", () => {
       tsxPackage,
       "node_modules/tsx/dist/loader.mjs",
     );
-    child = spawn(
+    const fixture = spawn(
       process.execPath,
       ["--import", tsxLoader, fixturePath, storageUrl, readyPath, counterPath],
       {
@@ -393,12 +393,23 @@ describe("native hosted HTTP transport", () => {
         stdio: "inherit",
       },
     );
+    child = fixture;
+    let spawnError: Error | undefined;
+    fixture.once("error", (cause) => {
+      spawnError = cause;
+    });
     await expect
-      .poll(() => {
-        if (child?.exitCode !== null || child?.signalCode !== null)
-          throw new Error("Crash fixture exited before serving");
-        return existsSync(readyPath);
-      })
+      .poll(
+        () => {
+          if (spawnError !== undefined) throw spawnError;
+          if (fixture.exitCode !== null || fixture.signalCode !== null)
+            throw new Error(
+              `Crash fixture exited before serving (code: ${fixture.exitCode}, signal: ${fixture.signalCode})`,
+            );
+          return existsSync(readyPath);
+        },
+        { timeout: 10_000 },
+      )
       .toBe(true);
     const ready = z
       .object({

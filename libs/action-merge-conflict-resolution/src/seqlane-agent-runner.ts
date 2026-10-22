@@ -100,7 +100,10 @@ export interface SeqlaneAgentRunnerOptions {
     ResolveMergeConflictsWorkflowOutput
   >;
   readonly openCode: {
-    readonly start: (workspace: string) => Promise<OpenCodeRuntimeHandle>;
+    readonly start: (
+      workspace: string,
+      shutdownSignal?: AbortSignal,
+    ) => Promise<OpenCodeRuntimeHandle>;
   };
   readonly repository?: string;
   readonly pullRequestNumber?: number;
@@ -112,6 +115,8 @@ export interface SeqlaneAgentRunnerOptions {
   /** Test and host seam for a directly composed native AgentRuntime. */
   readonly createAgentRuntime?: AgentRuntimeFactoryForAttempt;
   readonly onObservation?: StartWorkflowRunRequest["onObservation"];
+  /** Action shutdown signal propagated to every active attempt. */
+  readonly shutdownSignal?: AbortSignal;
 }
 
 interface ActiveAgentAttempt {
@@ -137,7 +142,7 @@ export class SeqlaneAgentRunner implements AgentRunnerPort {
     if (this.runtime !== undefined) return;
     if (this.runtimeStart === undefined) {
       const starting = this.options.openCode
-        .start(this.options.workspace)
+        .start(this.options.workspace, this.options.shutdownSignal)
         .then((runtime) => {
           this.runtime = runtime;
           return runtime;
@@ -214,6 +219,13 @@ export class SeqlaneAgentRunner implements AgentRunnerPort {
       handle: undefined,
       settlement: Promise.resolve(),
     };
+    const interrupt = () =>
+      attempt.controller.abort(this.options.shutdownSignal?.reason);
+    if (this.options.shutdownSignal?.aborted) interrupt();
+    else
+      this.options.shutdownSignal?.addEventListener("abort", interrupt, {
+        once: true,
+      });
     this.activeAttempt = attempt;
     const work = this.execute(
       {
@@ -228,6 +240,7 @@ export class SeqlaneAgentRunner implements AgentRunnerPort {
         () => undefined,
       )
       .finally(() => {
+        this.options.shutdownSignal?.removeEventListener("abort", interrupt);
         if (this.activeAttempt === attempt) this.activeAttempt = undefined;
       });
     const execution = await work;
@@ -265,6 +278,9 @@ export class SeqlaneAgentRunner implements AgentRunnerPort {
     readonly timedOut: boolean;
   }> {
     try {
+      if (attempt.controller.signal.aborted) {
+        throw attempt.controller.signal.reason;
+      }
       await this.start();
       const runtime = this.runtime;
       if (runtime === undefined) {

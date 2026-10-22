@@ -1,4 +1,5 @@
 import * as core from "@actions/core";
+import { Effect } from "effect";
 import { terminateProcessGroup } from "@seqlane/action-service-lifecycle";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
@@ -15,58 +16,71 @@ export async function run(): Promise<void> {
   const cleanupOnly = parseCleanupOnlyState(
     core.getState(CLEANUP_ONLY_STATE_KEY),
   );
-  if (!serviceState) {
-    if (installDirectory && cleanupOnly) {
-      try {
-        await removeInstallDirectory(
-          installDirectory,
-          process.env.RUNNER_TEMP ?? "/tmp",
-        );
-      } catch (error) {
+  const program = Effect.gen(function* () {
+    if (!serviceState) {
+      if (installDirectory && cleanupOnly) {
+        yield* Effect.tryPromise({
+          try: () =>
+            removeInstallDirectory(
+              installDirectory,
+              process.env.RUNNER_TEMP ?? "/tmp",
+            ),
+          catch: (error) => {
+            core.warning(
+              `Ripwire install cleanup failed: ${error instanceof Error ? error.message : String(error)}`,
+            );
+            return undefined;
+          },
+        });
+        return;
+      }
+      if (installDirectory) {
         core.warning(
-          `Ripwire install cleanup failed: ${error instanceof Error ? error.message : String(error)}`,
+          "Ripwire service state is missing or invalid; retaining the install directory",
         );
       }
       return;
     }
-    if (installDirectory) {
-      core.warning(
-        "Ripwire service state is missing or invalid; retaining the install directory",
-      );
-    }
-    return;
-  }
 
-  let terminated = false;
-  try {
-    terminated = await terminateProcessGroup(
+    const terminated = yield* terminateProcessGroup(
       serviceState.pid,
       serviceState.identity,
       serviceState.sentinel,
+    ).pipe(
+      Effect.catch((error) =>
+        Effect.sync(() => {
+          core.warning(
+            `Ripwire process cleanup failed: ${error instanceof Error ? error.message : String(error)}`,
+          );
+          return false;
+        }),
+      ),
     );
     if (!terminated) {
       core.warning(
         `Ripwire process group ${serviceState.pid} did not stop cleanly`,
       );
+    } else {
+      core.info(`Ripwire process group ${serviceState.pid} stopped cleanly`);
     }
-  } catch (error) {
-    core.warning(
-      `Ripwire process cleanup failed: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
 
-  if (terminated && installDirectory) {
-    try {
-      await removeInstallDirectory(
-        installDirectory,
-        process.env.RUNNER_TEMP ?? "/tmp",
-      );
-    } catch (error) {
-      core.warning(
-        `Ripwire install cleanup failed: ${error instanceof Error ? error.message : String(error)}`,
-      );
+    if (terminated && installDirectory) {
+      yield* Effect.tryPromise({
+        try: () =>
+          removeInstallDirectory(
+            installDirectory,
+            process.env.RUNNER_TEMP ?? "/tmp",
+          ),
+        catch: (error) => {
+          core.warning(
+            `Ripwire install cleanup failed: ${error instanceof Error ? error.message : String(error)}`,
+          );
+          return undefined;
+        },
+      });
     }
-  }
+  });
+  await Effect.runPromise(program);
 }
 
 function isDirectEntry(): boolean {

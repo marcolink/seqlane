@@ -1,4 +1,5 @@
 import { createConnection, type Socket } from "node:net";
+import { Cause, Effect, Schedule } from "effect";
 import { z } from "zod";
 
 export interface ParsedListenAddress {
@@ -25,10 +26,14 @@ export const MAX_STARTUP_TIMEOUT_MILLISECONDS = 600_000;
 export type ReadinessOwnershipCheck = (
   remainingMilliseconds: number,
 ) => Promise<void>;
+export type ReadinessOwnershipEffect = (
+  remainingMilliseconds: number,
+) => Effect.Effect<void, Error>;
 export type ReadinessSocketConnector = (
   host: string,
   port: number,
   timeoutMilliseconds: number,
+  signal?: AbortSignal,
 ) => Promise<Socket>;
 
 function assertReadinessTimeout(timeoutMilliseconds: number): void {
@@ -187,6 +192,7 @@ function connectReadinessSocket(
   host: string,
   port: number,
   timeoutMilliseconds: number,
+  signal?: AbortSignal,
 ): Promise<Socket> {
   return new Promise((resolve, reject) => {
     const socket = createConnection({ host, port });
@@ -195,10 +201,12 @@ function connectReadinessSocket(
     const finish = (error?: Error) => {
       socket.off("connect", onConnect);
       socket.off("error", onError);
+      socket.off("timeout", onTimeout);
+      signal?.removeEventListener("abort", onAbort);
       if (error) socket.off("timeout", onTimeout);
       if (error) {
+        socket.once("close", () => reject(error));
         socket.destroy();
-        reject(error);
       } else {
         resolve(socket);
       }
@@ -214,9 +222,13 @@ function connectReadinessSocket(
       if (!connected) finish(error);
       else socket.destroy(error);
     };
+    const onAbort = () =>
+      finish(new Error("Ripwire MCP readiness socket was interrupted"));
     socket.once("connect", onConnect);
     socket.once("error", onError);
     socket.once("timeout", onTimeout);
+    signal?.addEventListener("abort", onAbort, { once: true });
+    if (signal?.aborted) onAbort();
   });
 }
 
@@ -293,6 +305,7 @@ async function requestOnVerifiedSocket(
   timeoutMilliseconds: number,
   assertOwnership: ReadinessOwnershipCheck,
   connectSocket: ReadinessSocketConnector,
+  signal: AbortSignal,
 ): Promise<RawMcpResponse> {
   const endpoint = new URL(url);
   const deadline = Date.now() + timeoutMilliseconds;
@@ -308,8 +321,15 @@ async function requestOnVerifiedSocket(
     endpoint.hostname,
     port,
     remainingMilliseconds(),
+    signal,
   );
+  const onAbort = () =>
+    socket.destroy(new Error("Ripwire MCP readiness socket was interrupted"));
+  signal.addEventListener("abort", onAbort, { once: true });
   try {
+    if (signal.aborted) {
+      throw new Error("Ripwire MCP readiness socket was interrupted");
+    }
     let ownershipErrorHandler: ((error: Error) => void) | undefined;
     const socketError = new Promise<never>((_resolve, reject) => {
       ownershipErrorHandler = reject;
@@ -356,10 +376,20 @@ async function requestOnVerifiedSocket(
       const onTimeout = () =>
         settle(reject, new Error("Ripwire MCP readiness socket timed out"));
       const onEnd = () => settle(resolve, Buffer.concat(chunks));
+      const onClose = () =>
+        settle(
+          reject,
+          new Error(
+            signal.aborted
+              ? "Ripwire MCP readiness socket was interrupted"
+              : "Ripwire MCP readiness socket closed before the response completed",
+          ),
+        );
       const cleanup = () => {
         socket.off("error", onError);
         socket.off("timeout", onTimeout);
         socket.off("end", onEnd);
+        socket.off("close", onClose);
         socket.off("data", onData);
       };
       const settle = <T>(finish: (value: T) => void, value: T) => {
@@ -369,12 +399,21 @@ async function requestOnVerifiedSocket(
       socket.once("error", onError);
       socket.once("timeout", onTimeout);
       socket.once("end", onEnd);
+      socket.once("close", onClose);
       socket.on("data", onData);
       socket.write(request);
     });
     return parseRawMcpResponse(response);
   } finally {
-    socket.destroy();
+    signal.removeEventListener("abort", onAbort);
+    await new Promise<void>((resolve) => {
+      if (socket.closed) {
+        resolve();
+      } else {
+        socket.once("close", () => resolve());
+        if (!socket.destroyed) socket.destroy();
+      }
+    });
   }
 }
 
@@ -385,6 +424,7 @@ export async function checkMcpInitialize(
   fetchImpl: typeof fetch = fetch,
   assertOwnership?: ReadinessOwnershipCheck,
   connectSocket: ReadinessSocketConnector = connectReadinessSocket,
+  signal?: AbortSignal,
 ): Promise<void> {
   const headers: Record<string, string> = {
     Accept: "application/json, text/event-stream",
@@ -392,6 +432,8 @@ export async function checkMcpInitialize(
   };
   if (token) headers.Authorization = `Bearer ${token}`;
   assertReadinessTimeout(timeoutMilliseconds);
+  const requestSignal =
+    signal ?? AbortSignal.timeout(Math.max(1, Math.floor(timeoutMilliseconds)));
   const response: RawMcpResponse | FetchMcpResponse = assertOwnership
     ? await requestOnVerifiedSocket(
         url,
@@ -399,14 +441,13 @@ export async function checkMcpInitialize(
         timeoutMilliseconds,
         assertOwnership,
         connectSocket,
+        requestSignal,
       )
     : await fetchImpl(url, {
         method: "POST",
         headers,
         body: JSON.stringify(MCP_INITIALIZE_REQUEST),
-        signal: AbortSignal.timeout(
-          Math.max(1, Math.floor(timeoutMilliseconds)),
-        ),
+        signal: requestSignal,
       }).then(async (result) => ({
         status: result.status,
         body: await readBody(result, 1_024 * 1_024),
@@ -442,25 +483,75 @@ export async function checkMcpInitialize(
   }
 }
 
-export async function waitForMcpHealth(
-  check: (remainingMilliseconds: number) => Promise<void>,
+export function checkMcpInitializeEffect(
+  url: string,
+  token: string | undefined,
   timeoutMilliseconds: number,
-): Promise<void> {
-  assertReadinessTimeout(timeoutMilliseconds);
-  const deadline = Date.now() + timeoutMilliseconds;
-  while (Date.now() < deadline) {
-    const remainingMilliseconds = deadline - Date.now();
-    try {
-      await check(remainingMilliseconds);
-      if (Date.now() >= deadline) break;
-      return;
-    } catch {
-      const remainingAfterProbe = deadline - Date.now();
-      if (remainingAfterProbe <= 0) break;
-      await new Promise<void>((resolve) =>
-        setTimeout(resolve, Math.min(250, remainingAfterProbe)),
+  assertOwnership?: ReadinessOwnershipEffect,
+): Effect.Effect<void, Error> {
+  return Effect.callback<void, Error>((resume, signal) => {
+    const requestController = new AbortController();
+    const abort = () => requestController.abort(signal.reason);
+    signal.addEventListener("abort", abort, { once: true });
+    if (signal.aborted) abort();
+    const request = checkMcpInitialize(
+      url,
+      token,
+      timeoutMilliseconds,
+      fetch,
+      assertOwnership
+        ? (remainingMilliseconds) =>
+            Effect.runPromise(assertOwnership(remainingMilliseconds), {
+              signal: requestController.signal,
+            })
+        : undefined,
+      connectReadinessSocket,
+      requestController.signal,
+    )
+      .then(
+        () => resume(Effect.void),
+        (cause: unknown) =>
+          resume(
+            Effect.fail(
+              cause instanceof Error
+                ? cause
+                : new Error("Ripwire MCP readiness failed", { cause }),
+            ),
+          ),
+      )
+      .finally(() => signal.removeEventListener("abort", abort));
+    return Effect.promise(() => {
+      requestController.abort(signal.reason);
+      return request.then(
+        () => undefined,
+        () => undefined,
       );
-    }
-  }
-  throw new Error("ripwire did not become ready before the startup timeout");
+    });
+  });
+}
+
+export function waitForMcpHealth(
+  check: (remainingMilliseconds: number) => Effect.Effect<void, Error>,
+  timeoutMilliseconds: number,
+): Effect.Effect<void, Error | Cause.TimeoutError> {
+  const timeoutValidation = Effect.try({
+    try: () => assertReadinessTimeout(timeoutMilliseconds),
+    catch: (cause) =>
+      cause instanceof Error
+        ? cause
+        : new Error("Ripwire readiness timeout is invalid", { cause }),
+  });
+  const polling = Effect.retry(
+    Effect.suspend(() => check(timeoutMilliseconds)),
+    Schedule.spaced("250 millis"),
+  );
+
+  return timeoutValidation.pipe(
+    Effect.flatMap(() => Effect.timeout(polling, timeoutMilliseconds)),
+    Effect.catchTag("TimeoutError", () =>
+      Effect.fail(
+        new Error("ripwire did not become ready before the startup timeout"),
+      ),
+    ),
+  );
 }

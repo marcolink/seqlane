@@ -7,7 +7,7 @@ const repositoryRoot = resolve(import.meta.dirname, "..");
 const repositoryUrl = "git+https://github.com/marcolink/seqlane.git";
 const versionPattern = /^[0-9]+\.[0-9]+\.[0-9]+(?:[+-][0-9A-Za-z.-]+)?$/;
 const excludedArchivePath =
-  /(?:^|\/)(?:__tests__|tests?\/)|\.(?:spec|test)\.[^/]+$|\.tsbuildinfo$/;
+  /(?:^|\/)(?:__tests__|tests?|test-fixtures)(?:\/|$)|(?:^|\/)bin\/dev\.[^/]+$|[.-]test-support[.]|(?:^|\/)[^/]*-fixture\.[^/]+$|\.(?:spec|test)\.[^/]+$|\.tsbuildinfo$/;
 
 export const expectedReleases = new Map([
   ["adapter", "@seqlane/agent-adapter"],

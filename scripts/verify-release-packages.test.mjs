@@ -25,7 +25,7 @@ function sourceManifest(overrides = {}) {
     },
     engines: { node: ">=24.0.0" },
     publishConfig: { access: "public", provenance: true },
-    dependencies: { zod: "4.5.4" },
+    dependencies: { zod: "4.6.6" },
     ...overrides,
   };
 }
@@ -92,6 +92,19 @@ test("validates archive contents", () => {
       ]),
     /excluded file/,
   );
+  for (const entry of [
+    "package/bin/dev.js",
+    "package/dist/test-fixtures/effect-native-runner.js",
+    "package/dist/start-workflow-run.effect-test-support.d.ts",
+    "package/dist/runtime/execution/workflow-run.test-support.js.map",
+    "package/dist/runtime/operations/host-crash-fixture.js",
+    "package/dist/session-monitor-fixture.d.ts",
+  ]) {
+    assert.throws(
+      () => validateArchiveEntries(packageName, ["package/LICENSE", entry]),
+      /excluded file/,
+    );
+  }
 });
 
 test("requires exact internal versions in packed manifests", () => {

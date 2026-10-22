@@ -1,6 +1,7 @@
 // @test-scope ./cache.ts
 
 import { describe, expect, it, vi } from "vitest";
+import { Effect } from "effect";
 import { tryRestore, trySave, type CachePort } from "./cache.js";
 
 function fakeCache(overrides: Partial<CachePort> = {}): CachePort {
@@ -18,7 +19,9 @@ describe("exact OpenCode cache handling", () => {
     });
     const onError = vi.fn();
     await expect(
-      tryRestore(cache, "/tmp/install", "requested-key", onError),
+      Effect.runPromise(
+        tryRestore(cache, "/tmp/install", "requested-key", onError),
+      ),
     ).resolves.toBe(false);
     expect(onError).not.toHaveBeenCalled();
   });
@@ -30,18 +33,22 @@ describe("exact OpenCode cache handling", () => {
     });
     const onError = vi.fn();
     await expect(
-      tryRestore(cache, "/tmp/install", "key", onError),
+      Effect.runPromise(tryRestore(cache, "/tmp/install", "key", onError)),
     ).resolves.toBe(false);
     await expect(
-      trySave(cache, "/tmp/install", "key", onError),
+      Effect.runPromise(trySave(cache, "/tmp/install", "key", onError)),
     ).resolves.toBeUndefined();
     expect(onError).toHaveBeenCalledTimes(2);
   });
 
   it("passes one exact installation directory without restore keys", async () => {
     const cache = fakeCache({ restore: vi.fn().mockResolvedValue("key") });
-    await tryRestore(cache, "/tmp/install", "key", () => undefined);
-    await trySave(cache, "/tmp/install", "key", () => undefined);
+    await Effect.runPromise(
+      tryRestore(cache, "/tmp/install", "key", () => undefined),
+    );
+    await Effect.runPromise(
+      trySave(cache, "/tmp/install", "key", () => undefined),
+    );
     expect(cache.restore).toHaveBeenCalledWith("/tmp/install", "key");
     expect(cache.save).toHaveBeenCalledWith("/tmp/install", "key");
   });

@@ -1,12 +1,13 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { spawn } from "node:child_process";
 import type { ProcessIdentity } from "@seqlane/action-service-lifecycle";
+import { z } from "zod";
 
 const MAX_SOCKET_COMMAND_TIMEOUT_MILLISECONDS = 600_000;
 
 export interface SocketCommandOptions {
   readonly maxBuffer: number;
   readonly timeout: number;
+  readonly signal?: AbortSignal;
 }
 
 export type SocketCommandRunner = (
@@ -25,7 +26,97 @@ export interface ListeningEndpoint {
   readonly pid: number;
 }
 
-const execFileAsync = promisify(execFile) as SocketCommandRunner;
+const commandErrorCodeSchema = z.object({
+  code: z.union([z.string(), z.number()]).optional(),
+});
+
+class SocketCommandError extends Error {
+  readonly code: string | number | undefined;
+
+  constructor(message: string, code?: string | number, cause?: unknown) {
+    super(message, { cause });
+    this.name = "SocketCommandError";
+    this.code = code;
+  }
+}
+
+function stopCommand(child: ReturnType<typeof spawn>): void {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  child.kill("SIGTERM");
+}
+
+export function runSocketCommand(
+  command: string,
+  args: string[],
+  options: SocketCommandOptions,
+): Promise<{ readonly stdout: string }> {
+  return new Promise((resolve, reject) => {
+    if (options.signal?.aborted) {
+      reject(new Error("Socket ownership command was interrupted"));
+      return;
+    }
+    const child = spawn(command, args, { stdio: ["ignore", "pipe", "ignore"] });
+    const chunks: Buffer[] = [];
+    let outputBytes = 0;
+    let interruption: Error | undefined;
+    let spawnError: Error | undefined;
+    let killTimer: NodeJS.Timeout | undefined;
+    let settled = false;
+
+    const stop = (error: Error) => {
+      if (interruption) return;
+      interruption = error;
+      stopCommand(child);
+      killTimer = setTimeout(() => {
+        if (child.exitCode === null && child.signalCode === null) {
+          child.kill("SIGKILL");
+        }
+      }, 100);
+      killTimer.unref();
+    };
+    const onAbort = () =>
+      stop(new Error("Socket ownership command was interrupted"));
+    const timeout = setTimeout(
+      () => stop(new Error("Socket ownership command timed out")),
+      options.timeout,
+    );
+    options.signal?.addEventListener("abort", onAbort, { once: true });
+    if (options.signal?.aborted) onAbort();
+
+    child.stdout.on("data", (chunk: Buffer) => {
+      outputBytes += chunk.byteLength;
+      if (outputBytes > options.maxBuffer) {
+        stop(new Error("Socket ownership command output exceeded its limit"));
+        return;
+      }
+      chunks.push(chunk);
+    });
+    child.on("error", (error: Error) => {
+      spawnError = error;
+    });
+    child.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      if (killTimer) clearTimeout(killTimer);
+      options.signal?.removeEventListener("abort", onAbort);
+      if (interruption) {
+        reject(interruption);
+      } else if (spawnError) {
+        reject(spawnError);
+      } else if (code !== 0) {
+        reject(
+          new SocketCommandError(
+            `Socket ownership command exited with ${code}`,
+            code ?? undefined,
+          ),
+        );
+      } else {
+        resolve({ stdout: Buffer.concat(chunks).toString("utf8") });
+      }
+    });
+  });
+}
 
 export class ListenOwnershipError extends Error {
   constructor() {
@@ -35,8 +126,8 @@ export class ListenOwnershipError extends Error {
 }
 
 function processErrorCode(error: unknown): string | number | undefined {
-  if (!(error instanceof Error) || !("code" in error)) return undefined;
-  return (error as NodeJS.ErrnoException).code;
+  const parsed = commandErrorCodeSchema.safeParse(error);
+  return parsed.success ? parsed.data.code : undefined;
 }
 
 function parseEndpoint(
@@ -135,6 +226,7 @@ async function listListeningEndpoints(
   platform: NodeJS.Platform,
   runCommand: SocketCommandRunner,
   timeoutMilliseconds: number,
+  signal?: AbortSignal,
 ): Promise<ListeningEndpoint[]> {
   const port = parseListenEndpoint(listen).port;
   const command = platform === "linux" ? "/usr/bin/ss" : "/usr/sbin/lsof";
@@ -146,6 +238,7 @@ async function listListeningEndpoints(
     const result = await runCommand(command, args, {
       maxBuffer: 64 * 1024,
       timeout: timeoutMilliseconds,
+      signal,
     });
     return parseListeningEndpoints(result.stdout, platform);
   } catch (error) {
@@ -161,8 +254,9 @@ export async function assertListenOwnedByProcess(
   service: { readonly pid: number; readonly identity: ProcessIdentity },
   readIdentity: ProcessIdentityReader,
   platformOrTimeout: NodeJS.Platform | number = process.platform,
-  runCommand: SocketCommandRunner = execFileAsync,
+  runCommand: SocketCommandRunner = runSocketCommand,
   timeoutMilliseconds = MAX_SOCKET_COMMAND_TIMEOUT_MILLISECONDS,
+  signal?: AbortSignal,
 ): Promise<void> {
   const platform =
     typeof platformOrTimeout === "number"
@@ -188,6 +282,7 @@ export async function assertListenOwnedByProcess(
     platform,
     runCommand,
     probeTimeoutMilliseconds,
+    signal,
   );
   for (const endpoint of listeningEndpoints) {
     if (

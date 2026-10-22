@@ -15,6 +15,7 @@ export async function fetchReleaseMetadata(
   version: string,
   token?: string,
   fetchImplementation: FetchLike = fetch,
+  signal?: AbortSignal,
 ): Promise<unknown> {
   const headers: Record<string, string> = {
     accept: "application/vnd.github+json",
@@ -25,6 +26,7 @@ export async function fetchReleaseMetadata(
   }
   const response = await fetchImplementation(`${RELEASE_API_URL}/v${version}`, {
     headers,
+    ...(signal === undefined ? {} : { signal }),
   });
   if (!response.ok) {
     throw new Error(
@@ -37,18 +39,20 @@ export async function fetchReleaseMetadata(
 export type ExecutableRunner = (
   executable: string,
   args: string[],
+  signal?: AbortSignal,
 ) => Promise<{ stdout: string }>;
 
 export function createExecutableRunner(
   timeoutMs = EXECUTABLE_VERSION_TIMEOUT_MS,
 ): ExecutableRunner {
-  return async (executable, args) => {
+  return async (executable, args, signal) => {
     const result = await execFileAsync(executable, args, {
       encoding: "utf8",
       killSignal: "SIGKILL",
       maxBuffer: 1_048_576,
       timeout: timeoutMs,
       windowsHide: true,
+      ...(signal === undefined ? {} : { signal }),
     });
     return { stdout: result.stdout };
   };
@@ -60,10 +64,13 @@ export async function verifyExecutableVersion(
   executable: string,
   version: string,
   runner: ExecutableRunner = runExecutable,
+  signal?: AbortSignal,
 ): Promise<void> {
   let stdout: string;
   try {
-    ({ stdout } = await runner(executable, ["--version"]));
+    ({ stdout } = await (signal === undefined
+      ? runner(executable, ["--version"])
+      : runner(executable, ["--version"], signal)));
   } catch (error) {
     throw new Error(
       `OpenCode executable could not report its version: ${error instanceof Error ? error.message : String(error)}`,

@@ -21,13 +21,13 @@
     ]
   },
   "dependencies": {
-    "@seqlane/core": "workspace:*",
     "@seqlane/agent-adapter": "workspace:*",
+    "@seqlane/core": "workspace:*",
     "@seqlane/opencode-adapter": "workspace:*",
     "@seqlane/resolve-merge-conflicts-workflow": "workspace:*",
     "@seqlane/runtime": "workspace:*",
     "effect": "4.0.5",
-    "zod": "4.5.4"
+    "zod": "4.6.6"
   },
   "files": [
     "dist"

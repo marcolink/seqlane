@@ -54,7 +54,7 @@ Each slice task owns its implementation scope and evidence. Dependencies are exp
 - [x] [S8 — Telemetry sinks and event pressure](./2026-10-21-effect-v4-telemetry-and-event-pressure.md)
 - [x] [S9 — CLI and direct Action cutover](./2026-10-21-effect-v4-cli-and-action-cutover.md)
 - [x] [S10 — Hosted history, HTTP, MCP, and inspection](./2026-10-21-effect-v4-hosted-history-and-inspection.md)
-- [ ] [S11 — Remaining Actions and distribution](./2026-10-21-effect-v4-remaining-actions-and-distribution.md)
+- [x] [S11 — Remaining Actions and distribution](./2026-10-21-effect-v4-remaining-actions-and-distribution.md)
 - [ ] [S12 — Complete removal and release gate](./2026-10-21-effect-v4-complete-removal-and-release.md)
 
 ### Dependencies and recovery
@@ -106,11 +106,11 @@ Every temporary bridge is removed, all required checks pass, and delivery is rec
 
 ## Outcome
 
-S0–S10 completed with full verification: authority, baseline, Effect process ownership, dependency graphs, sessions, workspace admission, nested workflows, choices, repeats, validation, native adapters, direct ACP transport, classifier HTTP with retries and deadlines, and full observations through the CLI worker and direct facade. Native trace correlation, complete observations, native metrics and logs, bounded required-event delivery, and isolated OTLP export are verified. CLI and direct workflow Action callers now use the sole common Effect program. Native process ownership, supervisor cleanup, plan/replay orchestration, classifier correlation, and original failure causes pass the full gate and compiled CLI suite. HTTP and MCP now use the same program with versioned inspection, native SQL history, bounded admission, cancellation, and retained observations and traces. Compiled host restart and crash recovery preserve completed results and never replay external actions. S11–S12 remain. Remaining Actions, distribution, and complete removal are pending. Codex live verification passed. The installed ACP handshake passed without a model prompt. OpenCode live model verification is unavailable after provider HTTP 401.
+S0–S11 completed with full verification: authority, baseline, Effect process ownership, dependency graphs, sessions, workspace admission, nested workflows, choices, repeats, validation, native adapters, direct ACP transport, classifier HTTP with retries and deadlines, and full observations through the CLI worker and direct facade. Native trace correlation, complete observations, native metrics and logs, bounded required-event delivery, and isolated OTLP export are verified. CLI and direct workflow Action callers now use the sole common Effect program. Native process ownership, supervisor cleanup, plan/replay orchestration, classifier correlation, and original failure causes pass the full gate and compiled CLI suite. HTTP and MCP now use the same program with versioned inspection, native SQL history, bounded admission, cancellation, and retained observations and traces. Compiled host restart and crash recovery preserve completed results and never replay external actions. All six Actions, three Action libraries, installed distributions, and hosted Action entry/post verification pass S11. S12 complete removal and release verification remain. Codex live verification passed. The installed ACP handshake passed without a model prompt. OpenCode live model verification is unavailable after provider HTTP 401.
 
 ## Delivery state
 
-In progress on one migration branch. S0–S10 have branch-local evidence in their task commits. The accepted architecture and active target spec record authority, not migration delivery.
+In progress on one migration branch. S0–S11 have verified task-commit evidence in their task commits. The accepted architecture and active target spec record authority, not migration delivery.
 
 ## Traceability
 

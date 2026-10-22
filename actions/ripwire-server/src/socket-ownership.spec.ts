@@ -1,6 +1,7 @@
 // @test-scope ./socket-ownership.ts
 
 import { describe, expect, it } from "vitest";
+import { runSocketCommand } from "./socket-ownership.js";
 import {
   assertListenOwnedByProcess,
   ListenOwnershipError,
@@ -89,6 +90,52 @@ describe("Ripwire listen ownership", () => {
       ),
     ).rejects.toBeInstanceOf(ListenOwnershipError);
     expect(commandTimeout).toBe(321);
+  });
+
+  it("passes interruption to the command and waits for its late settlement", async () => {
+    const controller = new AbortController();
+    let started = false;
+    let drained = false;
+    const ownership = assertListenOwnedByProcess(
+      "127.0.0.1:7998",
+      service,
+      async () => service.identity,
+      "linux",
+      async (_command, _args, options) => {
+        started = true;
+        expect(options.signal).toBe(controller.signal);
+        await new Promise<void>((resolve) => {
+          options.signal?.addEventListener("abort", () => resolve(), {
+            once: true,
+          });
+        });
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        drained = true;
+        return { stdout: "" };
+      },
+      321,
+      controller.signal,
+    );
+    while (!started) await new Promise((resolve) => setTimeout(resolve, 1));
+
+    controller.abort();
+    await expect(ownership).rejects.toBeInstanceOf(ListenOwnershipError);
+    expect(drained).toBe(true);
+  });
+
+  it("terminates and drains a real subprocess that ignores SIGTERM", async () => {
+    const controller = new AbortController();
+    const command = runSocketCommand(
+      process.execPath,
+      [
+        "-e",
+        'process.on("SIGTERM", () => {}); console.log("ready"); setInterval(() => {}, 1000);',
+      ],
+      { maxBuffer: 1024, timeout: 5_000, signal: controller.signal },
+    );
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    controller.abort();
+    await expect(command).rejects.toThrow("interrupted");
   });
 
   it("rejects an unrelated socket owner", async () => {

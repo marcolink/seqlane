@@ -8,7 +8,7 @@
       "executor": "nx:run-commands",
       "options": {
         "cwd": "libs/action-service-lifecycle",
-        "command": "tsc --build tsconfig.json"
+        "command": "tsc --build tsconfig.json && pnpm exec esbuild src/process-anchor.ts --bundle --platform=node --target=node24 --format=esm --outfile=dist/process-anchor.js --minify"
       },
       "cache": true,
       "inputs": ["bundleProduction", "^bundleProduction", "bundleGlobals"],
@@ -16,6 +16,7 @@
     },
     "test": {
       "executor": "nx:run-commands",
+      "dependsOn": ["build"],
       "options": {
         "cwd": "libs/action-service-lifecycle",
         "command": "vitest run"

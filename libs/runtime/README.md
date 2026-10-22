@@ -4,6 +4,9 @@ Internal runtime boundary for compiling and executing Seqlane Plans. This
 package is public on npm so `seqlane` can install it. Its exports are not a
 supported API.
 
+Release tarballs contain production code and declarations. Private test support,
+crash fixtures, and compiler test output stay in the development checkout.
+
 CLI, direct, HTTP, and MCP callers use the same private Effect Plan program.
 Public authoring and wire contracts remain Zod-owned. Concrete adapters are
 created by application composition and stay outside this package.

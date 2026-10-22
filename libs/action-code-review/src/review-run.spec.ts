@@ -7,9 +7,10 @@ import type {
   StartWorkflowRunRequest,
   WorkflowRunHandle,
 } from "@seqlane/runtime";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { GitHubReviewPort } from "./github-port.js";
 import {
+  createPublicationPort,
   runCodeReview,
   type CodeReviewRunRequest,
   type WorkflowRunner,
@@ -120,6 +121,7 @@ function createGithubPort(
       return report.id;
     },
     createReport: async (_number, body) => {
+      report = { id: "created-report", body };
       updates.push(body);
     },
     updateReport: async (_id, body) => {
@@ -180,9 +182,12 @@ describe("runCodeReview", () => {
     };
     const lifecycle: string[] = [];
     const receivedRuntimes: unknown[] = [];
+    const signal = new AbortController().signal;
+    const receivedSignals: (AbortSignal | undefined)[] = [];
 
     const result = await runCodeReview(aliasedRequest, {
       github: createGithubPort(true),
+      signal,
       onRunStarted: () => {
         lifecycle.push("admitted");
       },
@@ -209,6 +214,7 @@ describe("runCodeReview", () => {
         (workflow, index) => {
           lifecycle.push(index === 1 ? "review" : "publication");
           receivedRuntimes.push(workflow.agentRuntime);
+          receivedSignals.push(workflow.signal);
         },
       ),
     });
@@ -221,6 +227,116 @@ describe("runCodeReview", () => {
       "publication",
     ]);
     expect(receivedRuntimes).toEqual([runtime, undefined]);
+    expect(receivedSignals).toEqual([signal, signal]);
+  });
+
+  it("adopts and closes a runtime that resolves after cancellation", async () => {
+    const controller = new AbortController();
+    let resolveRuntime!: (runtime: AgentRuntime) => void;
+    let bootstrapStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      bootstrapStarted = resolve;
+    });
+    let settled = false;
+    const close = vi.fn();
+    const runtime: AgentRuntime = {
+      identity: "late-fixture",
+      capabilities: {
+        execute: true,
+        modelSelection: false,
+        structuredOutput: true,
+        sessionReuse: false,
+        checkpoint: false,
+        fork: false,
+        activity: false,
+        sessionUi: false,
+      },
+      createAdapter: () => {
+        throw new Error("Unexpected execution");
+      },
+      redactAdapter: (adapter) => adapter,
+      close,
+    };
+    const running = runCodeReview(request, {
+      github: createGithubPort(true),
+      signal: controller.signal,
+      bootstrapAgentRuntime: () =>
+        new Promise((resolve) => {
+          resolveRuntime = resolve;
+          bootstrapStarted();
+        }),
+      runWorkflow: createRunner([{ status: "succeeded", result: {} }]),
+    });
+    void running
+      .finally(() => {
+        settled = true;
+      })
+      .catch(() => undefined);
+    await started;
+    controller.abort(new Error("test shutdown"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(settled).toBe(false);
+    resolveRuntime(runtime);
+    await expect(running).rejects.toBeDefined();
+    expect(close).toHaveBeenCalledOnce();
+  });
+
+  it("does not close a runtime again after the workflow runner adopts it", async () => {
+    const close = vi.fn(async () => undefined);
+    const runtime: AgentRuntime = {
+      identity: "adopted-fixture",
+      capabilities: {
+        execute: true,
+        modelSelection: false,
+        structuredOutput: true,
+        sessionReuse: false,
+        checkpoint: false,
+        fork: false,
+        activity: false,
+        sessionUi: false,
+      },
+      createAdapter: () => {
+        throw new Error("Unexpected execution");
+      },
+      redactAdapter: (adapter) => adapter,
+      close,
+    };
+    let index = 0;
+    const runWorkflow: WorkflowRunner = (workflow) => {
+      index += 1;
+      const outcome: SeqlaneRunOutcome =
+        index === 1
+          ? { status: "succeeded", result: {} }
+          : {
+              status: "succeeded",
+              result: {
+                status: "published",
+                publication: {
+                  verdict: "approve",
+                  reviewedRevision: headRevision,
+                  body: "published report",
+                },
+              },
+            };
+      return {
+        workId: workflow.identity?.workId ?? `work-${index}`,
+        runId: workflow.identity?.runId ?? `run-${index}`,
+        outcome: Promise.resolve(outcome).then(async (value) => {
+          if (index === 1) await workflow.agentRuntime?.close?.();
+          return value;
+        }),
+        cancel: async () => undefined,
+      };
+    };
+
+    const result = await runCodeReview(request, {
+      github: createGithubPort(true),
+      bootstrapAgentRuntime: async () => runtime,
+      runWorkflow,
+    });
+
+    expect(result.status).toBe("published");
+    expect(close).toHaveBeenCalledOnce();
   });
 
   it("forwards canonical observations from the review run to the Action hook", async () => {
@@ -331,53 +447,60 @@ describe("runCodeReview", () => {
     ]);
   });
 
-  it("closes the runtime and clears its marker when review workflow startup throws", async () => {
-    const marker = `<!-- seqlane-code-review -->\n<!-- seqlane-code-review-meta-v3: {"schemaVersion":3,"pullRequestNumber":1,"reviewedRevision":"${headRevision}","run":{"id":"0","attempt":1}} -->\nprevious report`;
-    const github = createGithubPort(true, { id: "report-1", body: marker });
-    let runtimeClosed = false;
-    const runtime: AgentRuntime = {
-      identity: "fixture",
-      capabilities: {
-        execute: true,
-        modelSelection: false,
-        structuredOutput: true,
-        sessionReuse: false,
-        checkpoint: false,
-        fork: false,
-        activity: false,
-        sessionUi: false,
-      },
-      createAdapter: () => {
-        throw new Error("The test runner does not execute tasks");
-      },
-      redactAdapter: (adapter) => adapter,
-      close: async () => {
-        runtimeClosed = true;
-      },
-    };
+  it.each([{ cleanupFails: false }, { cleanupFails: true }])(
+    "closes the runtime and clears its marker when review workflow startup throws (cleanup failure: $cleanupFails)",
+    async ({ cleanupFails }) => {
+      const marker = `<!-- seqlane-code-review -->\n<!-- seqlane-code-review-meta-v3: {"schemaVersion":3,"pullRequestNumber":1,"reviewedRevision":"${headRevision}","run":{"id":"0","attempt":1}} -->\nprevious report`;
+      const github = createGithubPort(true, { id: "report-1", body: marker });
+      const cleanupCause = new Error("runtime cleanup failed");
+      const close = vi.fn(async function (this: AgentRuntime) {
+        expect(this).toBe(runtime);
+        if (cleanupFails) throw cleanupCause;
+      });
+      const runtime: AgentRuntime = {
+        identity: "fixture",
+        capabilities: {
+          execute: true,
+          modelSelection: false,
+          structuredOutput: true,
+          sessionReuse: false,
+          checkpoint: false,
+          fork: false,
+          activity: false,
+          sessionUi: false,
+        },
+        createAdapter: () => {
+          throw new Error("The test runner does not execute tasks");
+        },
+        redactAdapter: (adapter) => adapter,
+        close,
+      };
 
-    const result = await runCodeReview(request, {
-      github,
-      bootstrapAgentRuntime: async () => runtime,
-      runWorkflow: () => {
-        throw new Error("workflow startup failed");
-      },
-    });
+      const running = runCodeReview(request, {
+        github,
+        bootstrapAgentRuntime: async () => runtime,
+        runWorkflow: () => {
+          throw new Error("workflow startup failed");
+        },
+      });
 
-    expect(result).toMatchObject({
-      status: "failed",
-      phase: "review",
-      error: {
-        category: "RuntimeError",
-        cause: { message: "workflow startup failed" },
-      },
-    });
-    expect(runtimeClosed).toBe(true);
-    expect(github.updates).toEqual([
-      expect.stringContaining("seqlane-review-in-progress-run"),
-      `\n${marker}`,
-    ]);
-  });
+      if (cleanupFails) await expect(running).rejects.toBe(cleanupCause);
+      else
+        expect(await running).toMatchObject({
+          status: "failed",
+          phase: "review",
+          error: {
+            category: "RuntimeError",
+            cause: { message: "workflow startup failed" },
+          },
+        });
+      expect(close).toHaveBeenCalledOnce();
+      expect(github.updates).toEqual([
+        expect.stringContaining("seqlane-review-in-progress-run"),
+        `\n${marker}`,
+      ]);
+    },
+  );
 
   it("uses the GitHub repository identity in the review report", async () => {
     let reviewInput: unknown;
@@ -409,6 +532,47 @@ describe("runCodeReview", () => {
       publicationBody: "published report",
     });
     expect(reviewInput).toMatchObject({ repository: request.repository });
+  });
+
+  it("fails when GitHub does not confirm the exact report body after a write", async () => {
+    const github = createGithubPort(true, {
+      id: "report-1",
+      body: `<!-- seqlane-code-review -->\n<!-- seqlane-code-review-meta-v4: ${JSON.stringify(
+        {
+          schemaVersion: 4,
+          pullRequestNumber: 1,
+          reviewedRevision: headRevision,
+          run: { id: "0", attempt: 1 },
+        },
+      )} -->\nprior report`,
+    });
+    const read = github.readAuthoritativeReport;
+    let reads = 0;
+    github.readAuthoritativeReport = async (number, signal) => {
+      const report = await read(number, signal);
+      reads += 1;
+      return reads === 2 && report !== undefined
+        ? { ...report, body: "a different report" }
+        : report;
+    };
+    const port = createPublicationPort(github);
+    await expect(
+      port.publishReport({
+        repository: request.repository,
+        pullRequestNumber: request.pullRequestNumber,
+        expectedHeadRevision: headRevision,
+        workflowRunId: "workflow-run",
+        githubRunId: "0",
+        attempt: 1,
+        existingReportId: "report-1",
+        publication: {
+          verdict: "approve",
+          reviewedRevision: headRevision,
+          body: "published report",
+        },
+      }),
+    ).rejects.toMatchObject({ code: "PUBLICATION_NOT_CONFIRMED" });
+    expect(reads).toBe(2);
   });
 
   it("returns stale before starting a workflow when the PR is no longer live", async () => {

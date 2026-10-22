@@ -225,6 +225,29 @@ These private records do not change public Plans or the execution-event version.
 Plan and replay commands retain their current behavior and Zod validation.
 Remove `unstable_studio` after hosted inspection parity; update help and documentation with its replacement inspection paths.
 
+### requirement-action-lifetimes
+
+Keep all six Actions on Node 24 with thin Actions Toolkit adapters. Evaluate
+native Effect programs at main and post composition boundaries. Keep pure
+review, conflict, and publication transformations pure.
+
+Readiness, installation, startup cleanup, and shutdown use finite native
+deadlines. A service outlives main only after validated ownership is saved and
+the resident process acknowledges adoption. Partial startup and cancellation
+retain cleanup ownership. Post validates process birth and group ownership
+before each signal; a surviving verified sentinel can retain that ownership.
+Malformed state or a reused PID cannot authorize foreign-process termination.
+Report uncertain cleanup explicitly.
+
+Preserve Action inputs, outputs, secret handling, exact publication identity,
+confirmation, and byte bounds. Do not retry publication writes generically.
+Commit and push remain independently controlled by the operator.
+
+Build all main, post, and resident assets together. Bundle runtime dependencies
+and keep generated assets ignored. Published packages contain production
+entrypoints and declarations, without development runners, crash fixtures, or
+private test-support modules. Verify consumption outside the checkout.
+
 ### requirement-hosted-operations
 
 Standalone runs use memory only and create no Seqlane listener, database, history, recording, summary, or retained cache.
@@ -339,7 +362,7 @@ No previous runtime fallback remains, and no observability capability lacks a do
 
 ## Delivery state
 
-Active target contract. [S1](../tasks/2026-10-21-effect-v4-effect-tracer.md) verifies the Effect process boundary. [S2](../tasks/2026-10-21-effect-v4-dependency-graphs.md) verifies dependency graphs through the private CLI worker composition and direct runtime facade. [S3](../tasks/2026-10-21-effect-v4-sessions-and-workspace-admission.md) verifies sessions, workspace admission, observations, and scoped cleanup through those callers. [S4](../tasks/2026-10-21-effect-v4-nested-workflows-and-validation.md) verifies nested workflows, choices, repeats, shared limits, validation, and cleanup. [S5](../tasks/2026-10-21-effect-v4-native-adapters-and-observations.md) verifies native adapters, full observations, and confirmed cleanup. [S6](../tasks/2026-10-21-effect-v4-acp-transport.md) verifies official ACP transport, complete native updates, and confirmed process cleanup. [S7](../tasks/2026-10-21-effect-v4-classifier-and-deadlines.md) verifies classifier HTTP, native retry schedules, monotonic transport deadlines, and mixed workflows through direct and compiled CLI callers. [S8](../tasks/2026-10-21-effect-v4-telemetry-and-event-pressure.md) verifies real CLI-to-adapter trace correlation, canonical observations, native metrics and logs, bounded event delivery, acknowledgement deadlines, isolated OTLP export, and cleanup. [S9](../tasks/2026-10-21-effect-v4-cli-and-action-cutover.md) verifies the sole CLI/direct Action run program, native ownership control, bounded supervision, original failure causes, plan/replay orchestration, and compiled caller parity. [S10](../tasks/2026-10-21-effect-v4-hosted-history-and-inspection.md) verifies native HTTP/MCP, versioned operational contracts, transactional SQL inspection, cancellation and admission ownership, persisted canonical observations, restart inspection, and crash recovery without replay. S11–S12, remaining Actions, distribution, and complete removal remain pending. No full migration or remote delivery is claimed.
+Active target contract. [S1](../tasks/2026-10-21-effect-v4-effect-tracer.md) verifies the Effect process boundary. [S2](../tasks/2026-10-21-effect-v4-dependency-graphs.md) verifies dependency graphs through the private CLI worker composition and direct runtime facade. [S3](../tasks/2026-10-21-effect-v4-sessions-and-workspace-admission.md) verifies sessions, workspace admission, observations, and scoped cleanup through those callers. [S4](../tasks/2026-10-21-effect-v4-nested-workflows-and-validation.md) verifies nested workflows, choices, repeats, shared limits, validation, and cleanup. [S5](../tasks/2026-10-21-effect-v4-native-adapters-and-observations.md) verifies native adapters, full observations, and confirmed cleanup. [S6](../tasks/2026-10-21-effect-v4-acp-transport.md) verifies official ACP transport, complete native updates, and confirmed process cleanup. [S7](../tasks/2026-10-21-effect-v4-classifier-and-deadlines.md) verifies classifier HTTP, native retry schedules, monotonic transport deadlines, and mixed workflows through direct and compiled CLI callers. [S8](../tasks/2026-10-21-effect-v4-telemetry-and-event-pressure.md) verifies real CLI-to-adapter trace correlation, canonical observations, native metrics and logs, bounded event delivery, acknowledgement deadlines, isolated OTLP export, and cleanup. [S9](../tasks/2026-10-21-effect-v4-cli-and-action-cutover.md) verifies the sole CLI/direct Action run program, native ownership control, bounded supervision, original failure causes, plan/replay orchestration, and compiled caller parity. [S10](../tasks/2026-10-21-effect-v4-hosted-history-and-inspection.md) verifies native HTTP/MCP, versioned operational contracts, transactional SQL inspection, cancellation and admission ownership, persisted canonical observations, restart inspection, and crash recovery without replay. [S11](../tasks/2026-10-21-effect-v4-remaining-actions-and-distribution.md) verifies all six Actions, shared libraries, production distributions, and actual hosted entry/post execution. [Hosted CI](https://github.com/marcolink/seqlane/actions/runs/39744581106) passes. S12 complete removal and release verification remain pending. No full migration or remote delivery is claimed.
 
 ## Traceability
 

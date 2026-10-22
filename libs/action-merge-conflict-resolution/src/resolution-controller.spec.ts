@@ -5,9 +5,13 @@
 // @test-scope ./resolution-flow.ts
 
 import { describe, expect, it } from "vitest";
+import { Effect } from "effect";
 
 import type { ConflictSet, ResolveMergeConflictsPorts } from "./contracts.js";
-import { resolveMergeConflicts } from "./resolution-controller.js";
+import {
+  resolveMergeConflicts,
+  resolveMergeConflictsEffect,
+} from "./resolution-controller.js";
 
 const revision = (letter: string): string => letter.repeat(40);
 
@@ -200,6 +204,51 @@ function ports(
 }
 
 describe("resolveMergeConflicts", () => {
+  it("drains an admitted metadata request before cancellation escapes", async () => {
+    const fake = ports({
+      kind: "clean",
+      operation: "merge",
+      headBefore: revision("b"),
+      targetRevision: revision("c"),
+      headAfter: revision("b"),
+    });
+    const controller = new AbortController();
+    let started!: () => void;
+    const didStart = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    let finish!: (value: ReturnType<typeof metadata>) => void;
+    const settled = new Promise<ReturnType<typeof metadata>>((resolve) => {
+      finish = resolve;
+    });
+    fake.value.github.readPullRequest = () => {
+      started();
+      return settled;
+    };
+    const running = Effect.runPromise(
+      resolveMergeConflictsEffect(request(), fake.value),
+      {
+        signal: controller.signal,
+      },
+    );
+    await didStart;
+    controller.abort(new Error("Action canceled"));
+    let completed = false;
+    void running.then(
+      () => {
+        completed = true;
+      },
+      () => {
+        completed = true;
+      },
+    );
+    await Promise.resolve();
+    expect(completed).toBe(false);
+    finish(metadata());
+    await expect(running).rejects.toBeDefined();
+    expect(fake.summary).toHaveLength(0);
+  });
+
   it("returns no-change for a clean merge without agent or push work", async () => {
     const fake = ports({
       kind: "clean",

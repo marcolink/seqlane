@@ -6,32 +6,47 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { Effect } from "effect";
 import {
   CLEANUP_ONLY_STATE_KEY,
   serializeCleanupOnlyState,
   serializeServiceState,
 } from "./state.js";
 
-const state = new Map<string, string>();
-const terminate = vi.fn(async () => true);
-const warnings: string[] = [];
+const { state, terminate, terminated, warnings } = vi.hoisted(() => ({
+  state: new Map<string, string>(),
+  terminated: { value: true },
+  terminate: vi.fn(
+    (_pid?: unknown, ..._ownership: unknown[]) => terminated.value,
+  ),
+  warnings: [] as string[],
+}));
 const temporaryDirectories: string[] = [];
 const originalRunnerTemp = process.env.RUNNER_TEMP;
 
 vi.mock("@actions/core", () => ({
   getState: (name: string) => state.get(name) ?? "",
+  info: vi.fn(),
   warning: (message: string) => warnings.push(message),
 }));
-vi.mock("@seqlane/action-service-lifecycle", () => ({
-  terminateProcessGroup: terminate,
-}));
+vi.mock("@seqlane/action-service-lifecycle", async () => {
+  const actual = await vi.importActual<
+    typeof import("@seqlane/action-service-lifecycle")
+  >("@seqlane/action-service-lifecycle");
+  return {
+    ...actual,
+    terminateProcessGroup: vi.fn((...args) =>
+      Effect.succeed(terminate(...args)),
+    ),
+  };
+});
 
 const { run } = await import("./post.js");
 
 afterEach(async () => {
   state.clear();
   terminate.mockReset();
-  terminate.mockResolvedValue(true);
+  terminated.value = true;
   warnings.length = 0;
   if (originalRunnerTemp === undefined) delete process.env.RUNNER_TEMP;
   else process.env.RUNNER_TEMP = originalRunnerTemp;
@@ -89,7 +104,7 @@ describe("Ripwire post cleanup", () => {
       }),
     );
     state.set("install-directory", installDirectory);
-    terminate.mockResolvedValue(false);
+    terminated.value = false;
 
     await run();
 

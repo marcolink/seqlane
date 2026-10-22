@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { realpath } from "node:fs/promises";
 import { RuntimeError, type SeqlaneError } from "@seqlane/core";
+import { CodeReviewError } from "./errors.js";
 import type { AgentRuntime } from "@seqlane/agent-adapter";
 import { buildWorkflow } from "@seqlane/core";
 import { z } from "zod";
+import { Effect } from "effect";
 import {
   startWorkflowRun,
   type StartWorkflowRunRequest,
@@ -81,68 +83,123 @@ function removeMarker(body: string): string {
   );
 }
 
-async function clearOwnedMarker(
+const io = <A>(
+  run: (signal: AbortSignal) => Promise<A>,
+): Effect.Effect<A, unknown> =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const request = yield* Effect.acquireRelease(
+        Effect.sync(() => {
+          const controller = new AbortController();
+          const promise = Promise.resolve().then(() => run(controller.signal));
+          return { controller, promise };
+        }),
+        ({ controller, promise }) =>
+          Effect.promise(async () => {
+            controller.abort(new Error("Review operation interrupted."));
+            await promise.then(
+              () => undefined,
+              () => undefined,
+            );
+          }),
+      );
+      return yield* Effect.tryPromise({
+        try: () => request.promise,
+        catch: (cause) => cause,
+      });
+    }),
+  );
+
+function clearOwnedMarker(
   adapter: GitHubReviewPort,
   markerId: string | undefined,
   deleteMarker: boolean,
   input: PublicationGuardInput & {
     readonly repository: string;
   },
-): Promise<void> {
-  if (markerId === undefined) return;
-  const report = await adapter.readIssueComment(markerId);
-  const ownedMarker = `<!-- seqlane-review-in-progress-run: ${input.workflowRunId} -->`;
-  const hasMarkerBoundary =
-    report.body.includes(markerStart) || report.body.includes(markerEnd);
-  // A report without a marker is already clean. Once a marker is present,
-  // cleanup must prove both trusted ownership and the exact run identity. Do
-  // not use the reviewed head here: a head change is precisely when cleanup
-  // must still reclaim this run's marker.
-  if (!hasMarkerBoundary) return;
-  if (
-    (report.author !== "github-actions" &&
-      report.author !== "github-actions[bot]") ||
-    !report.body.includes(markerStart) ||
-    !report.body.includes(markerEnd) ||
-    !report.body.includes(ownedMarker)
-  ) {
-    throw new Error("Could not prove ownership of the review marker.");
-  }
-  if (deleteMarker) await adapter.deleteComment(markerId);
-  else await adapter.updateReport(markerId, removeMarker(report.body));
+): Effect.Effect<void, unknown> {
+  if (markerId === undefined) return Effect.void;
+  return Effect.gen(function* () {
+    const report = yield* io((signal) =>
+      adapter.readIssueComment(markerId, signal),
+    );
+    const ownedMarker = `<!-- seqlane-review-in-progress-run: ${input.workflowRunId} -->`;
+    const hasMarkerBoundary =
+      report.body.includes(markerStart) || report.body.includes(markerEnd);
+    // A report without a marker is already clean. Once a marker is present,
+    // cleanup must prove both trusted ownership and the exact run identity. Do
+    // not use the reviewed head here: a head change is precisely when cleanup
+    // must still reclaim this run's marker.
+    if (!hasMarkerBoundary) return;
+    if (
+      (report.author !== "github-actions" &&
+        report.author !== "github-actions[bot]") ||
+      !report.body.includes(markerStart) ||
+      !report.body.includes(markerEnd) ||
+      !report.body.includes(ownedMarker)
+    ) {
+      throw new Error("Could not prove ownership of the review marker.");
+    }
+    if (deleteMarker)
+      yield* io((signal) => adapter.deleteComment(markerId, signal));
+    else
+      yield* io((signal) =>
+        adapter.updateReport(markerId, removeMarker(report.body), signal),
+      );
+  });
 }
 
-async function startWorkflowWithCleanup(
+function startWorkflowWithCleanup(
   start: () => WorkflowRunHandle,
   identity: { readonly workId: string; readonly runId: string },
-  cleanup: readonly (() => void | Promise<void>)[],
-): Promise<WorkflowRunHandle> {
-  try {
-    return start();
-  } catch (cause) {
-    const cleanupResults = await Promise.allSettled(
-      cleanup.map((step) => Promise.resolve().then(step)),
-    );
-    const cleanupFailures: unknown[] = [];
-    for (const result of cleanupResults) {
-      if (result.status === "rejected") cleanupFailures.push(result.reason);
-    }
-    const failureCause =
-      cleanupFailures.length === 0
-        ? cause
-        : new AggregateError(
-            [cause, ...cleanupFailures],
-            "Workflow startup and cleanup failed",
-          );
-    return {
-      ...identity,
-      outcome: Promise.resolve({
-        status: "failed",
-        error: new RuntimeError(failureCause),
+  cleanup: readonly (() => Effect.Effect<unknown, unknown>)[],
+  onStarted?: () => void,
+): Effect.Effect<WorkflowRunHandle, never> {
+  return Effect.uninterruptible(
+    Effect.try({
+      try: () => {
+        const handle = start();
+        onStarted?.();
+        return handle;
+      },
+      catch: (cause) => cause,
+    }),
+  ).pipe(
+    Effect.catch((cause) =>
+      Effect.gen(function* () {
+        const cleanupResults = yield* Effect.all(
+          cleanup.map((step) =>
+            Effect.match(step(), {
+              onFailure: (error) => ({
+                status: "rejected" as const,
+                reason: error,
+              }),
+              onSuccess: () => ({ status: "fulfilled" as const }),
+            }),
+          ),
+          { concurrency: "unbounded" },
+        );
+        const cleanupFailures = cleanupResults.flatMap((result) =>
+          result.status === "rejected" ? [result.reason] : [],
+        );
+        const failureCause =
+          cleanupFailures.length === 0
+            ? cause
+            : new AggregateError(
+                [cause, ...cleanupFailures],
+                "Workflow startup and cleanup failed",
+              );
+        return {
+          ...identity,
+          outcome: Promise.resolve({
+            status: "failed" as const,
+            error: new RuntimeError(failureCause),
+          }),
+          cancel: async () => undefined,
+        };
       }),
-      cancel: async () => undefined,
-    };
-  }
+    ),
+  );
 }
 
 type ReviewWorkflowStartRequest = {
@@ -157,12 +214,14 @@ type ReviewWorkflowStartRequest = {
   readonly adapter: GitHubReviewPort;
   readonly markerId: string | undefined;
   readonly markerCreated: boolean;
+  readonly signal?: AbortSignal;
+  readonly onStarted?: () => void;
 };
 
-async function startReviewWorkflow(
+function startReviewWorkflow(
   runWorkflow: WorkflowRunner,
   start: ReviewWorkflowStartRequest,
-): Promise<WorkflowRunHandle> {
+): Effect.Effect<WorkflowRunHandle, never> {
   return startWorkflowWithCleanup(
     () =>
       runWorkflow({
@@ -180,10 +239,10 @@ async function startReviewWorkflow(
         identity: start.identity,
         events: start.events,
         onObservation: start.onObservation,
+        signal: start.signal,
       }),
     start.identity,
     [
-      () => start.agentRuntime?.close?.(),
       () =>
         clearOwnedMarker(
           start.adapter,
@@ -192,6 +251,7 @@ async function startReviewWorkflow(
           publicationGuardInput(start.request, start.identity.runId),
         ),
     ],
+    start.onStarted,
   );
 }
 
@@ -222,7 +282,10 @@ function publicationGuardInput(
   };
 }
 
-function createPublicationPort(adapter: GitHubReviewPort): PublicationPort {
+export function createPublicationPort(
+  adapter: GitHubReviewPort,
+  signal?: AbortSignal,
+): PublicationPort {
   return {
     checkLiveState: async ({
       repository,
@@ -230,7 +293,7 @@ function createPublicationPort(adapter: GitHubReviewPort): PublicationPort {
       expectedHeadRevision,
     }) =>
       isLivePullRequest(
-        await adapter.readLivePullRequest(pullRequestNumber),
+        await adapter.readLivePullRequest(pullRequestNumber, signal),
         repository,
         expectedHeadRevision,
       )
@@ -246,14 +309,19 @@ function createPublicationPort(adapter: GitHubReviewPort): PublicationPort {
       existingReportId,
       publication,
     }) => {
-      const current = await adapter.readLivePullRequest(pullRequestNumber);
+      const current = await adapter.readLivePullRequest(
+        pullRequestNumber,
+        signal,
+      );
       if (!isLivePullRequest(current, repository, expectedHeadRevision))
         return "stale" as const;
       // Reconcile immediately before the conditional write. This prevents an
       // untrusted replacement or newer same-head run from being updated merely
       // because its comment ID was observed earlier.
-      const authoritative =
-        await adapter.readAuthoritativeReport(pullRequestNumber);
+      const authoritative = await adapter.readAuthoritativeReport(
+        pullRequestNumber,
+        signal,
+      );
       const target = guardPublicationTarget(authoritative, {
         pullRequestNumber,
         expectedHeadRevision,
@@ -264,10 +332,33 @@ function createPublicationPort(adapter: GitHubReviewPort): PublicationPort {
       if (target.status === "stale") return "stale" as const;
       if (target.status === "create") {
         if (existingReportId !== "") return "stale" as const;
-        await adapter.createReport(pullRequestNumber, publication.body);
-        return "published" as const;
+        await adapter.createReport(pullRequestNumber, publication.body, signal);
+      } else {
+        await adapter.updateReport(target.report.id, publication.body, signal);
       }
-      await adapter.updateReport(target.report.id, publication.body);
+      const confirmed = await adapter.readAuthoritativeReport(
+        pullRequestNumber,
+        signal,
+      );
+      const confirmation = guardPublicationTarget(confirmed, {
+        pullRequestNumber,
+        expectedHeadRevision,
+        workflowRunId,
+        githubRunId,
+        attempt,
+      });
+      if (
+        confirmed === undefined ||
+        confirmed.body !== publication.body ||
+        (target.status === "eligible" && confirmed.id !== target.report.id) ||
+        confirmation.status !== "eligible"
+      ) {
+        throw new CodeReviewError(
+          "publication",
+          "PUBLICATION_NOT_CONFIRMED",
+          "GitHub did not confirm the exact review report write.",
+        );
+      }
       return "published" as const;
     },
   };
@@ -287,7 +378,10 @@ export interface CodeReviewRunRequest extends ReviewTargetInput {
 export interface CodeReviewRunPorts {
   readonly github: GitHubReviewPort;
   /** Bootstraps the selected agent runtime after review admission succeeds. */
-  readonly bootstrapAgentRuntime?: (workspace: string) => Promise<AgentRuntime>;
+  readonly bootstrapAgentRuntime?: (
+    workspace: string,
+    signal?: AbortSignal,
+  ) => Promise<AgentRuntime>;
   readonly onRunStarted?: (run: ReviewRunStarted) => void | Promise<void>;
   readonly progress?: ReviewProgressPort;
   /** Receives the complete canonical observations produced by the run. */
@@ -296,6 +390,8 @@ export interface CodeReviewRunPorts {
   readonly now?: () => number;
   /** Test seam for lifecycle orchestration; production defaults to runtime. */
   readonly runWorkflow?: WorkflowRunner;
+  /** Action composition signal for the review and publication executions. */
+  readonly signal?: AbortSignal;
 }
 
 export interface WorkflowRunner {
@@ -330,251 +426,361 @@ export type CodeReviewRunResult =
     };
 
 /** Runs the trusted review and model-free publication lifecycle. */
-export async function runCodeReview(
+export function runCodeReviewEffect(
+  request: CodeReviewRunRequest,
+  ports: CodeReviewRunPorts,
+): Effect.Effect<CodeReviewRunResult, unknown> {
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const adapter = ports.github;
+      const runWorkflow = ports.runWorkflow ?? startWorkflowRun;
+      const pullRequest = yield* io((signal) =>
+        adapter.readPullRequest(request.pullRequestNumber, signal),
+      );
+      const reviewHistory = yield* io((signal) =>
+        adapter.readComments(request.pullRequestNumber, signal),
+      );
+      const normalizedHistory = normalizeReviewHistory(
+        request.pullRequestNumber,
+        reviewHistory,
+      );
+      const liveBeforeRun = yield* io((signal) =>
+        adapter.readLivePullRequest(request.pullRequestNumber, signal),
+      );
+      if (
+        !isLivePullRequest(
+          liveBeforeRun,
+          request.repository,
+          request.headRevision,
+        )
+      )
+        return { status: "stale" };
+
+      // Reserve the runtime identity before touching the report. The marker must
+      // own the same identity that is passed to startWorkflowRun, so another run
+      // cannot replace it between admission and execution.
+      const reservedIdentity = { workId: randomUUID(), runId: randomUUID() };
+      // The normalized history already fetched for the review is sufficient for
+      // report discovery unless its bounded result was truncated. Keep the
+      // authoritative reread in the publication path, immediately before its
+      // mutation, where the latest state is required.
+      const existingReport = reviewHistory.truncated
+        ? yield* io((signal) =>
+            adapter.readAuthoritativeReport(request.pullRequestNumber, signal),
+          )
+        : findAuthoritativeReport(reviewHistory);
+      let markerId = existingReport?.id;
+      const markerCreated = markerId === undefined;
+      const guardInput = publicationGuardInput(request, reservedIdentity.runId);
+
+      if (markerId !== undefined) {
+        // Save the bounded marker identity before the marker mutation and before
+        // starting the expensive review. Post cleanup can therefore recover from
+        // a failure during marker establishment itself.
+        yield* io(() =>
+          Promise.resolve(
+            ports.onRunStarted?.({
+              workId: reservedIdentity.workId,
+              runId: reservedIdentity.runId,
+              markerId,
+            }),
+          ),
+        );
+        const liveForMarker = yield* io((signal) =>
+          adapter.readLivePullRequest(request.pullRequestNumber, signal),
+        );
+        if (
+          !isLivePullRequest(
+            liveForMarker,
+            request.repository,
+            request.headRevision,
+          )
+        )
+          return { status: "stale", runId: reservedIdentity.runId };
+        const report = yield* io((signal) =>
+          adapter.readIssueComment(markerId!, signal),
+        );
+        const target = guardPublicationTarget(report, guardInput);
+        if (target.status !== "eligible")
+          return { status: "stale", runId: reservedIdentity.runId };
+        yield* io((signal) =>
+          adapter.updateReport(
+            markerId!,
+            marker(
+              reservedIdentity.runId,
+              githubActionsRunUrl(
+                request.repository,
+                request.githubRunId ?? "",
+              ),
+            ) +
+              "\n\n" +
+              removeMarker(report.body),
+            signal,
+          ),
+        );
+      } else {
+        // A missing report still needs an owned comment before expensive review
+        // work starts. Workflow serialization makes the initial report discovery
+        // the admission boundary for this create.
+        const liveForMarker = yield* io((signal) =>
+          adapter.readLivePullRequest(request.pullRequestNumber, signal),
+        );
+        if (
+          !isLivePullRequest(
+            liveForMarker,
+            request.repository,
+            request.headRevision,
+          )
+        )
+          return { status: "stale", runId: reservedIdentity.runId };
+        markerId = yield* Effect.uninterruptible(
+          Effect.gen(function* () {
+            const created = yield* io((signal) =>
+              adapter.createMarker(
+                request.pullRequestNumber,
+                markerReport(request, reservedIdentity.runId),
+                signal,
+              ),
+            );
+            yield* io(() =>
+              Promise.resolve(
+                ports.onRunStarted?.({
+                  workId: reservedIdentity.workId,
+                  runId: reservedIdentity.runId,
+                  markerId: created,
+                }),
+              ),
+            );
+            return created;
+          }),
+        );
+      }
+
+      const eventRecorder = new BoundedEventRecorder(10_000);
+      const reviewProgress = createReviewProgress(ports.progress, {
+        headRevision: request.headRevision,
+        now: ports.now,
+      });
+      let agentRuntimeTransferred = false;
+      const bootstrap = yield* Effect.match(
+        Effect.gen(function* () {
+          const reviewTarget = yield* io(() => realpath(request.reviewTarget));
+          const agentRuntime = yield* Effect.acquireRelease(
+            io(
+              (signal) =>
+                ports.bootstrapAgentRuntime?.(reviewTarget, signal) ??
+                Promise.resolve(undefined),
+            ),
+            (runtime) => {
+              const close = runtime?.close;
+              return close === undefined || agentRuntimeTransferred
+                ? Effect.void
+                : io(() => close.call(runtime)).pipe(Effect.orDie);
+            },
+          );
+          return { reviewTarget, agentRuntime };
+        }),
+        {
+          onFailure: (cause) => ({ error: cause }),
+          onSuccess: (value) => ({ value }),
+        },
+      );
+      if ("error" in bootstrap) {
+        yield* clearOwnedMarker(
+          adapter,
+          markerId,
+          markerCreated,
+          publicationGuardInput(request, reservedIdentity.runId),
+        );
+        return {
+          status: "failed",
+          workId: reservedIdentity.workId,
+          runId: reservedIdentity.runId,
+          phase: "review",
+          error: new RuntimeError(bootstrap.error),
+        };
+      }
+      const { reviewTarget, agentRuntime } = bootstrap.value;
+      let reviewSettled = false;
+      const handle = yield* Effect.acquireRelease(
+        startReviewWorkflow(runWorkflow, {
+          request,
+          pullRequest,
+          reviewHistory: normalizedHistory.reviewHistory,
+          agentRuntime,
+          reviewTarget,
+          identity: reservedIdentity,
+          adapter,
+          markerId,
+          markerCreated,
+          events: {
+            emit: (event) => {
+              eventRecorder.emit(event);
+              reviewProgress.emit(event);
+            },
+          },
+          onObservation: ports.onObservation,
+          signal: ports.signal,
+          onStarted: () => {
+            agentRuntimeTransferred = true;
+          },
+        }),
+        (handle) =>
+          reviewSettled
+            ? Effect.void
+            : Effect.uninterruptible(
+                io(() => handle.cancel())
+                  .pipe(Effect.andThen(io(() => handle.outcome)), Effect.asVoid)
+                  .pipe(Effect.catchCause(() => Effect.void)),
+              ),
+      );
+
+      const outcome = yield* io(() => handle.outcome);
+      reviewSettled = true;
+      reviewProgress.complete(outcome.status);
+      if (outcome.status !== "succeeded") {
+        yield* clearOwnedMarker(
+          adapter,
+          markerId,
+          markerCreated,
+          publicationGuardInput(request, handle.runId),
+        );
+        return outcome.status === "cancelled"
+          ? {
+              status: "cancelled",
+              workId: handle.workId,
+              runId: handle.runId,
+              phase: "review",
+            }
+          : {
+              status: "failed",
+              workId: handle.workId,
+              runId: handle.runId,
+              phase: "review",
+              error: outcome.error,
+            };
+      }
+
+      const live = yield* io((signal) =>
+        adapter.readLivePullRequest(request.pullRequestNumber, signal),
+      );
+      if (!isLivePullRequest(live, request.repository, request.headRevision)) {
+        yield* clearOwnedMarker(
+          adapter,
+          markerId,
+          markerCreated,
+          publicationGuardInput(request, handle.runId),
+        );
+        return { status: "stale", runId: handle.runId };
+      }
+
+      const workflowReport = z
+        .record(z.string(), z.unknown())
+        .parse(outcome.result);
+      const snapshot = Object.freeze({
+        report: {
+          ...workflowReport,
+          runMetricsLedger: normalizedHistory.runMetricsLedger,
+        },
+        events: eventRecorder.events,
+        eventsTruncated: eventRecorder.truncated,
+        runId: handle.runId,
+        ...(request.githubRunId === undefined
+          ? {}
+          : { githubRunId: request.githubRunId }),
+        attempt: request.attempt ?? 1,
+        completedAt: new Date().toISOString(),
+      });
+      let publicationSettled = false;
+      const publicationHandle = yield* startWorkflowWithCleanup(
+        () =>
+          runWorkflow({
+            workflow: buildPublicationWorkflow(
+              createPublicationPort(adapter, ports.signal),
+            ),
+            input: {
+              repository: request.repository,
+              pullRequestNumber: request.pullRequestNumber,
+              expectedHeadRevision: request.headRevision,
+              githubRunId: snapshot.githubRunId ?? "0",
+              attempt: snapshot.attempt,
+              snapshot,
+              existingReportId: markerId ?? "",
+            },
+            workspace: reviewTarget,
+            events: { emit: () => undefined },
+            signal: ports.signal,
+          }),
+        handle.workId === undefined
+          ? reservedIdentity
+          : { workId: handle.workId, runId: handle.runId },
+        [],
+      );
+      const publicationOutcome = yield* Effect.acquireRelease(
+        Effect.succeed(publicationHandle),
+        (current) =>
+          publicationSettled
+            ? Effect.void
+            : Effect.uninterruptible(
+                io(() => current.cancel())
+                  .pipe(
+                    Effect.andThen(io(() => current.outcome)),
+                    Effect.asVoid,
+                  )
+                  .pipe(Effect.catchCause(() => Effect.void)),
+              ),
+      ).pipe(Effect.flatMap((current) => io(() => current.outcome)));
+      publicationSettled = true;
+      if (publicationOutcome.status !== "succeeded") {
+        yield* clearOwnedMarker(
+          adapter,
+          markerId,
+          markerCreated,
+          publicationGuardInput(request, handle.runId),
+        );
+        return publicationOutcome.status === "cancelled"
+          ? {
+              status: "cancelled",
+              workId: handle.workId,
+              runId: handle.runId,
+              phase: "publication",
+            }
+          : {
+              status: "failed",
+              workId: handle.workId,
+              runId: handle.runId,
+              phase: "publication",
+              error: publicationOutcome.error,
+            };
+      }
+      const publicationResult = publicationResultSchema.parse(
+        publicationOutcome.result,
+      );
+      yield* clearOwnedMarker(
+        adapter,
+        markerId,
+        false,
+        publicationGuardInput(request, handle.runId),
+      );
+      if (publicationResult.status === "stale")
+        return { status: "stale", runId: handle.runId };
+      return {
+        status: "published",
+        workId: handle.workId,
+        runId: handle.runId,
+        verdict: publicationResult.publication.verdict,
+        publicationStatus: "published",
+        publicationBody: publicationResult.publication.body,
+      };
+    }),
+  );
+}
+
+export function runCodeReview(
   request: CodeReviewRunRequest,
   ports: CodeReviewRunPorts,
 ): Promise<CodeReviewRunResult> {
-  const adapter = ports.github;
-  const runWorkflow = ports.runWorkflow ?? startWorkflowRun;
-  const pullRequest = await adapter.readPullRequest(request.pullRequestNumber);
-  const reviewHistory = await adapter.readComments(request.pullRequestNumber);
-  const normalizedHistory = normalizeReviewHistory(
-    request.pullRequestNumber,
-    reviewHistory,
-  );
-  const liveBeforeRun = await adapter.readLivePullRequest(
-    request.pullRequestNumber,
-  );
-  if (
-    !isLivePullRequest(liveBeforeRun, request.repository, request.headRevision)
-  )
-    return { status: "stale" };
-
-  // Reserve the runtime identity before touching the report. The marker must
-  // own the same identity that is passed to startWorkflowRun, so another run
-  // cannot replace it between admission and execution.
-  const reservedIdentity = { workId: randomUUID(), runId: randomUUID() };
-  // The normalized history already fetched for the review is sufficient for
-  // report discovery unless its bounded result was truncated. Keep the
-  // authoritative reread in the publication path, immediately before its
-  // mutation, where the latest state is required.
-  const existingReport = reviewHistory.truncated
-    ? await adapter.readAuthoritativeReport(request.pullRequestNumber)
-    : findAuthoritativeReport(reviewHistory);
-  let markerId = existingReport?.id;
-  const markerCreated = markerId === undefined;
-  const guardInput = publicationGuardInput(request, reservedIdentity.runId);
-
-  if (markerId !== undefined) {
-    // Save the bounded marker identity before the marker mutation and before
-    // starting the expensive review. Post cleanup can therefore recover from
-    // a failure during marker establishment itself.
-    await ports.onRunStarted?.({
-      workId: reservedIdentity.workId,
-      runId: reservedIdentity.runId,
-      markerId,
-    });
-    const liveForMarker = await adapter.readLivePullRequest(
-      request.pullRequestNumber,
-    );
-    if (
-      !isLivePullRequest(
-        liveForMarker,
-        request.repository,
-        request.headRevision,
-      )
-    )
-      return { status: "stale", runId: reservedIdentity.runId };
-    const report = await adapter.readIssueComment(markerId);
-    const target = guardPublicationTarget(report, guardInput);
-    if (target.status !== "eligible")
-      return { status: "stale", runId: reservedIdentity.runId };
-    await adapter.updateReport(
-      markerId,
-      marker(
-        reservedIdentity.runId,
-        githubActionsRunUrl(request.repository, request.githubRunId ?? ""),
-      ) +
-        "\n\n" +
-        removeMarker(report.body),
-    );
-  } else {
-    // A missing report still needs an owned comment before expensive review
-    // work starts. Workflow serialization makes the initial report discovery
-    // the admission boundary for this create.
-    const liveForMarker = await adapter.readLivePullRequest(
-      request.pullRequestNumber,
-    );
-    if (
-      !isLivePullRequest(
-        liveForMarker,
-        request.repository,
-        request.headRevision,
-      )
-    )
-      return { status: "stale", runId: reservedIdentity.runId };
-    markerId = await adapter.createMarker(
-      request.pullRequestNumber,
-      markerReport(request, reservedIdentity.runId),
-    );
-    await ports.onRunStarted?.({
-      workId: reservedIdentity.workId,
-      runId: reservedIdentity.runId,
-      markerId,
-    });
-  }
-
-  const eventRecorder = new BoundedEventRecorder(10_000);
-  const reviewProgress = createReviewProgress(ports.progress, {
-    headRevision: request.headRevision,
-    now: ports.now,
+  return Effect.runPromise(Effect.scoped(runCodeReviewEffect(request, ports)), {
+    ...(ports.signal === undefined ? {} : { signal: ports.signal }),
   });
-  let agentRuntime: AgentRuntime | undefined;
-  let reviewTarget: string;
-  try {
-    reviewTarget = await realpath(request.reviewTarget);
-    agentRuntime = await ports.bootstrapAgentRuntime?.(reviewTarget);
-  } catch (cause) {
-    await clearOwnedMarker(
-      adapter,
-      markerId,
-      markerCreated,
-      publicationGuardInput(request, reservedIdentity.runId),
-    );
-    return {
-      status: "failed",
-      workId: reservedIdentity.workId,
-      runId: reservedIdentity.runId,
-      phase: "review",
-      error: new RuntimeError(cause),
-    };
-  }
-  const handle = await startReviewWorkflow(runWorkflow, {
-    request,
-    pullRequest,
-    reviewHistory: normalizedHistory.reviewHistory,
-    agentRuntime,
-    reviewTarget,
-    identity: reservedIdentity,
-    adapter,
-    markerId,
-    markerCreated,
-    events: {
-      emit: (event) => {
-        eventRecorder.emit(event);
-        reviewProgress.emit(event);
-      },
-    },
-    onObservation: ports.onObservation,
-  });
-
-  const outcome = await handle.outcome;
-  reviewProgress.complete(outcome.status);
-  if (outcome.status !== "succeeded") {
-    await clearOwnedMarker(
-      adapter,
-      markerId,
-      markerCreated,
-      publicationGuardInput(request, handle.runId),
-    );
-    return outcome.status === "cancelled"
-      ? {
-          status: "cancelled",
-          workId: handle.workId,
-          runId: handle.runId,
-          phase: "review",
-        }
-      : {
-          status: "failed",
-          workId: handle.workId,
-          runId: handle.runId,
-          phase: "review",
-          error: outcome.error,
-        };
-  }
-
-  const live = await adapter.readLivePullRequest(request.pullRequestNumber);
-  if (!isLivePullRequest(live, request.repository, request.headRevision)) {
-    await clearOwnedMarker(
-      adapter,
-      markerId,
-      markerCreated,
-      publicationGuardInput(request, handle.runId),
-    );
-    return { status: "stale", runId: handle.runId };
-  }
-
-  const workflowReport = z
-    .record(z.string(), z.unknown())
-    .parse(outcome.result);
-  const snapshot = Object.freeze({
-    report: {
-      ...workflowReport,
-      runMetricsLedger: normalizedHistory.runMetricsLedger,
-    },
-    events: eventRecorder.events,
-    eventsTruncated: eventRecorder.truncated,
-    runId: handle.runId,
-    ...(request.githubRunId === undefined
-      ? {}
-      : { githubRunId: request.githubRunId }),
-    attempt: request.attempt ?? 1,
-    completedAt: new Date().toISOString(),
-  });
-  const publicationHandle = runWorkflow({
-    workflow: buildPublicationWorkflow(createPublicationPort(adapter)),
-    input: {
-      repository: request.repository,
-      pullRequestNumber: request.pullRequestNumber,
-      expectedHeadRevision: request.headRevision,
-      githubRunId: snapshot.githubRunId ?? "0",
-      attempt: snapshot.attempt,
-      snapshot,
-      existingReportId: markerId ?? "",
-    },
-    workspace: reviewTarget,
-    events: { emit: () => undefined },
-  });
-  const publicationOutcome = await publicationHandle.outcome;
-  if (publicationOutcome.status !== "succeeded") {
-    await clearOwnedMarker(
-      adapter,
-      markerId,
-      markerCreated,
-      publicationGuardInput(request, handle.runId),
-    );
-    return publicationOutcome.status === "cancelled"
-      ? {
-          status: "cancelled",
-          workId: handle.workId,
-          runId: handle.runId,
-          phase: "publication",
-        }
-      : {
-          status: "failed",
-          workId: handle.workId,
-          runId: handle.runId,
-          phase: "publication",
-          error: publicationOutcome.error,
-        };
-  }
-  const publicationResult = publicationResultSchema.parse(
-    publicationOutcome.result,
-  );
-  await clearOwnedMarker(
-    adapter,
-    markerId,
-    false,
-    publicationGuardInput(request, handle.runId),
-  );
-  if (publicationResult.status === "stale")
-    return { status: "stale", runId: handle.runId };
-  return {
-    status: "published",
-    workId: handle.workId,
-    runId: handle.runId,
-    verdict: publicationResult.publication.verdict,
-    publicationStatus: "published",
-    publicationBody: publicationResult.publication.body,
-  };
 }

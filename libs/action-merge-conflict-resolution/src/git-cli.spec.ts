@@ -1,10 +1,12 @@
 // @test-scope ./git-cli.ts
+// @test-scope ./git-process.ts
 // @test-scope ./git-port.ts
 // @test-scope ./git-count.ts
 
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import {
+  existsSync,
   mkdtempSync,
   mkdirSync,
   readFileSync,
@@ -15,8 +17,10 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { confirmOwnedProcessGroupStopped } from "@seqlane/agent-adapter/private/owned-process";
 
 import { NodeGitCli } from "./git-cli.js";
+import { runGitCommand } from "./git-process.js";
 
 function git(root: string, args: readonly string[]): string {
   return execFileSync("git", [...args], { cwd: root, encoding: "utf8" });
@@ -81,6 +85,54 @@ function createRebasePlanRepository(): {
 }
 
 describe("NodeGitCli", () => {
+  it.skipIf(process.platform === "win32")(
+    "drains a resistant Git process group before resolving cancellation",
+    async () => {
+      const root = mkdtempSync(join(tmpdir(), "seqlane-git-cancel-"));
+      const readyPath = join(root, "ready.pid");
+      const controller = new AbortController();
+      const childCode =
+        'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000);';
+      const parentCode = [
+        'const { spawn } = require("node:child_process");',
+        'const { writeFileSync } = require("node:fs");',
+        'const child = spawn(process.execPath, ["-e", ' +
+          JSON.stringify(childCode) +
+          '], { stdio: "ignore" });',
+        'process.on("SIGTERM", () => child.kill("SIGKILL"));',
+        'child.once("close", () => process.exit(0));',
+        `writeFileSync(${JSON.stringify(readyPath)}, String(process.pid));`,
+        "setInterval(() => {}, 1000);",
+      ].join("\n");
+      const running = runGitCommand({
+        executable: process.execPath,
+        args: ["-e", parentCode],
+        cwd: root,
+        signal: controller.signal,
+      });
+      const settled = running.catch(() => undefined);
+      try {
+        await expect
+          .poll(() => existsSync(readyPath), { timeout: 10_000 })
+          .toBe(true);
+        const processGroupId = Number(readFileSync(readyPath, "utf8"));
+        expect(Number.isSafeInteger(processGroupId)).toBe(true);
+        expect(processGroupId).toBeGreaterThan(0);
+        controller.abort(new Error("test cancellation"));
+        const result = await running;
+        expect(result.exitCode).toBe(1);
+        await expect(
+          confirmOwnedProcessGroupStopped(processGroupId),
+        ).resolves.toBe(true);
+      } finally {
+        controller.abort();
+        await settled;
+        rmSync(root, { recursive: true, force: true });
+      }
+    },
+    15_000,
+  );
+
   it("counts commits that a rebase will replay", async () => {
     const { root, baseRevision } = createConflictRepository(
       "base\n",

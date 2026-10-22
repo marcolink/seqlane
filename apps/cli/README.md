@@ -10,6 +10,9 @@ configured adapter runtime, such as OpenCode.
 
 ## Published and local-development entrypoints
 
+The published package includes `bin/run.js` and production output. Development
+entrypoints, test workers, and fixture programs stay in the repository.
+
 Use the published `seqlane` binary when the CLI is installed from npm. Use the
 repository entrypoint when you are developing this workspace. Build the
 workspace before using the local entrypoint.

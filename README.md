@@ -342,6 +342,22 @@ The CLI runs one workflow and prints the result. Add `--adapter opencode` or
 [CLI guide](apps/cli/README.md) for input, output, adapter, and workspace
 options.
 
+## Verify distribution changes
+
+After a build, run `pnpm verify:installed` to pack all eight release packages.
+The check installs those tarballs outside this checkout and verifies declarations,
+direct execution, and the production Oclif commands. Private test helpers and
+development runners must not enter release archives.
+
+Run `pnpm verify:actions` after building the Actions. It executes each service
+bundle's main and post in separate processes and checks cleanup and foreign
+process survival. It also runs the review and conflict entrypoints against
+isolated Git and HTTP fixtures. Ripwire uses its pinned public release.
+
+CI also invokes the local Actions with `uses:` on a hosted runner. Fixtures
+exercise service handoff, a stale review, and clean Git integration without
+model prompts or publication writes. The runner then invokes each service post.
+
 ## License
 
 Seqlane is licensed under the [Apache License 2.0](LICENSE).

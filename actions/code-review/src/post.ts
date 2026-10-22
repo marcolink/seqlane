@@ -2,11 +2,22 @@ import "./require-shim.js";
 
 import * as core from "@actions/core";
 import * as github from "@actions/github";
+import { Effect } from "effect";
+import { z } from "zod";
 
-interface PostComment {
-  readonly body?: string | null;
-  readonly user?: { readonly login?: string | null } | null;
-}
+const httpErrorSchema = z.object({ status: z.number().int() }).passthrough();
+const postCommentSchema = z.object({
+  body: z.string().max(65_536).nullable().optional(),
+  user: z
+    .object({ login: z.string().max(100).nullable().optional() })
+    .nullable()
+    .optional(),
+});
+const markerIdSchema = z
+  .string()
+  .regex(/^[1-9]\d{0,15}$/)
+  .pipe(z.custom<string>((value) => Number.isSafeInteger(Number(value))));
+const POST_REQUEST_DEADLINE_MS = 20_000;
 
 interface PostClient {
   readonly rest: {
@@ -15,12 +26,14 @@ interface PostClient {
         readonly owner: string;
         readonly repo: string;
         readonly comment_id: number;
-      }): Promise<{ readonly data: PostComment }>;
+        readonly request?: { readonly signal?: AbortSignal };
+      }): Promise<{ readonly data: unknown }>;
       updateComment(request: {
         readonly owner: string;
         readonly repo: string;
         readonly comment_id: number;
         readonly body: string;
+        readonly request?: { readonly signal?: AbortSignal };
       }): Promise<unknown>;
     };
   };
@@ -65,28 +78,100 @@ function cleanupFailureMessage(error: unknown): string {
   return `Could not remove review marker: ${(sanitized || "unknown error").slice(0, 500)}`;
 }
 
-export async function runPost(
+const io = <A>(run: (signal: AbortSignal) => Promise<A>) =>
+  Effect.timeoutOption(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const request = yield* Effect.acquireRelease(
+          Effect.sync(() => {
+            const controller = new AbortController();
+            const promise = Promise.resolve().then(() =>
+              run(controller.signal),
+            );
+            return { controller, promise };
+          }),
+          ({ controller, promise }) =>
+            Effect.promise(async () => {
+              controller.abort(new Error("GitHub marker cleanup interrupted."));
+              await promise.then(
+                () => undefined,
+                () => undefined,
+              );
+            }),
+        );
+        return yield* Effect.tryPromise({
+          try: () => request.promise,
+          catch: (cause) => cause,
+        });
+      }),
+    ),
+    POST_REQUEST_DEADLINE_MS,
+  ).pipe(
+    Effect.flatMap((result) =>
+      result._tag === "None"
+        ? Effect.fail(
+            new Error(
+              "GitHub marker cleanup request exceeded its 20-second deadline.",
+            ),
+          )
+        : Effect.succeed(result.value),
+    ),
+  );
+
+function httpStatus(error: unknown): number | undefined {
+  const parsed = httpErrorSchema.safeParse(error);
+  return parsed.success ? parsed.data.status : undefined;
+}
+
+export function runPostEffect(
   ports: PostPorts = defaultPostPorts,
-): Promise<void> {
-  const markerId = ports.getState("review-marker-id");
-  if (!markerId) return;
-  const token = ports.getInput("github-token");
-  if (!token) return;
-  const [owner, repo] = ports.getInput("repository").split("/");
-  if (!owner || !repo) return;
-  const runId = ports.getState("review-run-id");
-  try {
-    const client = ports.getOctokit(token);
-    const comment = await client.rest.issues.getComment({
-      owner,
-      repo,
-      comment_id: Number(markerId),
-    });
-    const body = comment.data.body ?? "";
-    const author = comment.data.user?.login;
+): Effect.Effect<void, unknown> {
+  return Effect.gen(function* () {
+    const markerId = yield* Effect.sync(() =>
+      ports.getState("review-marker-id"),
+    );
+    if (!markerId) return;
+    if (!markerIdSchema.safeParse(markerId).success) {
+      yield* Effect.sync(() =>
+        ports.warning(
+          "The saved review marker ID is invalid; leaving it in place.",
+        ),
+      );
+      return;
+    }
+    const token = yield* Effect.sync(() => ports.getInput("github-token"));
+    if (!token) return;
+    const [owner, repo] = yield* Effect.sync(() =>
+      ports.getInput("repository").split("/"),
+    );
+    if (!owner || !repo) return;
+    const runId = yield* Effect.sync(() => ports.getState("review-run-id"));
+    const client = yield* Effect.sync(() => ports.getOctokit(token));
+    const comment = yield* io((signal) =>
+      client.rest.issues.getComment({
+        owner,
+        repo,
+        comment_id: Number(markerId),
+        request: { signal },
+      }),
+    ).pipe(
+      Effect.map((response) => postCommentSchema.parse(response.data)),
+      Effect.catch((error: unknown) => {
+        const status = httpStatus(error);
+        if (status !== 404) {
+          ports.setFailed(cleanupFailureMessage(error));
+        }
+        return Effect.succeed(undefined);
+      }),
+    );
+    if (comment === undefined) return;
+    const body = comment.body ?? "";
+    const author = comment.user?.login;
     if (author !== "github-actions" && author !== "github-actions[bot]") {
-      ports.warning(
-        "The review marker comment is no longer owned by the trusted bot; leaving it in place.",
+      yield* Effect.sync(() =>
+        ports.warning(
+          "The review marker comment is no longer owned by the trusted bot; leaving it in place.",
+        ),
       );
       return;
     }
@@ -100,24 +185,47 @@ export async function runPost(
       /<!-- seqlane-review-in-progress-start -->[\s\S]*?<!-- seqlane-review-in-progress-end -->\n?/g,
       "",
     );
-    await client.rest.issues.updateComment({
-      owner,
-      repo,
-      comment_id: Number(markerId),
-      body: cleaned,
-    });
-  } catch (error: unknown) {
-    const status =
-      typeof error === "object" && error !== null && "status" in error
-        ? (error as { status?: unknown }).status
-        : undefined;
-    if (status !== 404) ports.setFailed(cleanupFailureMessage(error));
-  }
+    yield* io((signal) =>
+      client.rest.issues.updateComment({
+        owner,
+        repo,
+        comment_id: Number(markerId),
+        body: cleaned,
+        request: { signal },
+      }),
+    ).pipe(
+      Effect.catch((error: unknown) => {
+        const status = httpStatus(error);
+        return status === 404
+          ? Effect.void
+          : Effect.sync(() => ports.setFailed(cleanupFailureMessage(error)));
+      }),
+    );
+  });
 }
 
-if (process.env.NODE_ENV !== "test")
-  runPost().catch((error: unknown) =>
-    core.setFailed(
-      error instanceof Error ? error.message : "Code review cleanup failed.",
-    ),
-  );
+export function runPost(ports: PostPorts = defaultPostPorts): Promise<void> {
+  return Effect.runPromise(runPostEffect(ports));
+}
+
+if (process.env.NODE_ENV !== "test") {
+  const controller = new AbortController();
+  const onInt = () =>
+    controller.abort(new Error("Action interrupted by SIGINT."));
+  const onTerm = () =>
+    controller.abort(new Error("Action interrupted by SIGTERM."));
+  process.once("SIGINT", onInt);
+  process.once("SIGTERM", onTerm);
+  Effect.runPromise(Effect.scoped(runPostEffect()), {
+    signal: controller.signal,
+  })
+    .catch((error: unknown) =>
+      core.setFailed(
+        error instanceof Error ? error.message : "Code review cleanup failed.",
+      ),
+    )
+    .finally(() => {
+      process.off("SIGINT", onInt);
+      process.off("SIGTERM", onTerm);
+    });
+}

@@ -1,11 +1,32 @@
 import { resolve } from "node:path";
 
 import * as core from "@actions/core";
+import { Cause, Effect } from "effect";
 import { buildZvecEnvironment } from "./commands.js";
 import { parseListenAddress } from "./readiness.js";
 import { runZvecGrepLifecycle } from "./lifecycle.js";
 
 export { packageExecutionDirectory, processAnchorPath } from "./lifecycle.js";
+
+async function runWithActionSignals<A>(
+  effect: Effect.Effect<A, Error | Cause.TimeoutError>,
+): Promise<A> {
+  const controller = new AbortController();
+  const onInterrupt = (signal: NodeJS.Signals) => {
+    process.exitCode = signal === "SIGINT" ? 130 : 143;
+    controller.abort(new Error(`zvec-grep startup interrupted by ${signal}`));
+  };
+  const onSigint = () => onInterrupt("SIGINT");
+  const onSigterm = () => onInterrupt("SIGTERM");
+  process.on("SIGINT", onSigint);
+  process.on("SIGTERM", onSigterm);
+  try {
+    return await Effect.runPromise(effect, { signal: controller.signal });
+  } finally {
+    process.off("SIGINT", onSigint);
+    process.off("SIGTERM", onSigterm);
+  }
+}
 
 function runnerTempPath(fileName: string): string {
   return resolve(process.env.RUNNER_TEMP ?? "/tmp", fileName);
@@ -39,24 +60,26 @@ export async function run(): Promise<void> {
   const packageSpec = `@zvec/zvec-grep@${version}`;
   const logPath = runnerTempPath("zvec-grep.log");
 
-  await runZvecGrepLifecycle(
-    {
-      packageManager,
-      packageSpec,
-      projectDirectory: workingDirectory,
-      listen: parsedListen.listen,
-      home,
-      embedding,
-      maxFilesize,
-      additionalGlobs,
-      environment: env,
-      logPath,
-      timeoutMilliseconds: timeoutSeconds * 1_000,
-    },
-    {
-      saveState: core.saveState,
-      warning: core.warning,
-    },
+  await runWithActionSignals(
+    runZvecGrepLifecycle(
+      {
+        packageManager,
+        packageSpec,
+        projectDirectory: workingDirectory,
+        listen: parsedListen.listen,
+        home,
+        embedding,
+        maxFilesize,
+        additionalGlobs,
+        environment: env,
+        logPath,
+        timeoutMilliseconds: timeoutSeconds * 1_000,
+      },
+      {
+        saveState: core.saveState,
+        warning: core.warning,
+      },
+    ),
   );
 
   core.setOutput("mcp-url", parsedListen.mcpUrl);

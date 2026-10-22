@@ -1,29 +1,37 @@
-const sleep = (milliseconds: number) =>
-  new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
+import { Cause, Effect, Schedule } from "effect";
 
-export async function waitForHttpHealth(
+function probe(url: string): Effect.Effect<void, Error> {
+  const response = Effect.tryPromise({
+    try: (signal) => fetch(url, { signal }),
+    catch: (cause) =>
+      new Error(`OpenCode health request failed: ${url}`, { cause }),
+  });
+
+  return response.pipe(
+    Effect.flatMap((result) =>
+      Effect.ensuring(
+        result.ok
+          ? Effect.void
+          : Effect.fail(
+              new Error(`OpenCode health returned HTTP ${result.status}`),
+            ),
+        Effect.tryPromise(() => Promise.resolve(result.body?.cancel())).pipe(
+          Effect.catch(() => Effect.void),
+        ),
+      ),
+    ),
+  );
+}
+
+export function waitForHttpHealth(
   url: string,
   timeoutMilliseconds: number,
-): Promise<void> {
-  const deadline = Date.now() + timeoutMilliseconds;
-  while (Date.now() < deadline) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 2_000);
-    let response: Response | undefined;
-    try {
-      response = await fetch(url, { signal: controller.signal });
-      if (response.ok) return;
-    } catch {
-      // The service may still be starting.
-    } finally {
-      try {
-        await response?.body?.cancel();
-      } catch {
-        // Ignore body cleanup failures while the service is starting.
-      }
-      clearTimeout(timeout);
-    }
-    await sleep(1_000);
-  }
-  throw new Error(`Service did not become ready: ${url}`);
+): Effect.Effect<void, Error | Cause.TimeoutError> {
+  const polling = Effect.retry(probe(url), Schedule.spaced("1 second"));
+
+  return Effect.timeout(polling, timeoutMilliseconds).pipe(
+    Effect.catchTag("TimeoutError", () =>
+      Effect.fail(new Error(`Service did not become ready: ${url}`)),
+    ),
+  );
 }

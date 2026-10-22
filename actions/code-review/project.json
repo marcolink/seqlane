@@ -17,7 +17,7 @@
       "executor": "nx:run-commands",
       "options": {
         "cwd": "actions/code-review",
-        "command": "pnpm exec esbuild src/main.ts --bundle --platform=node --target=node24 --format=esm --tsconfig=tsconfig.json --outfile=dist/main.js --minify && pnpm exec esbuild src/post.ts --bundle --platform=node --target=node24 --format=esm --tsconfig=tsconfig.json --outfile=dist/post.js --minify"
+        "command": "node ../../scripts/build-action.mjs"
       },
       "cache": true,
       "inputs": ["bundleProduction", "^bundleProduction", "bundleGlobals"],
@@ -29,7 +29,7 @@
       "dependsOn": ["build"],
       "options": {
         "cwd": ".",
-        "command": "node actions/code-review/tests/entrypoint-smoke.mjs && pnpm exec vitest run actions/code-review/src/failure-diagnostics.spec.ts actions/code-review/src/main.spec.ts"
+        "command": "node actions/code-review/tests/entrypoint-smoke.mjs && pnpm exec vitest run actions/code-review/src"
       }
     }
   }

@@ -1,5 +1,6 @@
 node_modules/
 dist/
+.action-build-*/
 apps/docs/.vitepress/cache/
 apps/docs/.vitepress/dist/
 .nx/

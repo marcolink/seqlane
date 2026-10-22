@@ -34,11 +34,16 @@
     "@seqlane/core": "workspace:*",
     "@seqlane/protocol": "workspace:*",
     "effect": "4.0.5",
-    "zod": "4.5.4"
+    "zod": "4.6.6"
   },
   "files": [
     "dist",
-    "!dist/**/*.tsbuildinfo"
+    "!dist/**/*.tsbuildinfo",
+    "!dist/**/*.spec.*",
+    "!dist/**/*.test.*",
+    "!dist/**/*test-support*",
+    "!dist/test-fixtures/**",
+    "!dist/**/*-fixture.*"
   ],
   "publishConfig": {
     "access": "public",
