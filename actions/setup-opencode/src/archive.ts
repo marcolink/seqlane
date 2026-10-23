@@ -23,6 +23,12 @@ export type ToolCachePort = Pick<
   ): Promise<string>;
 };
 
+type VerifyExecutable = (
+  executable: string,
+  version: string,
+  signal: AbortSignal,
+) => Promise<void>;
+
 async function downloadArchive(
   url: string,
   signal: AbortSignal,
@@ -74,6 +80,42 @@ const io = <A>(
 ): Effect.Effect<A, unknown> =>
   Effect.tryPromise({ try: run, catch: (cause) => cause });
 
+function verifyExecutableScoped(
+  verifyExecutable: VerifyExecutable,
+  executable: string,
+  version: string,
+): Effect.Effect<void, unknown> {
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const check = yield* Effect.acquireRelease(
+        Effect.sync(() => {
+          const controller = new AbortController();
+          const promise = verifyExecutable(
+            executable,
+            version,
+            controller.signal,
+          );
+          return { controller, promise };
+        }),
+        ({ controller, promise }) =>
+          Effect.promise(async () => {
+            controller.abort(
+              new Error("OpenCode executable check interrupted."),
+            );
+            await promise.then(
+              () => undefined,
+              () => undefined,
+            );
+          }),
+      );
+      return yield* Effect.tryPromise({
+        try: () => check.promise,
+        catch: (cause) => cause,
+      });
+    }),
+  );
+}
+
 export function installArchive({
   metadata,
   platform,
@@ -86,7 +128,7 @@ export function installArchive({
   platform: SupportedPlatform;
   version: string;
   toolCachePort: ToolCachePort;
-  verifyExecutable(executable: string, version: string): Promise<void>;
+  verifyExecutable: VerifyExecutable;
   temporaryDirectory?: string;
 }): Effect.Effect<string, unknown> {
   let archivePath: string | undefined;
@@ -153,7 +195,11 @@ export function installArchive({
       const extractedExecutable = yield* io(() =>
         locateExecutable(extractedPath),
       );
-      yield* io(() => verifyExecutable(extractedExecutable, version));
+      yield* verifyExecutableScoped(
+        verifyExecutable,
+        extractedExecutable,
+        version,
+      );
       const installationPath = yield* Effect.uninterruptible(
         io(() =>
           toolCachePort.cacheDir(
@@ -167,7 +213,11 @@ export function installArchive({
       const installedExecutable = yield* io(() =>
         locateExecutable(installationPath),
       );
-      yield* io(() => verifyExecutable(installedExecutable, version));
+      yield* verifyExecutableScoped(
+        verifyExecutable,
+        installedExecutable,
+        version,
+      );
       return installedExecutable;
     }),
   );

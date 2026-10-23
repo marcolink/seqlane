@@ -20,5 +20,5 @@ failures do not change setup behavior. The consuming workflow must provide the
 version explicitly; this Action does not select a default or a mutable release.
 Setup runs under one scoped Effect program with a ten-minute deadline. Runner
 interruption aborts metadata and archive downloads, and executable checks.
-Toolkit cache, extraction, and placement calls have no abort signal, so setup
-waits for each call to settle before it removes temporary files.
+Setup waits for each executable process to close and each toolkit cache,
+extraction, or placement call to settle before it removes temporary files.

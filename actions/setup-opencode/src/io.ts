@@ -46,7 +46,7 @@ export function createExecutableRunner(
   timeoutMs = EXECUTABLE_VERSION_TIMEOUT_MS,
 ): ExecutableRunner {
   return async (executable, args, signal) => {
-    const result = await execFileAsync(executable, args, {
+    const command = execFileAsync(executable, args, {
       encoding: "utf8",
       killSignal: "SIGKILL",
       maxBuffer: 1_048_576,
@@ -54,6 +54,15 @@ export function createExecutableRunner(
       windowsHide: true,
       ...(signal === undefined ? {} : { signal }),
     });
+    const closed = new Promise<void>((resolve) =>
+      command.child.once("close", () => resolve()),
+    );
+    let result: Awaited<typeof command>;
+    try {
+      result = await command;
+    } finally {
+      await closed;
+    }
     return { stdout: result.stdout };
   };
 }
