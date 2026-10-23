@@ -22,6 +22,8 @@ On `next`, Nx receives `--preid beta`. npm publication uses an explicit
 `--tag next`, following [npm's dist-tag guide](https://docs.npmjs.com/cli/v11/commands/npm-dist-tag/).
 Users opt in with `npm install seqlane@next @seqlane/core@next zod`.
 Both branches share one publication lock.
+The lock uses GitHub's `queue: max` to retain up to 100 pending publish jobs.
+GitHub cancels jobs beyond that limit; rerun a canceled release when capacity is available.
 
 The quality job checks the triggering commit without stored credentials. The
 release workflow starts only after all quality gates pass. Its read-only build

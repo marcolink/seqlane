@@ -37,6 +37,7 @@ commits, stable releases, and recovery. Dry-run npm publication with tag `next`.
 Publishing support is proposed in [PR #182](https://github.com/marcolink/seqlane/pull/182),
 based on `main`. It can merge before the Effect migration.
 Local tooling tests and the isolated release smoke test pass.
+Publication uses GitHub's native queue to retain up to 100 pending jobs.
 Branch creation, migration PR retargeting, and live beta publication follow
 after this PR. This task remains in progress until a beta is published.
 

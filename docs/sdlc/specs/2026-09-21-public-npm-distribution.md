@@ -94,8 +94,9 @@ package-version pairs that already exist and publishes the missing pairs.
 
 Nx owns version selection and eligibility for both channels. A beta uses
 `<version>-beta.<number>`. Channel selection also applies to tag recovery.
-Both channels share one publication lock. Beta publication must leave npm's
-`latest` tag unchanged.
+Both channels share one publication lock with `queue: max`, retaining up to
+100 pending publish jobs. GitHub cancels jobs beyond that limit.
+Beta publication must leave npm's `latest` tag unchanged.
 
 ## Detailed design or contracts
 

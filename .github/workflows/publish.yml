@@ -59,6 +59,7 @@ jobs:
     concurrency:
       group: npm-release
       cancel-in-progress: false
+      queue: max
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:

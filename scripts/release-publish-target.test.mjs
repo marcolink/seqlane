@@ -107,7 +107,7 @@ function writeNxAdapter(path) {
 
 function runRelease({
   branch = "main",
-  advanceMain = false,
+  advanceBranch = false,
   previousTag = "v0.0.0",
   extraTag,
   baselineTag = true,
@@ -142,9 +142,9 @@ function runRelease({
     runGit(repository, ["remote", "add", "origin", remote]);
     runGit(repository, ["push", "origin", branch, "--tags"]);
 
-    if (advanceMain) {
+    if (advanceBranch) {
       writeFileSync(join(repository, "fixture.txt"), "advanced\n");
-      runGit(repository, ["commit", "-am", "fix: advance main"]);
+      runGit(repository, ["commit", "-am", "fix: advance branch"]);
       runGit(repository, ["push", "origin", branch]);
       runGit(repository, ["checkout", "--detach", releaseSha]);
     }
@@ -248,7 +248,7 @@ test("CI delegates release state after its quality gate", () => {
   assert.match(ciWorkflow, /github\.ref == 'refs\/heads\/next'/);
   assert.match(
     publishWorkflow,
-    /group: npm-release\n {6}cancel-in-progress: false/,
+    /group: npm-release\n {6}cancel-in-progress: false\n {6}queue: max/,
   );
   assert.match(
     publishWorkflow,
@@ -311,7 +311,7 @@ test("next uses native beta versioning and tracks origin/next", () => {
 test("beta recovery uses its channel after next advances", () => {
   const execution = runRelease({
     branch: "next",
-    advanceMain: true,
+    advanceBranch: true,
     previousTag: "v0.2.1",
     existingTag: "v0.2.2-beta.1",
     expectedVersion: "0.2.2-beta.1",
@@ -339,7 +339,7 @@ test("main ignores beta tags when recovering a stable release", () => {
 });
 
 test("an untagged stale next run cannot create a release", () => {
-  const execution = runRelease({ branch: "next", advanceMain: true });
+  const execution = runRelease({ branch: "next", advanceBranch: true });
   assert.notEqual(execution.result.status, 0);
   assert.match(execution.result.stderr, /next advanced/);
   assert.equal(execution.calls, "");
@@ -353,7 +353,7 @@ test("other branches cannot create a release", () => {
 
 test("recover state supports the first release without a prior tag after main advances", () => {
   const execution = runRelease({
-    advanceMain: true,
+    advanceBranch: true,
     baselineTag: false,
     existingTag: "v0.0.1",
   });

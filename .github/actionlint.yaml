@@ -1,0 +1,6 @@
+paths:
+  .github/workflows/publish.yml:
+    ignore:
+      # actionlint 1.7.12 predates GitHub's concurrency.queue support.
+      # The release workflow test checks queue: max and cancellation policy.
+      - '^unexpected key "queue" for "concurrency" section\.'
