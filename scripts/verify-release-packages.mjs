@@ -3,10 +3,9 @@ import { mkdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { releaseVersionSchema } from "./release-channel.mjs";
-
 const repositoryRoot = resolve(import.meta.dirname, "..");
 const repositoryUrl = "git+https://github.com/marcolink/seqlane.git";
+const versionPattern = /^[0-9]+\.[0-9]+\.[0-9]+(?:[+-][0-9A-Za-z.-]+)?$/;
 const excludedArchivePath =
   /(?:^|\/)(?:__tests__|tests?\/)|\.(?:spec|test)\.[^/]+$|\.tsbuildinfo$/;
 
@@ -72,7 +71,8 @@ export function validateSourceManifest(project, projectRoot, manifest) {
     fail(`${project} has unexpected package name ${String(manifest.name)}`);
   }
   if (
-    !releaseVersionSchema.safeParse(manifest.version).success ||
+    typeof manifest.version !== "string" ||
+    !versionPattern.test(manifest.version) ||
     manifest.version === "0.0.0"
   ) {
     fail(`${expectedName} has invalid release version ${manifest.version}`);

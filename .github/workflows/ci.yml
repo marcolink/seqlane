@@ -70,11 +70,11 @@ jobs:
       - name: Test SDLC documentation tooling
         run: pnpm docs:test
 
-      - name: Check test mappings
-        run: pnpm test:mapping
-
       - name: Test local verification tooling
         run: pnpm test:tooling
+
+      - name: Check test mappings
+        run: pnpm test:mapping
 
       - name: Test workflow helper
         run: pnpm test:workflow-helper

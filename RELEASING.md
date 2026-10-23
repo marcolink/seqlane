@@ -6,20 +6,30 @@ other group members are public registry dependencies.
 
 ## Release flow
 
-Every push to `main` starts `.github/workflows/ci.yml`. After its quality job
+Every push to `main` or `next` starts `.github/workflows/ci.yml`. After its quality job
 passes, CI calls `.github/workflows/publish.yml`. This reusable workflow uses
 Conventional Commits to determine the next fixed version. For versions below
 `1.0.0`, `feat` and `fix` commits that affect the release group produce a patch
 release. A breaking change produces a minor release. Other commits do not
 create a release.
 
+| Branch | Version                   | npm tag  |
+| ------ | ------------------------- | -------- |
+| `main` | Stable                    | `latest` |
+| `next` | `<version>-beta.<number>` | `next`   |
+
+On `next`, Nx receives `--preid beta`. npm publication uses an explicit
+`--tag next`, following [npm's dist-tag guide](https://docs.npmjs.com/cli/v11/commands/npm-dist-tag/).
+Users opt in with `npm install seqlane@next @seqlane/core@next zod`.
+Both branches share one publication lock.
+
 The quality job checks the triggering commit without stored credentials. The
 release workflow starts only after all quality gates pass. Its read-only build
 job uploads the release packages for the publish job.
 
 The publish job checks out the same commit and does not run dependency scripts.
-It stops a new release if `main` advanced after the workflow started. A retry
-for a validated existing tag remains valid after `main` advances. Nx then updates all
+It stops a new release if its branch advanced after the workflow started. A retry
+for a validated existing tag remains valid after its branch advances. Nx then updates all
 package versions and preserves internal `workspace:*` dependencies. It also
 generates the changelog in the runner, creates the `v<version>` tag and GitHub
 Release, and publishes all eight packages. It does not create or push a release
@@ -55,6 +65,8 @@ pnpm test
 pnpm typecheck
 pnpm lint
 pnpm exec nx release --dry-run --skip-publish
+# On next, preview beta versioning:
+pnpm exec nx release --dry-run --skip-publish --preid beta
 ```
 
 Each package trusts repository `marcolink/seqlane` and workflow `ci.yml`. The

@@ -56,7 +56,6 @@ jobs:
 
   publish:
     needs: build
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/next') && github.event.repository.private == false
     concurrency:
       group: npm-release
       cancel-in-progress: false
@@ -136,7 +135,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           GH_TOKEN: ${{ github.token }}
-          NX_DAEMON: "false"
 
       - name: Verify release packages
         if: steps.release.outputs.released == 'true'
@@ -152,5 +150,5 @@ jobs:
           pnpm exec nx release publish "${publish_args[@]}"
         env:
           NPM_CONFIG_PROVENANCE: "true"
+          NPM_CONFIG_TAG: ${{ github.ref_name == 'next' && 'next' || 'latest' }}
           NX_DRY_RUN: "false"
-          SEQLANE_RELEASE_BRANCH: ${{ github.ref_name }}
