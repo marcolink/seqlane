@@ -56,6 +56,10 @@ jobs:
 
   publish:
     needs: build
+    concurrency:
+      group: npm-release
+      cancel-in-progress: false
+      queue: max
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -147,4 +151,5 @@ jobs:
           pnpm exec nx release publish "${publish_args[@]}"
         env:
           NPM_CONFIG_PROVENANCE: "true"
+          NPM_CONFIG_TAG: ${{ github.ref_name == 'next' && 'next' || 'latest' }}
           NX_DRY_RUN: "false"

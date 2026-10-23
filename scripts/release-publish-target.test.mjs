@@ -42,7 +42,7 @@ function executable(path, body) {
   chmodSync(path, 0o755);
 }
 
-function runPublishCommand(nxDryRun, published = false) {
+function runPublishCommand(nxDryRun, published = false, tag = "latest") {
   const temporaryRoot = mkdtempSync(join(tmpdir(), "seqlane-publish-target-"));
   const binDirectory = join(temporaryRoot, "bin");
   const callsFile = join(temporaryRoot, "calls.log");
@@ -68,6 +68,7 @@ function runPublishCommand(nxDryRun, published = false) {
     const environment = {
       ...process.env,
       PATH: `${binDirectory}:${process.env.PATH}`,
+      NPM_CONFIG_TAG: tag,
     };
     if (nxDryRun === undefined) delete environment.NX_DRY_RUN;
     else environment.NX_DRY_RUN = nxDryRun;
@@ -100,12 +101,15 @@ function runGit(cwd, args) {
 function writeNxAdapter(path) {
   writeFileSync(
     path,
-    `import { appendFileSync, writeFileSync } from "node:fs";\nconst record = (value) => appendFileSync(process.env.CALLS_FILE, value + "\\n");\nexport async function calculateVersion({ firstRelease }) {\n  record("calculate " + firstRelease);\n  return process.env.EXPECTED_VERSION;\n}\nexport async function restoreVersion(version) {\n  record("restore " + version);\n}\nexport async function generateChangelog({ firstRelease, from, to, version }) {\n  record(["changelog", firstRelease, from ?? "none", to, version].join(" "));\n  writeFileSync("CHANGELOG.md", "# Release notes\\n");\n}\n`,
+    `import { appendFileSync, writeFileSync } from "node:fs";\nconst record = (value) => appendFileSync(process.env.CALLS_FILE, value + "\\n");\nexport async function calculateVersion({ firstRelease, preid }) {\n  record("calculate " + firstRelease + " " + (preid ?? "stable"));\n  return process.env.EXPECTED_VERSION;\n}\nexport async function restoreVersion(version) {\n  record("restore " + version);\n}\nexport async function generateChangelog({ firstRelease, from, to, version }) {\n  record(["changelog", firstRelease, from ?? "none", to, version].join(" "));\n  writeFileSync("CHANGELOG.md", "# Release notes\\n");\n}\n`,
   );
 }
 
 function runRelease({
-  advanceMain = false,
+  branch = "main",
+  advanceBranch = false,
+  previousTag = "v0.0.0",
+  extraTag,
   baselineTag = true,
   existingTag,
   expectedVersion = "0.0.1",
@@ -123,30 +127,31 @@ function runRelease({
     mkdirSync(repository);
     mkdirSync(binDirectory);
     runGit(temporaryRoot, ["init", "--bare", remote]);
-    runGit(repository, ["init", "--initial-branch=main"]);
+    runGit(repository, ["init", `--initial-branch=${branch}`]);
     runGit(repository, ["config", "user.name", "Release Test"]);
     runGit(repository, ["config", "user.email", "release@example.com"]);
     writeFileSync(join(repository, "fixture.txt"), "baseline\n");
     runGit(repository, ["add", "fixture.txt"]);
     runGit(repository, ["commit", "-m", "chore: baseline"]);
-    if (baselineTag) runGit(repository, ["tag", "v0.0.0"]);
+    if (baselineTag) runGit(repository, ["tag", previousTag]);
     writeFileSync(join(repository, "fixture.txt"), "release\n");
     runGit(repository, ["commit", "-am", "fix: release"]);
     const releaseSha = runGit(repository, ["rev-parse", "HEAD"]);
     if (existingTag) runGit(repository, ["tag", existingTag]);
+    if (extraTag) runGit(repository, ["tag", extraTag]);
     runGit(repository, ["remote", "add", "origin", remote]);
-    runGit(repository, ["push", "origin", "main", "--tags"]);
+    runGit(repository, ["push", "origin", branch, "--tags"]);
 
-    if (advanceMain) {
+    if (advanceBranch) {
       writeFileSync(join(repository, "fixture.txt"), "advanced\n");
-      runGit(repository, ["commit", "-am", "fix: advance main"]);
-      runGit(repository, ["push", "origin", "main"]);
+      runGit(repository, ["commit", "-am", "fix: advance branch"]);
+      runGit(repository, ["push", "origin", branch]);
       runGit(repository, ["checkout", "--detach", releaseSha]);
     }
 
     executable(
       join(binDirectory, "pnpm"),
-      `printf 'pnpm %s\\n' "$*" >> '${callsFile}'\nupstream="$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null)" || exit 1\nprintf 'upstream %s\\n' "$upstream" >> '${callsFile}'\n[ "$upstream" = "origin/main" ] || exit 1\nif [ "$*" = "exec nx release --skip-publish --first-release" ]; then\n  git tag v0.0.1\n  git push origin v0.0.1 >/dev/null\n  : > '${releaseState}'\nfi`,
+      `printf 'pnpm %s\\n' "$*" >> '${callsFile}'\nupstream="$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null)" || exit 1\nprintf 'upstream %s\\n' "$upstream" >> '${callsFile}'\n[ "$upstream" = "origin/${branch}" ] || exit 1\nif [ "$1 $2 $3" = "exec nx release" ]; then\n  git tag v${expectedVersion}\n  git push origin v${expectedVersion} >/dev/null\n  : > '${releaseState}'\nfi`,
     );
     executable(
       join(binDirectory, "gh"),
@@ -165,6 +170,7 @@ function runRelease({
           CALLS_FILE: callsFile,
           EXPECTED_VERSION: expectedVersion,
           GITHUB_SHA: releaseSha,
+          GITHUB_REF_NAME: branch,
           PATH: `${binDirectory}:${process.env.PATH}`,
           SEQLANE_RELEASE_NX_ADAPTER: adapterFile,
         },
@@ -196,7 +202,7 @@ test("publish target packs and forwards explicit dry-run intent", () => {
   assert.equal(result.status, 0, result.stderr);
   assert.equal(calls.length, 2);
   assert.match(calls[0], /^pnpm .* pack /);
-  assert.match(calls[1], /^npm publish .* --dry-run=true$/);
+  assert.match(calls[1], /^npm publish .* --tag=latest --dry-run=true$/);
 });
 
 test("publish target skips an existing version before packing", () => {
@@ -211,18 +217,24 @@ test("publish target checks before packing and publishing a missing version", ()
   assert.equal(calls.length, 3);
   assert.equal(calls[0], "npm view @seqlane/fixture@0.0.1 version --json");
   assert.match(calls[1], /^pnpm .* pack /);
-  assert.match(calls[2], /^npm publish .* --dry-run=false$/);
+  assert.match(calls[2], /^npm publish .* --tag=latest --dry-run=false$/);
+});
+
+test("publish target forwards the beta dist-tag to npm", () => {
+  const { calls, result } = runPublishCommand("true", false, "next");
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(calls.at(-1), /--tag=next --dry-run=true$/);
 });
 
 test("CI delegates release state after its quality gate", () => {
   assert.match(
     ciWorkflow,
-    /publish:\n    name: Publish npm packages\n    needs: quality/,
+    /publish:\n {4}name: Publish npm packages\n {4}needs: quality/,
   );
   assert.match(ciWorkflow, /uses: \.\/\.github\/workflows\/publish\.yml/);
   assert.doesNotMatch(ciWorkflow, /secrets: inherit/);
   assert.match(publishWorkflow, /workflow_call/);
-  assert.match(publishWorkflow, /publish:\n    needs: build/);
+  assert.match(publishWorkflow, /publish:\n {4}needs: build/);
   assert.match(
     publishWorkflow,
     /name: npm-release-builds-\$\{\{ github\.sha \}\}/,
@@ -232,6 +244,16 @@ test("CI delegates release state after its quality gate", () => {
   assert.match(publishWorkflow, /GITHUB_STEP_SUMMARY/);
   assert.match(publishWorkflow, /GIT_CONFIG_KEY_0/);
   assert.match(publishWorkflow, /id-token: write/);
+  assert.match(ciWorkflow, /branches:\n {6}- main\n {6}- next/);
+  assert.match(ciWorkflow, /github\.ref == 'refs\/heads\/next'/);
+  assert.match(
+    publishWorkflow,
+    /group: npm-release\n {6}cancel-in-progress: false\n {6}queue: max/,
+  );
+  assert.match(
+    publishWorkflow,
+    /NPM_CONFIG_TAG: \$\{\{ github\.ref_name == 'next' && 'next' \|\| 'latest' \}\}/,
+  );
   assert.doesNotMatch(
     publishWorkflow,
     /NODE_AUTH_TOKEN|secrets\.NPM_TOKEN|registry-url:/,
@@ -270,9 +292,68 @@ test("new state creates the first release", () => {
   assert.match(execution.calls, /upstream origin\/main/);
 });
 
+test("next uses native beta versioning and tracks origin/next", () => {
+  const execution = runRelease({
+    branch: "next",
+    previousTag: "v0.2.1",
+    expectedVersion: "0.2.2-beta.0",
+  });
+  assert.equal(execution.result.status, 0, execution.result.stderr);
+  assert.equal(execution.output.releaseTag, "v0.2.2-beta.0");
+  assert.equal(execution.output.firstRelease, false);
+  assert.match(
+    execution.calls,
+    /pnpm exec nx release --skip-publish --preid beta\n/,
+  );
+  assert.match(execution.calls, /upstream origin\/next/);
+});
+
+test("beta recovery uses its channel after next advances", () => {
+  const execution = runRelease({
+    branch: "next",
+    advanceBranch: true,
+    previousTag: "v0.2.1",
+    existingTag: "v0.2.2-beta.1",
+    expectedVersion: "0.2.2-beta.1",
+    extraTag: "v0.2.2",
+  });
+  assert.equal(execution.result.status, 0, execution.result.stderr);
+  assert.equal(execution.output.state, "recover");
+  assert.match(execution.calls, /calculate false beta/);
+  assert.match(
+    execution.calls,
+    /gh release create v0\.2\.2-beta\.1 .*--prerelease --latest=false/,
+  );
+  assert.match(execution.tags, /^v0\.2\.2$/m);
+  assert.match(execution.tags, /^v0\.2\.2-beta\.1$/m);
+});
+
+test("main ignores beta tags when recovering a stable release", () => {
+  const execution = runRelease({
+    existingTag: "v0.0.1",
+    extraTag: "v0.0.2-beta.0",
+  });
+  assert.equal(execution.result.status, 0, execution.result.stderr);
+  assert.equal(execution.output.releaseTag, "v0.0.1");
+  assert.doesNotMatch(execution.calls, /--prerelease/);
+});
+
+test("an untagged stale next run cannot create a release", () => {
+  const execution = runRelease({ branch: "next", advanceBranch: true });
+  assert.notEqual(execution.result.status, 0);
+  assert.match(execution.result.stderr, /next advanced/);
+  assert.equal(execution.calls, "");
+});
+
+test("other branches cannot create a release", () => {
+  const execution = runRelease({ branch: "feature" });
+  assert.notEqual(execution.result.status, 0);
+  assert.equal(execution.calls, "");
+});
+
 test("recover state supports the first release without a prior tag after main advances", () => {
   const execution = runRelease({
-    advanceMain: true,
+    advanceBranch: true,
     baselineTag: false,
     existingTag: "v0.0.1",
   });

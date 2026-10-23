@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - main
+      - next
   workflow_dispatch:
 
 permissions:
@@ -171,7 +172,7 @@ jobs:
   publish:
     name: Publish npm packages
     needs: quality
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.repository.private == false
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/next') && github.event.repository.private == false
     uses: ./.github/workflows/publish.yml
     permissions:
       contents: write

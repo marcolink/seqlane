@@ -4,10 +4,23 @@ import { isAbsolute, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { ReleaseClient } from "nx/release";
+import { z } from "zod";
 
 const repositoryRoot = new URL("../", import.meta.url);
 const semverPattern =
   /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/;
+const releaseVersionSchema = z.string().regex(semverPattern);
+const channelVersionSchemas = {
+  main: releaseVersionSchema.regex(/^[^-+]+$/),
+  next: releaseVersionSchema.regex(/-beta\.\d+$/),
+};
+const releaseBranchSchema = z.enum(["main", "next"]);
+const nxJsonSchema = z.looseObject({
+  release: z.looseObject({
+    version: z.looseObject({}),
+    changelog: z.looseObject({ workspaceChangelog: z.looseObject({}) }),
+  }),
+});
 
 function command(commandName, args, options = {}) {
   const result = spawnSync(commandName, args, {
@@ -41,20 +54,20 @@ function lines(value) {
 
 function releaseVersionFromTag(tag) {
   const version = tag.startsWith("v") ? tag.slice(1) : "";
-  if (!semverPattern.test(version)) {
+  if (!releaseVersionSchema.safeParse(version).success) {
     throw new Error(`Invalid release tag: ${tag}`);
   }
   return version;
 }
 
-function releaseTagsAtHead() {
+function releaseTagsAtHead(branch) {
   const tags = lines(
     git(["tag", "--points-at", "HEAD", "--list", "v*"]).stdout,
   );
   const releaseTags = tags.filter((tag) => {
     if (tag.split(".").length < 3) return false;
-    releaseVersionFromTag(tag);
-    return true;
+    return channelVersionSchemas[branch].safeParse(releaseVersionFromTag(tag))
+      .success;
   });
   if (releaseTags.length > 1) {
     throw new Error("The triggering commit has multiple release tags");
@@ -62,7 +75,7 @@ function releaseTagsAtHead() {
   return releaseTags;
 }
 
-function previousReleaseTag(revision) {
+function previousReleaseTag(revision, branch) {
   const parent = git(["rev-parse", "--verify", `${revision}^`], {
     allowFailure: true,
   });
@@ -70,6 +83,9 @@ function previousReleaseTag(revision) {
 
   return lines(
     git([
+      // Match Nx's stable-over-beta precedence for the same base version.
+      "-c",
+      "versionsort.suffix=-beta.",
       "tag",
       "--merged",
       parent.stdout.trim(),
@@ -79,8 +95,11 @@ function previousReleaseTag(revision) {
     ]).stdout,
   ).find((tag) => {
     try {
-      releaseVersionFromTag(tag);
-      return true;
+      const version = releaseVersionFromTag(tag);
+      return (
+        channelVersionSchemas.main.safeParse(version).success ||
+        channelVersionSchemas[branch].safeParse(version).success
+      );
     } catch {
       return false;
     }
@@ -106,7 +125,7 @@ function verifyRemoteTag(tag, revision) {
 }
 
 export function releaseClientConfig(nxJson) {
-  const release = structuredClone(nxJson.release);
+  const release = structuredClone(nxJsonSchema.parse(nxJson).release);
   delete release.git;
   release.changelog = {
     ...release.changelog,
@@ -129,10 +148,11 @@ function defaultNxAdapter() {
   );
   const client = new ReleaseClient(releaseClientConfig(nxJson), true);
   return {
-    async calculateVersion({ firstRelease }) {
+    async calculateVersion({ firstRelease, preid }) {
       const result = await client.releaseVersion({
         dryRun: true,
         firstRelease,
+        preid,
         gitCommit: false,
         gitTag: false,
         stageChanges: false,
@@ -172,19 +192,32 @@ async function loadNxAdapter() {
   return import(pathToFileURL(absolutePath).href);
 }
 
-async function recoverRelease({ adapter, releaseTag, revision }) {
+async function recoverRelease({ adapter, releaseTag, revision, branch }) {
   const version = releaseVersionFromTag(releaseTag);
   verifyRemoteTag(releaseTag, revision);
-  const previousTag = previousReleaseTag(revision);
+  const previousTag = previousReleaseTag(revision, branch);
   const firstRelease = !previousTag || previousTag === "v0.0.0";
-  const tagObject = git(["rev-parse", `refs/tags/${releaseTag}`]).stdout.trim();
+  // Nx must recalculate from the history before any release on this commit.
+  const hiddenTags =
+    branch === "next"
+      ? [releaseTag, ...releaseTagsAtHead("main")]
+      : [releaseTag];
+  const tagObjects = hiddenTags.map((tag) => [
+    tag,
+    git(["rev-parse", `refs/tags/${tag}`]).stdout.trim(),
+  ]);
 
-  git(["update-ref", "-d", `refs/tags/${releaseTag}`]);
   let calculatedVersion;
   try {
-    calculatedVersion = await adapter.calculateVersion({ firstRelease });
+    for (const [tag] of tagObjects)
+      git(["update-ref", "-d", `refs/tags/${tag}`]);
+    calculatedVersion = await adapter.calculateVersion({
+      firstRelease,
+      preid: branch === "next" ? "beta" : undefined,
+    });
   } finally {
-    git(["update-ref", `refs/tags/${releaseTag}`, tagObject]);
+    for (const [tag, object] of tagObjects)
+      git(["update-ref", `refs/tags/${tag}`, object]);
   }
   if (calculatedVersion !== version) {
     throw new Error(
@@ -207,26 +240,28 @@ async function recoverRelease({ adapter, releaseTag, revision }) {
   const args = ["release", action, releaseTag];
   if (action === "create") args.push("--verify-tag");
   args.push("--title", releaseTag, "--notes-file", "CHANGELOG.md");
+  if (branch === "next") args.push("--prerelease", "--latest=false");
   command("gh", args, { inherit: true });
 
   return { firstRelease, releaseTag, released: true, state: "recover" };
 }
 
-async function createRelease({ revision }) {
-  const currentMain = git(["rev-parse", "origin/main"]).stdout.trim();
-  if (currentMain !== revision) {
+async function createRelease({ revision, branch }) {
+  const currentHead = git(["rev-parse", `origin/${branch}`]).stdout.trim();
+  if (currentHead !== revision) {
     throw new Error(
-      `main advanced to ${currentMain} after this workflow started at ${revision}`,
+      `${branch} advanced to ${currentHead} after this workflow started at ${revision}`,
     );
   }
 
-  const previousTag = previousReleaseTag(revision);
+  const previousTag = previousReleaseTag(revision, branch);
   const firstRelease = !previousTag || previousTag === "v0.0.0";
   const args = ["exec", "nx", "release", "--skip-publish"];
   if (firstRelease) args.push("--first-release");
+  if (branch === "next") args.push("--preid", "beta");
   command("pnpm", args, { inherit: true });
 
-  const releaseTags = releaseTagsAtHead();
+  const releaseTags = releaseTagsAtHead(branch);
   if (releaseTags.length === 0) {
     return { firstRelease, released: false, state: "new" };
   }
@@ -235,22 +270,23 @@ async function createRelease({ revision }) {
   return { firstRelease, releaseTag, released: true, state: "new" };
 }
 
-export async function prepareRelease({ revision }) {
-  if (!/^[0-9a-f]{40}$/.test(revision)) {
-    throw new Error(`Invalid release revision: ${revision}`);
-  }
+export async function prepareRelease({ revision, branch }) {
+  z.string()
+    .regex(/^[0-9a-f]{40}$/)
+    .parse(revision);
+  releaseBranchSchema.parse(branch);
 
   git(["fetch", "--tags", "--force", "origin"], { inherit: true });
-  git(["fetch", "--no-tags", "origin", "main"], { inherit: true });
-  git(["switch", "--force-create", "main", revision], { inherit: true });
-  git(["branch", "--set-upstream-to=origin/main", "main"]);
+  git(["fetch", "--no-tags", "origin", branch], { inherit: true });
+  git(["switch", "--force-create", branch, revision], { inherit: true });
+  git(["branch", `--set-upstream-to=origin/${branch}`, branch]);
 
-  const [releaseTag] = releaseTagsAtHead();
+  const [releaseTag] = releaseTagsAtHead(branch);
   if (releaseTag) {
     const adapter = await loadNxAdapter();
-    return recoverRelease({ adapter, releaseTag, revision });
+    return recoverRelease({ adapter, releaseTag, revision, branch });
   }
-  return createRelease({ revision });
+  return createRelease({ revision, branch });
 }
 
 function outputPathFromArgs() {
@@ -264,6 +300,7 @@ function outputPathFromArgs() {
 async function main() {
   const result = await prepareRelease({
     revision: process.env.GITHUB_SHA ?? "",
+    branch: process.env.GITHUB_REF_NAME ?? "",
   });
   writeFileSync(outputPathFromArgs(), `${JSON.stringify(result)}\n`);
 }

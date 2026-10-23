@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-21
-updated: 2026-09-22
+updated: 2026-10-23
 upstream:
   - adr.preserve-workspace-release-references
 supersedes: []
@@ -61,14 +61,14 @@ complete Apache-2.0 license text.
 ### requirement-release-automation
 
 Nx uses fixed versioning, Conventional Commits, and a `v{version}` tag. A push
-to `main` starts `ci.yml`. The publish job requires the quality job and calls
+to `main` or `next` starts `ci.yml`. The publish job requires the quality job and calls
 the reusable `publish.yml` workflow. This workflow accepts only a public
 repository. Its read-only build job creates exact-revision package artifacts.
 The publish job consumes these artifacts. Nx then
 versions the packages, updates the changelog, creates and pushes the release
 tag, and creates the GitHub release without publishing. Version and changelog
 changes stay in the release runner; the workflow does not push a commit to
-`main`. The built-in short-lived workflow token has Contents write permission
+the release branch. The built-in short-lived workflow token has Contents write permission
 for the tag and GitHub release only. The workflow validates the complete
 package set and its archives before it runs the Nx publish phase.
 Nx uses the generated changelog as the GitHub Release notes. The bounded job
@@ -85,6 +85,19 @@ release used `NPM_TOKEN`. The workflow grants OIDC permission for trusted
 publishing. It does not expose an npm token to the publish job. A retry skips
 package-version pairs that already exist and publishes the missing pairs.
 
+### requirement-release-channels
+
+| Branch | Nx versioning | npm tag | GitHub release |
+| ------ | ------------- | ------- | -------------- |
+| `main` | Stable | `latest` | Stable |
+| `next` | `--preid beta` | `next` | Prerelease |
+
+Nx owns version selection and eligibility for both channels. A beta uses
+`<version>-beta.<number>`. Channel selection also applies to tag recovery.
+Both channels share one publication lock with `queue: max`, retaining up to
+100 pending publish jobs. GitHub cancels jobs beyond that limit.
+Beta publication must leave npm's `latest` tag unchanged.
+
 ## Detailed design or contracts
 
 The release group is selected with `tag:release:npm`. Only the eight tagged
@@ -94,11 +107,11 @@ metadata.
 
 ## Failure and edge cases
 
-The workflow must serialize release attempts from `main`. Private repositories
+The workflow must serialize release attempts from both branches. Private repositories
 do not publish. A commit with no semantic version impact must finish without a
 release. Insufficient GitHub token permission must not alter `main`. An OIDC
 authentication failure must stop publication. A retry for a strict SemVer tag
-remains valid after `main` advances only when the remote tag points to the triggering
+remains valid after its branch advances only when the remote tag points to the triggering
 commit and matches Nx's calculated version. It resumes after partial npm publication.
 
 ## Migration
@@ -134,6 +147,7 @@ this protocol.
   npm publication without storing the workflow token in Git configuration.
 - The CLI has no ACP or private workflow production dependency.
 - Published metadata and documentation match this specification.
+- `next` releases use beta versions and npm tag `next`; `main` uses `latest`.
 
 ## Delivery state
 
@@ -144,3 +158,5 @@ setup are complete. Tokenless publication awaits a release from `main`.
 
 - [adr.preserve-workspace-release-references](../adrs/2026-09-22-preserve-workspace-release-references.md)
 - [task.publish-seqlane-packages](../tasks/2026-09-21-publish-seqlane-packages.md)
+- [task.next-beta-releases](../tasks/2026-10-23-next-beta-releases.md)
+- [npm dist-tag guidance](https://docs.npmjs.com/cli/v11/commands/npm-dist-tag/)

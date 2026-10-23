@@ -80,6 +80,9 @@ Run a project-local CLI with `npx seqlane`. Run a global installation with
 `seqlane`. `seqlane` and `@seqlane/core` are the supported public packages.
 Other `@seqlane` packages can install as implementation dependencies.
 
+After the first beta is published, install the beta channel with
+`npm install seqlane@next @seqlane/core@next zod`.
+
 ## Write a workflow
 
 Create `workflow.ts` in the repository root:
