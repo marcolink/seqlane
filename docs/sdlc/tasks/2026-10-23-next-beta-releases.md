@@ -213,8 +213,8 @@ branch exists. Draft PR #180 targets `main` at migration head
 `227935795bceb6eee46504262f2bb4e398611160`.
 
 The verified `main` and migration heads retain the stable-only release
-script and custom publish target. Publishing support is local pending PR
-validation and merge. Existing Effect documents on this checkout
+script and custom publish target. Publishing support is in PR #182, pending
+CI validation and merge. Existing Effect documents on this checkout
 describe the superseded runtime and do not establish migration delivery.
 
 ## Traceability
@@ -223,5 +223,6 @@ describe the superseded runtime and do not establish migration delivery.
 - [adr.preserve-workspace-release-references](../adrs/2026-09-22-preserve-workspace-release-references.md)
 - [task.publish-seqlane-packages](./2026-09-21-publish-seqlane-packages.md)
 - [Effect migration PR #180](https://github.com/marcolink/seqlane/pull/180)
+- [Beta publishing PR #182](https://github.com/marcolink/seqlane/pull/182)
 - [Effect execution contract on the migration branch](https://github.com/marcolink/seqlane/blob/227935795bceb6eee46504262f2bb4e398611160/docs/sdlc/specs/2026-10-21-effect-v4-execution-and-operations.md)
 - [npm publish tag behavior](https://docs.npmjs.com/cli/v11/commands/npm-publish/#tag)
