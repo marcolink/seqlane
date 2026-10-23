@@ -94,6 +94,34 @@ test("validates archive contents", () => {
   );
 });
 
+test("accepts beta archives and rejects malformed release versions", () => {
+  assert.equal(
+    validateSourceManifest(
+      project,
+      projectRoot,
+      sourceManifest({ version: "0.3.0-beta.0" }),
+    ),
+    "0.3.0-beta.0",
+  );
+  for (const version of [
+    "0.0.0",
+    "0.03.0",
+    "0.3.0-beta.01",
+    "0.3.0-rc.0",
+    "0.3.0-beta.0+build",
+  ]) {
+    assert.throws(
+      () =>
+        validateSourceManifest(
+          project,
+          projectRoot,
+          sourceManifest({ version }),
+        ),
+      /invalid release version/,
+    );
+  }
+});
+
 test("requires exact internal versions in packed manifests", () => {
   assert.doesNotThrow(() =>
     validatePackedManifest(packageName, releaseVersion, {

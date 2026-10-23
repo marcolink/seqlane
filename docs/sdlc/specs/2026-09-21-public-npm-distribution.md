@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-21
-updated: 2026-09-22
+updated: 2026-10-23
 upstream:
   - adr.preserve-workspace-release-references
 supersedes: []
@@ -61,20 +61,20 @@ complete Apache-2.0 license text.
 ### requirement-release-automation
 
 Nx uses fixed versioning, Conventional Commits, and a `v{version}` tag. A push
-to `main` starts `ci.yml`. The publish job requires the quality job and calls
-the reusable `publish.yml` workflow. This workflow accepts only a public
+to `main` or `next` starts `ci.yml`. The publish job requires the quality job.
+It calls the reusable `publish.yml` workflow. This workflow accepts only a public
 repository. Its read-only build job creates exact-revision package artifacts.
 The publish job consumes these artifacts. Nx then
 versions the packages, updates the changelog, creates and pushes the release
 tag, and creates the GitHub release without publishing. Version and changelog
 changes stay in the release runner; the workflow does not push a commit to
-`main`. The built-in short-lived workflow token has Contents write permission
-for the tag and GitHub release only. The workflow validates the complete
+either branch. The built-in short-lived workflow token has Contents write
+permission for the tag and GitHub release only. The workflow validates the complete
 package set and its archives before it runs the Nx publish phase.
 Nx uses the generated changelog as the GitHub Release notes. The bounded job
 summary uses the current GitHub Release body.
 
-For pre-1.0 versions, feature and fix commits that affect the release group
+On `main`, for pre-1.0 versions, feature and fix commits that affect the release group
 produce a patch release. A breaking change produces a minor release. Other
 commits do not produce a release. The first eligible commit produces `0.0.1`.
 
@@ -85,6 +85,35 @@ release used `NPM_TOKEN`. The workflow grants OIDC permission for trusted
 publishing. It does not expose an npm token to the publish job. A retry skips
 package-version pairs that already exist and publishes the missing pairs.
 
+### requirement-release-channels
+
+The branch determines the release channel. Other branches and pull requests
+must not publish.
+
+| Branch | Package version | npm dist-tag | GitHub release |
+| --- | --- | --- | --- |
+| `main` | Stable SemVer | `latest` | Stable |
+| `next` | `X.Y.Z-beta.N` | `next` | Prerelease, never latest |
+
+All eight packages use the same version and npm dist-tag. The publish target
+must pass the selected tag to the actual `npm publish` command. Missing or
+inconsistent channel information must stop publication before any write.
+
+The first beta reserves at least the next minor stable version. Nx retains
+its pre-1.0 breaking-change rules for both channels. Later eligible commits increment the beta number for that
+target. Commits without release impact do not produce a beta. Stable hotfixes
+do not change the reserved beta target. If a stable release reaches or exceeds
+that target, stop beta publication until a higher target is selected.
+
+Stable version calculation excludes beta tags. Beta version calculation uses
+the reserved target and its beta tags. Changelog ranges include the migration
+from its stable baseline. Promotion produces complete stable release notes.
+
+After beta acceptance, merge `next` into `main` with its history intact.
+Publish a fresh stable package set at the reserved target, without the beta
+suffix. A change to an npm dist-tag alone does not promote prerelease versions.
+Synchronize `main` into `next` before another beta series starts.
+
 ## Detailed design or contracts
 
 The release group is selected with `tag:release:npm`. Only the eight tagged
@@ -94,12 +123,20 @@ metadata.
 
 ## Failure and edge cases
 
-The workflow must serialize release attempts from `main`. Private repositories
-do not publish. A commit with no semantic version impact must finish without a
+One shared publish lock must serialize release attempts across `main` and
+`next`. The workflow must not cancel an active publish attempt. Private
+repositories do not publish. A commit with no semantic version impact must finish without a
 release. Insufficient GitHub token permission must not alter `main`. An OIDC
 authentication failure must stop publication. A retry for a strict SemVer tag
 remains valid after `main` advances only when the remote tag points to the triggering
 commit and matches Nx's calculated version. It resumes after partial npm publication.
+
+The stale-head rule applies to the selected branch before a new release.
+Recovery selects only tags for the original channel, even when stable and beta
+tags share a commit. Recovery preserves the original version, channel, and
+GitHub prerelease status. It verifies remote tag identity before publication.
+Recovery must not move either npm dist-tag to an older version. A registry
+authentication or network error must not count as proof that a version is absent.
 
 ## Migration
 
@@ -134,13 +171,27 @@ this protocol.
   npm publication without storing the workflow token in Git configuration.
 - The CLI has no ACP or private workflow production dependency.
 - Published metadata and documentation match this specification.
+- A beta dry run reaches all eight package archives and actual npm commands
+  with one beta version, exact internal dependencies, and the `next` dist-tag.
+- A second eligible beta increments only the beta number. A stable hotfix
+  retains stable version selection and the `latest` dist-tag.
+- Retries after branch advancement or partial publication preserve channel
+  identity and do not move registry tags backward.
+- Promotion publishes the stable target with complete release notes and no
+  prerelease dependencies. Beta publication leaves every `latest` tag unchanged.
 
 ## Delivery state
 
-Version `0.0.2` is available from npm. CI integration and trusted-publisher
-setup are complete. Tokenless publication awaits a release from `main`.
+On 2026-10-23, `seqlane@latest` is `0.2.1`. The verified `main` revision is
+`6512cf84fe011831b455704f161c8de2cf8d7bb2`. It has the stable release path.
+
+The `next` channel support is implemented locally under
+`task.next-beta-releases`, pending PR validation and merge. Branch creation
+and live beta publication remain pending. Local tests do not establish OIDC
+or registry publication delivery.
 
 ## Traceability
 
 - [adr.preserve-workspace-release-references](../adrs/2026-09-22-preserve-workspace-release-references.md)
 - [task.publish-seqlane-packages](../tasks/2026-09-21-publish-seqlane-packages.md)
+- [task.next-beta-releases](../tasks/2026-10-23-next-beta-releases.md)

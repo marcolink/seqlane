@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - main
+      - next
   workflow_dispatch:
 
 permissions:
@@ -69,11 +70,11 @@ jobs:
       - name: Test SDLC documentation tooling
         run: pnpm docs:test
 
-      - name: Test local verification tooling
-        run: pnpm test:tooling
-
       - name: Check test mappings
         run: pnpm test:mapping
+
+      - name: Test local verification tooling
+        run: pnpm test:tooling
 
       - name: Test workflow helper
         run: pnpm test:workflow-helper
@@ -171,7 +172,7 @@ jobs:
   publish:
     name: Publish npm packages
     needs: quality
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.repository.private == false
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/next') && github.event.repository.private == false
     uses: ./.github/workflows/publish.yml
     permissions:
       contents: write

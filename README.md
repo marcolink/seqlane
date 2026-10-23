@@ -80,6 +80,9 @@ Run a project-local CLI with `npx seqlane`. Run a global installation with
 `seqlane`. `seqlane` and `@seqlane/core` are the supported public packages.
 Other `@seqlane` packages can install as implementation dependencies.
 
+See [release channels](./docs/releasing.md) for beta installation, publication,
+retries, and stable promotion.
+
 ## Write a workflow
 
 Create `workflow.ts` in the repository root:
