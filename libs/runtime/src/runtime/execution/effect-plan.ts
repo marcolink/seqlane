@@ -14,6 +14,7 @@ import { PlanCompiler } from "../compile/compile-plan.js";
 import type { ExecutionRunState } from "./context.js";
 import type { ExecutionEventSink } from "./context.js";
 import type { WorkspaceResourceRegistry } from "../workspace/workspace-resource.js";
+import type { UserInputAnswer, UserInputRequest } from "@seqlane/protocol";
 import { workspaceResourcesForExecution } from "../workspace/workspace-resources.js";
 import { findUnconfirmedInvocationTermination } from "./executor.js";
 import { emitInvocationTopology } from "./workflow-run.js";
@@ -50,6 +51,12 @@ export interface EffectPlanRunContext {
   readonly workspaceOwnerAncestors?: readonly string[];
   readonly parentInvocationId?: string;
   readonly workspaceResources?: WorkspaceResourceRegistry;
+  readonly requestUserInput?: (
+    invocationId: string,
+    taskId: string,
+    request: UserInputRequest,
+    signal: AbortSignal,
+  ) => Promise<UserInputAnswer>;
 }
 
 const MAX_CONCURRENT_PLAN_BODIES = 8;
@@ -293,6 +300,7 @@ function runCompiledPlan(
           }),
         classifier: execution.classifier,
         onOwnedProcessAcquired: execution.onOwnedProcessAcquired,
+        requestUserInput: context.requestUserInput,
         concurrency: MAX_CONCURRENT_PLAN_BODIES,
         executeWorkflow: (
           parentContext,

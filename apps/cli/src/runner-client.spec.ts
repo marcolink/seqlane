@@ -2,6 +2,7 @@ import { EventEmitter } from "node:events";
 import { Buffer } from "node:buffer";
 import {
   encodeSeqlaneExecutionEvent,
+  decodeRunnerCommand,
   type SeqlaneExecutionEvent,
 } from "@seqlane/protocol";
 import { encodeRuntimeSessionUiAvailable } from "@seqlane/runtime";
@@ -55,6 +56,7 @@ function event<T extends EventWithoutMetadata>(
 class FakeChild extends EventEmitter implements RunnerChild {
   readonly messages: string[] = [];
   killed = false;
+  private nextSequence = 1;
 
   send(message: string, callback?: (error: Error | null) => void): boolean {
     this.messages.push(message);
@@ -71,7 +73,10 @@ class FakeChild extends EventEmitter implements RunnerChild {
   }
 
   emitEvent(candidate: EventWithoutMetadata): void {
-    this.emit("message", encodeSeqlaneExecutionEvent(event(candidate)));
+    this.emit(
+      "message",
+      encodeSeqlaneExecutionEvent(event(candidate, this.nextSequence++)),
+    );
     if (
       candidate.type === "run.succeeded" ||
       candidate.type === "run.failed" ||
@@ -87,6 +92,105 @@ class FakeChild extends EventEmitter implements RunnerChild {
 }
 
 describe("runner client", () => {
+  it("cancels terminal loss during startup after sending run.start", async () => {
+    const child = new FakeChild();
+    const result = await superviseRunner(child, request, {
+      signalSource: null,
+      onReady: (cancelRun) => cancelRun(),
+    });
+    expect(result.status).toBe(130);
+    expect(
+      child.messages.map((message) => decodeRunnerCommand(message).type),
+    ).toEqual(["run.start", "run.cancel"]);
+  });
+
+  it("wakes supervision when an asynchronous question consumer fails", async () => {
+    const child = new FakeChild();
+    const result = superviseRunner(child, request, {
+      signalSource: null,
+      onInteractionRequested: async () => {
+        await new Promise((resolve) => setImmediate(resolve));
+        throw new Error("question consumer failed");
+      },
+    });
+    child.emitEvent({
+      type: "interaction.requested",
+      kind: "user-input",
+      workId: "work-1",
+      runId: "run-1",
+      invocationId: "invocation-1",
+      requestId: "request-1",
+      subject: { type: "task", taskId: "task-1" },
+      questions: [{ id: "note", prompt: "Note?", allowFreeText: true }],
+      expiresAt: "2026-10-24T12:00:00.000Z",
+    });
+    await expect(result).resolves.toMatchObject({
+      status: 1,
+      failure: { message: "Runner process error: question consumer failed" },
+    });
+    expect(
+      child.messages.map((message) => decodeRunnerCommand(message).type),
+    ).toEqual(["run.start", "run.cancel"]);
+  });
+
+  it("forwards a validated interaction answer as a runner command", async () => {
+    const child = new FakeChild();
+    const result = superviseRunner(child, request, {
+      signalSource: null,
+      onInteractionRequested: async (interaction, respond) => {
+        await respond({
+          type: "interaction.respond",
+          runId: interaction.runId,
+          invocationId: interaction.invocationId,
+          requestId: interaction.requestId,
+          answers: { region: "eu-west" },
+        });
+      },
+    });
+
+    child.emitEvent({
+      type: "interaction.requested",
+      workId: "work-1",
+      runId: "run-1",
+      invocationId: "invocation-1",
+      requestId: "request-1",
+      subject: { type: "task", taskId: "task-1" },
+      taskId: "task-1",
+      kind: "user-input",
+      questions: [
+        {
+          id: "region",
+          prompt: "Choose a region",
+          allowFreeText: false,
+          options: [
+            { value: "eu-west", label: "Europe West" },
+            { value: "us-east", label: "US East" },
+          ],
+        },
+      ],
+      expiresAt: "2026-10-24T12:00:00.000Z",
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    const answer = child.messages
+      .map((message) => decodeRunnerCommand(message))
+      .find((command) => command.type === "interaction.respond");
+    expect(answer).toMatchObject({
+      type: "interaction.respond",
+      runId: "run-1",
+      invocationId: "invocation-1",
+      requestId: "request-1",
+      answers: { region: "eu-west" },
+    });
+
+    child.emitEvent({
+      type: "run.succeeded",
+      workId: "work-1",
+      runId: "run-1",
+      output: null,
+    });
+    await expect(result).resolves.toMatchObject({ status: 0 });
+  });
+
   it.each([
     [
       event({
@@ -539,5 +643,72 @@ describe("runner client", () => {
     });
     expect(child.messages).toHaveLength(2);
     expect(child.messages[1]).toBe(JSON.stringify({ type: "run.cancel" }));
+  });
+
+  it("bounds repeated interaction cancellation when the worker is unresponsive", async () => {
+    class UnresponsiveChild extends FakeChild {
+      override send(
+        message: string,
+        callback?: (error: Error | null) => void,
+      ): boolean {
+        this.messages.push(message);
+        callback?.(null);
+        return true;
+      }
+    }
+    const child = new UnresponsiveChild();
+    let cancelRun: (() => void) | undefined;
+    const result = superviseRunner(child, request, {
+      signalSource: null,
+      gracePeriodMs: 5,
+      closeGracePeriodMs: 5,
+      onInteractionRequested: (_interaction, _respond, cancel) => {
+        cancelRun = cancel;
+      },
+    });
+
+    child.emitEvent({
+      type: "interaction.requested",
+      workId: "work-1",
+      runId: "run-1",
+      invocationId: "invocation-1",
+      requestId: "request-1",
+      subject: { type: "task", taskId: "task-1" },
+      taskId: "task-1",
+      kind: "user-input",
+      questions: [
+        {
+          id: "region",
+          prompt: "Choose a region",
+          allowFreeText: false,
+          options: [{ value: "eu-west", label: "Europe West" }],
+        },
+      ],
+      expiresAt: "2026-10-24T12:00:00.000Z",
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(cancelRun).toBeTypeOf("function");
+    cancelRun?.();
+    cancelRun?.();
+
+    const outcome = await result;
+    expect(outcome).toMatchObject({
+      status: 130,
+      failure: {
+        type: "runner.failure",
+        message: "Runner did not close after forced cleanup",
+      },
+    });
+    expect(outcome).not.toHaveProperty("cancellationSignal");
+    expect(
+      child.messages.filter(
+        (message) =>
+          message ===
+          JSON.stringify({
+            type: "run.cancel",
+          }),
+      ),
+    ).toHaveLength(1);
+    expect(child.killed).toBe(true);
   });
 });

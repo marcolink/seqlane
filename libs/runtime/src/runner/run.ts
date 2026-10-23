@@ -48,6 +48,7 @@ import {
   encodeRuntimeSessionUiAvailable,
   type RuntimeSessionUiAvailable,
 } from "./runtime-session-ui.js";
+import { createUserInputBroker } from "./user-input-broker.js";
 
 export interface RunnerHost {
   on(event: "message", listener: (message: unknown) => void): this;
@@ -66,6 +67,7 @@ export interface RunnerRunControl {
   readonly telemetryConfiguration?: TelemetryConfiguration;
   abortController?: AbortController;
   ownedProcessRegistry?: OwnedProcessRegistry;
+  userInputBroker?: ReturnType<typeof createUserInputBroker>;
 }
 
 export type RuntimeExecutionResolver = (
@@ -344,6 +346,18 @@ async function startRunScoped(
       encodedEvents,
     },
   );
+  const interactionPolicy = request.interactionPolicy;
+  const userInputBroker =
+    interactionPolicy?.mode === "user-input"
+      ? createUserInputBroker({
+          workId,
+          runId,
+          events,
+          timeoutMs: interactionPolicy.timeoutMs,
+          signal: abortController.signal,
+        })
+      : undefined;
+  control.userInputBroker = userInputBroker;
   let runOutcome: EffectPlanRunResult | undefined;
   let ownershipReleaseFailed = false;
 
@@ -400,18 +414,34 @@ async function startRunScoped(
                 sendRuntimeSessionUi(host, control, notification, ackTimeoutMs),
               {
                 runId,
+                interactionPolicy: request.interactionPolicy ?? {
+                  mode: "disabled",
+                },
                 onOwnedProcessAcquired: (pid) =>
                   ownedProcessRegistry.register(pid),
               },
             ),
           ),
         onObservation: (event) => events.emitObservation(event),
+        ...(userInputBroker === undefined
+          ? {}
+          : {
+              requestUserInput: (invocationId, taskId, userRequest, signal) =>
+                userInputBroker.requestUserInput(
+                  invocationId,
+                  taskId,
+                  userRequest,
+                  signal,
+                ),
+            }),
         onDiagnostic: (message) => process.stderr.write(`${message}\n`),
       }),
       abortController.signal,
       activeCarrier,
       { tracer: control.tracer, metricRegistry: control.metricRegistry },
     );
+    await userInputBroker?.close();
+    control.userInputBroker = undefined;
     runOutcome = outcome;
     try {
       await ownedProcessRegistry.releaseStoppedProcesses();
@@ -423,6 +453,8 @@ async function startRunScoped(
     await events.flush();
     return { exitCode: 0, events };
   } catch (cause) {
+    await userInputBroker?.close();
+    control.userInputBroker = undefined;
     // Accepted events settle before a terminal outcome bypasses the failed
     // queue. A broken IPC channel still exits nonzero for supervisor fallback.
     const deliveryFailure = await events.settle();

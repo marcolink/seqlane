@@ -627,7 +627,16 @@ export function createOperationalRunManager(options: {
                   emitEffect(event).pipe(
                     Effect.andThen(
                       Effect.try({
-                        try: () => sourceSink.emit(event),
+                        try: () => {
+                          if (
+                            event.type === "interaction.requested" ||
+                            event.type === "interaction.response" ||
+                            event.type === "interaction.resolved"
+                          ) {
+                            return;
+                          }
+                          sourceSink.emit(event);
+                        },
                         catch: (cause) =>
                           cause instanceof Error
                             ? cause

@@ -1,17 +1,20 @@
 ---
 id: adr.autonomous-non-interactive-execution
 title: Make V1 Workflow Execution Autonomous and Non-Interactive
-status: accepted
+status: superseded
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-03
+updated: 2026-10-24
 upstream:
   - rfc.seqlane-technical-architecture
 supersedes: []
 ---
 
 # Make V1 Workflow Execution Autonomous and Non-Interactive
+
+> Superseded by [adr.runtime-user-input](./2026-10-23-runtime-user-input.md).
+> Its disabled policy preserves autonomous execution as the default.
 
 ## Context
 

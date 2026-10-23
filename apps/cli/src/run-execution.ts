@@ -32,6 +32,7 @@ import {
   superviseRunnerEffect,
   type RunnerChild,
 } from "./runner-client.js";
+import { createTerminalUserInputConsumer } from "./terminal-user-input.js";
 
 export interface RunnerCommandOptions {
   readonly request: RunRequest;
@@ -151,6 +152,8 @@ function executeRunnerCommandEffect(
 ): Effect.Effect<RunnerCommandResult, unknown> {
   let renderer: ReturnType<typeof createCliRenderer>["renderer"] | undefined;
   let runnerChild: RunnerChild | undefined;
+  let interactionConsumer:
+    ReturnType<typeof createTerminalUserInputConsumer> | undefined;
   let receivedWorkerTelemetry = false;
   let identity: RunIdentity | undefined;
 
@@ -159,6 +162,15 @@ function executeRunnerCommandEffect(
       terminalMode === undefined
         ? undefined
         : createCliRenderer(terminalMode, capabilities).renderer;
+    if (request.interactionPolicy?.mode === "user-input" && !dry) {
+      if (renderer?.handleUserInput === undefined) {
+        throw new Error("Interactive input requires the human renderer");
+      }
+      interactionConsumer = createTerminalUserInputConsumer(
+        capabilities,
+        (input) => renderer?.handleUserInput?.(input),
+      );
+    }
 
     const consumeExecutionEvent = (event: SeqlaneExecutionEvent): void => {
       if (dry) {
@@ -168,6 +180,7 @@ function executeRunnerCommandEffect(
         return;
       }
       renderer?.handle(event);
+      interactionConsumer?.handle(event);
     };
 
     const baseEnvironment = { ...process.env };
@@ -237,6 +250,12 @@ function executeRunnerCommandEffect(
           writeSessionUiDiagnostic(capabilities, notification.browserUrl);
         }
       },
+      ...(interactionConsumer === undefined
+        ? {}
+        : {
+            onReady: interactionConsumer.bindCancellation,
+            onInteractionRequested: interactionConsumer.onRequested,
+          }),
     });
     if (telemetryConfiguration !== undefined && !receivedWorkerTelemetry) {
       writeDiagnostic(
@@ -260,6 +279,7 @@ function executeRunnerCommandEffect(
     try: () =>
       closeRunResources({
         closeClient: () => {
+          interactionConsumer?.close();
           if (
             runnerChild !== undefined &&
             runnerChild.exitCode === null &&

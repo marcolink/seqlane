@@ -276,3 +276,4 @@
 | [task.cancel-opencode-archive-verification](./2026-10-23-cancel-opencode-archive-verification.md)                           | Cancel OpenCode archive verification                               | completed   | 2026-10-23 | core          |
 | [task.extract-merge-conflict-action-composition](./2026-10-23-extract-merge-conflict-action-composition.md)                 | Extract merge-conflict Action composition                          | completed   | 2026-10-23 | core          |
 | [task.next-beta-releases](./2026-10-23-next-beta-releases.md)                                                               | Release Effect Migration Betas from next                           | in-progress | 2026-10-23 | core          |
+| [task.runtime-user-input-round-trip](./2026-10-23-runtime-user-input-round-trip.md) | Deliver One Live User Input Round Trip | completed | 2026-10-23 | core, runtime |

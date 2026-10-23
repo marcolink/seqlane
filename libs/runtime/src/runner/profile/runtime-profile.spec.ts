@@ -5,11 +5,13 @@ import { TestClock } from "effect/testing";
 // @test-scope ../../runtime/session/session-lock.ts
 import type { AgentAdapter, AgentRuntimeFactory } from "@seqlane/agent-adapter";
 import type { TaskDefinition, TaskDefinitionRegistry } from "@seqlane/core";
+import type { InteractionPolicy } from "@seqlane/protocol";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import {
   executeAgentAdapterRequest,
   RuntimeAdapterExecutionStartError,
+  RuntimeUserInputUnsupportedError,
   resolveRuntimeProfile,
 } from "./runtime-profile.js";
 import type { ExecutorRequest } from "../../runtime/execution/executor.js";
@@ -46,6 +48,142 @@ function request(taskId: string): ExecutorRequest {
 }
 
 describe("runtime profile agent runtime boundary", () => {
+  it("admits user input only when the runtime declares support", async () => {
+    const definition = task();
+    let closed = 0;
+    await expect(
+      resolveRuntimeProfile(
+        { id: "custom", workspace: process.cwd() },
+        new Map([[definition.id, definition]]),
+        new AbortController().signal,
+        null,
+        undefined,
+        {
+          interactionPolicy: { mode: "user-input", timeoutMs: 10_000 },
+          agentRuntime: async () => ({
+            identity: "fixture",
+            capabilities,
+            createAdapter: () => {
+              throw new Error("Unsupported adapter must not be created");
+            },
+            redactAdapter: (adapter) => adapter,
+            close: async () => {
+              closed += 1;
+            },
+          }),
+        },
+      ),
+    ).rejects.toBeInstanceOf(RuntimeUserInputUnsupportedError);
+    expect(closed).toBe(1);
+  });
+
+  it("keeps unsupported input disabled by default and forwards enabled requests", async () => {
+    const definition = task();
+    const definitions = new Map([[definition.id, definition]]);
+    const answer = {
+      status: "answered" as const,
+      answers: { choice: "yes" },
+    };
+    let received: unknown;
+    const adapter: AgentAdapter = {
+      capabilities: { ...capabilities, userInput: true },
+      execute: async (value) => {
+        value.onExecutionStarted();
+        received = await value.requestUserInput?.({
+          questions: [
+            {
+              id: "choice",
+              prompt: "Choose",
+              allowFreeText: false,
+              options: [{ value: "yes", label: "Yes" }],
+            },
+          ],
+        });
+        return received;
+      },
+      captureCheckpoint: async () => "checkpoint",
+      fork: async () => adapter,
+    };
+    let runtimeClosed = 0;
+    const resolve = (interactionPolicy?: InteractionPolicy) =>
+      resolveRuntimeProfile(
+        { id: "custom", workspace: process.cwd() },
+        definitions,
+        new AbortController().signal,
+        null,
+        undefined,
+        {
+          ...(interactionPolicy === undefined ? {} : { interactionPolicy }),
+          agentRuntime: async () => ({
+            identity: "fixture",
+            capabilities: adapter.capabilities,
+            createAdapter: () => adapter,
+            redactAdapter: (value) => value,
+            close: async () => {
+              runtimeClosed += 1;
+            },
+          }),
+        },
+      );
+    const disabled = await resolve();
+    const disabledSession = await disabled.sessionResolver.resolve({
+      invocationId: "fixture:disabled",
+      task: definition,
+    });
+    await disabledSession.executor.execute(request(definition.id));
+    await disabled.close?.();
+
+    const enabled = await resolve({ mode: "user-input", timeoutMs: 10_000 });
+    const enabledSession = await enabled.sessionResolver.resolve({
+      invocationId: "fixture:enabled",
+      task: definition,
+    });
+    const result = await enabledSession.executor.execute({
+      ...request(definition.id),
+      requestUserInput: async () => answer,
+    });
+    await enabled.close?.();
+
+    expect(received).toEqual(answer);
+    expect(result).toEqual(answer);
+    expect(runtimeClosed).toBe(2);
+  });
+
+  it("cancels a pending input callback at the invocation deadline", async () => {
+    const definition = task();
+    const definitions = new Map([[definition.id, definition]]);
+    let inputSignal: AbortSignal | undefined;
+    const adapter: AgentAdapter = {
+      capabilities,
+      execute: async (value) => {
+        value.onExecutionStarted();
+        inputSignal = value.signal;
+        return value.requestUserInput!({
+          questions: [{ id: "note", prompt: "Note", allowFreeText: true }],
+        });
+      },
+      captureCheckpoint: async () => "checkpoint",
+      fork: async () => adapter,
+    };
+    const execution = executeAgentAdapterRequest(
+      adapter,
+      definitions,
+      undefined,
+      {
+        ...request(definition.id),
+        agent: { goal: "complete task", timeoutMs: 1 },
+        requestUserInput: (_input, signal) =>
+          new Promise((_resolve, reject) =>
+            signal.addEventListener("abort", () => reject(signal.reason), {
+              once: true,
+            }),
+          ),
+      },
+    );
+    await expect(execution).rejects.toMatchObject({ name: "TimeoutError" });
+    expect(inputSignal?.aborted).toBe(true);
+  });
+
   it("omits the classifier runner when no connection is configured", async () => {
     const definition = task();
     const execution = await resolveRuntimeProfile(

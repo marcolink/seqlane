@@ -8,6 +8,7 @@ import type {
 } from "@seqlane/core";
 import type { AgentRuntimeModelCapabilities } from "@seqlane/agent-adapter";
 import type { SeqlaneObservation } from "@seqlane/protocol";
+import type { UserInputAnswer, UserInputRequest } from "@seqlane/protocol";
 
 export interface SeqlaneExecutorActivity {
   readonly activityId: string;
@@ -104,6 +105,10 @@ export interface ExecutorRequest {
     process: SeqlaneBackgroundProcessRequest,
   ) => void;
   readonly onOwnedProcessAcquired?: (pid: number) => Promise<void>;
+  readonly requestUserInput?: (
+    request: UserInputRequest,
+    signal: AbortSignal,
+  ) => Promise<UserInputAnswer>;
 }
 
 export interface SeqlaneExecutor {

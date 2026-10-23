@@ -84,6 +84,20 @@ async function createTransport(body: string): Promise<{
 }
 
 describe("Codex app-server transport", () => {
+  it("negotiates the experimental API used for dynamic tool registration", async () => {
+    const child = spawnServer(`
+      if (message.method === "initialize") { ${writeResponse(initializeResult, "message.id")} }
+    `);
+    const writes = recordWrites(child);
+    const transport = await createCodexTransportForProcess(child);
+    const initialize = JSON.parse(writes[0] ?? "{}") as {
+      readonly params?: { readonly capabilities?: unknown };
+    };
+
+    expect(initialize.params?.capabilities).toEqual({ experimentalApi: true });
+    await transport.close();
+  });
+
   it("registers cancellation before an outbound write can abort synchronously", async () => {
     const { child, transport } = await createTransport(`
       if (message.method === "initialize") { ${writeResponse(initializeResult, "message.id")} }

@@ -83,6 +83,7 @@ export interface CompileWorkflowOptions {
   ) => void;
   readonly classifier?: ClassifierTaskRunner;
   readonly onOwnedProcessAcquired?: (pid: number) => Promise<void>;
+  readonly requestUserInput?: ExecutionContext["requestUserInput"];
   /** Private graph-body limit; dependency waits do not use a permit. */
   readonly concurrency?: number;
   readonly executeWorkflow?: (
@@ -205,6 +206,7 @@ export class PlanCompiler {
       onObservation: options.onObservation,
       classifier: options.classifier,
       onOwnedProcessAcquired: options.onOwnedProcessAcquired,
+      requestUserInput: options.requestUserInput,
     });
 
     for (const node of orderedNodes) {
