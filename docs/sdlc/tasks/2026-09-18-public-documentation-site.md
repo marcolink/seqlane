@@ -5,13 +5,17 @@ status: completed
 owners:
   - core
 created: 2026-09-18
-updated: 2026-09-22
+updated: 2026-10-22
 upstream:
-  - prd.seqlane-on-mastra
+  - prd.seqlane-runtime
 supersedes: []
 ---
 
 # Publish a Minimal Public Documentation Site
+
+> Historical task record. Scope and outcomes describe work before the current migration.
+> Current execution authority: [Effect v4 execution and operations](../specs/2026-10-21-effect-v4-execution-and-operations.md).
+> Current-owner links record the later contract transfer. They do not establish historical Effect v4 use or current delivery.
 
 ## Objective
 
@@ -23,7 +27,7 @@ promising behavior that is not shipped.
 ## Upstream requirements
 
 Use the current product surface described by
-[prd.seqlane-on-mastra](../prd/2026-09-03-seqlane-on-mastra.md): typed
+[prd.seqlane-runtime](../prd/2026-10-21-seqlane-runtime.md): typed
 workflows, coding and deterministic tasks, explicit session behavior, and the
 non-interactive CLI. This task adds a presentation and hosting surface; it does
 not redefine those requirements.
@@ -48,7 +52,7 @@ not redefine those requirements.
 - A CLI reference, setup guide, API reference, blog, or additional site pages.
 - Documenting commands other than the single `seqlane run` example.
 - New workflow, runtime, or CLI behavior.
-- Roadmap, unshipped capability, or internal Mastra implementation claims.
+- Roadmap, unshipped capability, or private runtime implementation claims.
 - Replacing or restructuring `docs/sdlc/`.
 
 ## Implementation plan
@@ -112,7 +116,7 @@ Checks passed:
 `actionlint` was not installed locally. The repository CI runs it for workflow
 changes.
 
-## Delivery state
+## Historical delivery state
 
 The site exists on the target branch. The Pages workflow is implemented on
 `chore/public-readiness` in PR #144. It is not yet merged or reachable from the
@@ -120,5 +124,5 @@ target branch, so automated deployment is not yet delivered.
 
 ## Traceability
 
-- [prd.seqlane-on-mastra: Seqlane on Mastra](../prd/2026-09-03-seqlane-on-mastra.md)
+- [prd.seqlane-runtime: Seqlane Runtime Product Requirements](../prd/2026-10-21-seqlane-runtime.md)
 - [SDLC documentation system](../specs/2026-09-03-sdlc-documentation-system.md)

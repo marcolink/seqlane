@@ -1,15 +1,20 @@
+import { Effect } from "effect";
+import type { AgentRuntime } from "@seqlane/agent-adapter";
 import {
   buildWorkflow,
-  type SeqlaneEvent,
-  type TaskContext,
   type AuthoredWorkflow,
+  type SeqlaneEvent,
 } from "@seqlane/core";
-import { createOpenCodeAdapter } from "@seqlane/opencode-adapter";
+import { createOpenCodeAgentRuntimeFactory } from "@seqlane/opencode-adapter";
 import {
-  PlanCompiler,
-  startCompiledWorkflow,
-  type CompileWorkflowOptions,
+  startWorkflowRun,
+  type StartWorkflowRunRequest,
+  type WorkflowRunHandle,
 } from "@seqlane/runtime";
+import type {
+  ResolveMergeConflictsWorkflowInput,
+  ResolveMergeConflictsWorkflowOutput,
+} from "@seqlane/resolve-merge-conflicts-workflow";
 
 import {
   type AgentRunnerPort,
@@ -17,84 +22,88 @@ import {
 } from "./contracts.js";
 import { ActionResolutionError } from "./errors.js";
 import {
-  seqlaneAgentExecutionResultSchema,
   validateSeqlaneAgentWorkflowOutput,
-  type SeqlaneAgentExecutionRequest,
   validateAgentResolutionRequest,
 } from "./agent-runner-port.js";
 import type { OpenCodeRuntimeHandle } from "./opencode-runtime.js";
 import { createBoundedRecording, type BoundedRecording } from "./recording.js";
 
-export interface SeqlaneWorkflowInput {
-  readonly repository: string;
-  readonly pullRequestNumber: number;
-  readonly strategy: "merge" | "rebase";
-  readonly baseBranch: string;
-  readonly headBranch: string;
-  readonly baseRevision: string;
-  readonly headRevision: string;
-  readonly conflictedFiles: readonly string[];
+interface SeqlaneAgentExecutionRequest extends AgentResolutionRequest {
+  readonly workspace: string;
 }
+
+export type SeqlaneWorkflowInput = ResolveMergeConflictsWorkflowInput;
 
 export const AGENT_ATTEMPT_TIMEOUT_MS = 5 * 60 * 1000;
 
-type SeqlaneExecutor =
-  Extract<
-    CompileWorkflowOptions["executors"],
-    ReadonlyMap<string, unknown>
-  > extends ReadonlyMap<string, infer Executor>
-    ? Executor
-    : never;
+type AgentRuntimeFactoryForAttempt = (
+  connection: OpenCodeRuntimeHandle["connection"],
+  workspace: string,
+  signal: AbortSignal,
+) => Promise<AgentRuntime>;
 
-function createOpenCodeExecutor(
-  taskDefinitions: ReturnType<typeof buildWorkflow>["taskDefinitions"],
-  adapter: ReturnType<typeof createOpenCodeAdapter>,
-): SeqlaneExecutor {
-  return {
-    execute: async (request) => {
-      const task = taskDefinitions.get(request.taskId);
-      if (task === undefined) {
-        throw new Error(`No task definition found for "${request.taskId}"`);
+function agentError(message: string, cause?: unknown): ActionResolutionError {
+  return new ActionResolutionError("agent", "AGENT_FAILED", message, cause);
+}
+
+async function createNativeAgentRuntime(
+  connection: OpenCodeRuntimeHandle["connection"],
+  workspace: string,
+  signal: AbortSignal,
+): Promise<AgentRuntime> {
+  const factory = createOpenCodeAgentRuntimeFactory({
+    adapter: "opencode",
+    url: connection.url,
+    workspace: connection.workspace ?? workspace,
+  });
+  return factory(signal, workspace);
+}
+
+async function runWithAttemptDeadline(
+  start: () => WorkflowRunHandle,
+  controller: AbortController,
+  timeoutMs: number,
+): Promise<{
+  readonly handle: WorkflowRunHandle;
+  readonly outcome: Awaited<WorkflowRunHandle["outcome"]>;
+  readonly timedOut: boolean;
+}> {
+  return Effect.runPromise(
+    Effect.gen(function* () {
+      const handle = yield* Effect.sync(start);
+      const completed = yield* Effect.raceFirst(
+        Effect.promise(() => handle.outcome).pipe(
+          Effect.map((outcome) => ({ kind: "completed" as const, outcome })),
+        ),
+        Effect.sleep(`${timeoutMs} millis`).pipe(
+          Effect.as({ kind: "deadline" as const }),
+        ),
+      );
+      if (completed.kind === "completed") {
+        return { handle, outcome: completed.outcome, timedOut: false };
       }
-      const context: TaskContext = {
-        exec: async () => {
-          throw new Error(
-            "The merge-conflict resolution executor does not support shell tasks.",
-          );
-        },
-        runAgent: (agent) =>
-          adapter.execute({
-            invocationId: request.invocationId,
-            // Forward per-invocation Mastra observability unchanged; the adapter uses
-            // the current span only to parent child agent/tool spans.
-            observability: request.observability,
-            task,
-            input: request.input,
-            agent,
-            signal: request.signal,
-            onExecutionStarted: () => undefined,
-            onMetrics: request.onMetrics,
-            onDiagnostic: (diagnostic) =>
-              request.onDiagnostic?.(diagnostic.message),
-            onActivity: request.onActivity,
-            onUncertainActivity: request.onUncertainActivity,
-            onBackgroundProcess: request.onBackgroundProcess,
-          }),
-      };
-      return task.execute({
-        input: request.input,
-        signal: request.signal,
-        context,
-      });
-    },
-  };
+
+      controller.abort();
+      // The Effect deadline requests cancellation; the run facade remains the
+      // authority for SDK acknowledgement and run-owned resource cleanup.
+      yield* Effect.promise(() => handle.cancel());
+      const outcome = yield* Effect.promise(() => handle.outcome);
+      return { handle, outcome, timedOut: true };
+    }),
+  );
 }
 
 export interface SeqlaneAgentRunnerOptions {
   readonly workspace: string;
-  readonly workflow: AuthoredWorkflow<SeqlaneWorkflowInput, unknown>;
+  readonly workflow: AuthoredWorkflow<
+    SeqlaneWorkflowInput,
+    ResolveMergeConflictsWorkflowOutput
+  >;
   readonly openCode: {
-    readonly start: (workspace: string) => Promise<OpenCodeRuntimeHandle>;
+    readonly start: (
+      workspace: string,
+      shutdownSignal?: AbortSignal,
+    ) => Promise<OpenCodeRuntimeHandle>;
   };
   readonly repository?: string;
   readonly pullRequestNumber?: number;
@@ -103,17 +112,25 @@ export interface SeqlaneAgentRunnerOptions {
   readonly headBranch?: string;
   readonly recording?: () => BoundedRecording;
   readonly attemptTimeoutMs?: number;
+  /** Test and host seam for a directly composed native AgentRuntime. */
+  readonly createAgentRuntime?: AgentRuntimeFactoryForAttempt;
+  readonly onObservation?: StartWorkflowRunRequest["onObservation"];
+  /** Action shutdown signal propagated to every active attempt. */
+  readonly shutdownSignal?: AbortSignal;
 }
 
-function agentError(message: string, cause?: unknown): ActionResolutionError {
-  return new ActionResolutionError("agent", "AGENT_FAILED", message, cause);
+interface ActiveAgentAttempt {
+  readonly controller: AbortController;
+  handle: WorkflowRunHandle | undefined;
+  settlement: Promise<void>;
 }
 
 export class SeqlaneAgentRunner implements AgentRunnerPort {
   private readonly options: SeqlaneAgentRunnerOptions;
   private runtime: OpenCodeRuntimeHandle | undefined;
-  private adapter: ReturnType<typeof createOpenCodeAdapter> | undefined;
-  private activeAttemptController: AbortController | undefined;
+  private runtimeStart: Promise<OpenCodeRuntimeHandle> | undefined;
+  private runtimeStop: Promise<void> | undefined;
+  private activeAttempt: ActiveAgentAttempt | undefined;
   private lastRecording: BoundedRecording | undefined;
 
   constructor(options: SeqlaneAgentRunnerOptions) {
@@ -121,40 +138,131 @@ export class SeqlaneAgentRunner implements AgentRunnerPort {
   }
 
   async start(): Promise<void> {
-    if (this.runtime !== undefined && this.adapter !== undefined) return;
-    if (this.runtime !== undefined || this.adapter !== undefined) {
-      await this.stop();
+    if (this.runtimeStop !== undefined) await this.runtimeStop;
+    if (this.runtime !== undefined) return;
+    if (this.runtimeStart === undefined) {
+      const starting = this.options.openCode
+        .start(this.options.workspace, this.options.shutdownSignal)
+        .then((runtime) => {
+          this.runtime = runtime;
+          return runtime;
+        })
+        .finally(() => {
+          if (this.runtimeStart === starting) this.runtimeStart = undefined;
+        });
+      this.runtimeStart = starting;
     }
-    const runtime = await this.options.openCode.start(this.options.workspace);
-    this.runtime = runtime;
-    this.adapter = createOpenCodeAdapter(runtime.connection);
+    await this.runtimeStart;
   }
 
   async stop(): Promise<void> {
-    this.activeAttemptController?.abort();
+    if (this.runtimeStop !== undefined) return this.runtimeStop;
+    const stopping = Promise.resolve().then(() => this.stopOwnedResources());
+    const wrapped = stopping.finally(() => {
+      if (this.runtimeStop === wrapped) this.runtimeStop = undefined;
+    });
+    this.runtimeStop = wrapped;
+    return wrapped;
+  }
+
+  private async stopOwnedResources(): Promise<void> {
+    const attempt = this.activeAttempt;
+    const failures: unknown[] = [];
+    if (attempt !== undefined) {
+      attempt.controller.abort();
+      try {
+        await attempt.handle?.cancel();
+      } catch (error: unknown) {
+        failures.push(error);
+      }
+    }
+
+    const starting = this.runtimeStart;
+    if (starting !== undefined) {
+      try {
+        await starting;
+      } catch {
+        // Startup owns its failure; stop still completes any acquired cleanup.
+      }
+    }
+
+    if (attempt !== undefined) await attempt.settlement;
+
     const runtime = this.runtime;
-    await runtime?.stop();
-    this.adapter = undefined;
-    this.runtime = undefined;
+    try {
+      await runtime?.stop();
+      if (this.runtime === runtime) this.runtime = undefined;
+    } catch (error: unknown) {
+      failures.push(error);
+    }
+    if (failures.length === 1) throw failures[0];
+    if (failures.length > 1) {
+      throw new AggregateError(
+        failures,
+        "Multiple runner cleanup steps failed.",
+        {
+          cause: failures[0],
+        },
+      );
+    }
   }
 
   async resolve(request: AgentResolutionRequest) {
     const parsed = validateAgentResolutionRequest(request);
-    await this.start();
-    const execution = await this.execute({
-      ...parsed,
-      workspace: this.options.workspace,
-    });
-    const result = seqlaneAgentExecutionResultSchema.safeParse(execution);
-    if (!result.success || result.data.status !== "succeeded") {
+    if (this.runtimeStop !== undefined || this.activeAttempt !== undefined) {
+      throw agentError(
+        "The conflict-resolution runner is already active or stopping.",
+      );
+    }
+    const attempt: ActiveAgentAttempt = {
+      controller: new AbortController(),
+      handle: undefined,
+      settlement: Promise.resolve(),
+    };
+    const interrupt = () =>
+      attempt.controller.abort(this.options.shutdownSignal?.reason);
+    if (this.options.shutdownSignal?.aborted) interrupt();
+    else
+      this.options.shutdownSignal?.addEventListener("abort", interrupt, {
+        once: true,
+      });
+    this.activeAttempt = attempt;
+    const work = this.execute(
+      {
+        ...parsed,
+        workspace: this.options.workspace,
+      },
+      attempt,
+    );
+    attempt.settlement = work
+      .then(
+        () => undefined,
+        () => undefined,
+      )
+      .finally(() => {
+        this.options.shutdownSignal?.removeEventListener("abort", interrupt);
+        if (this.activeAttempt === attempt) this.activeAttempt = undefined;
+      });
+    const execution = await work;
+    if (execution.timedOut) {
+      throw agentError(
+        "The conflict-resolution attempt exceeded its deadline.",
+        execution.outcome.status === "failed"
+          ? execution.outcome.error
+          : execution.outcome,
+      );
+    }
+    if (execution.outcome.status !== "succeeded") {
       throw agentError(
         "The Seqlane conflict-resolution task failed.",
-        result.success ? result.data : result.error,
+        execution.outcome.status === "failed"
+          ? execution.outcome.error
+          : execution.outcome,
       );
     }
     try {
       return validateSeqlaneAgentWorkflowOutput(
-        result.data.output,
+        execution.outcome.result,
         parsed.paths,
       );
     } catch (error: unknown) {
@@ -164,10 +272,18 @@ export class SeqlaneAgentRunner implements AgentRunnerPort {
 
   private async execute(
     request: SeqlaneAgentExecutionRequest,
-  ): Promise<unknown> {
+    attempt: ActiveAgentAttempt,
+  ): Promise<{
+    readonly outcome: Awaited<WorkflowRunHandle["outcome"]>;
+    readonly timedOut: boolean;
+  }> {
     try {
-      const adapter = this.adapter;
-      if (adapter === undefined) {
+      if (attempt.controller.signal.aborted) {
+        throw attempt.controller.signal.reason;
+      }
+      await this.start();
+      const runtime = this.runtime;
+      if (runtime === undefined) {
         throw agentError("The OpenCode runtime is not started.");
       }
       const recording = this.options.recording?.() ?? createBoundedRecording();
@@ -176,53 +292,45 @@ export class SeqlaneAgentRunner implements AgentRunnerPort {
         emit: (event: SeqlaneEvent) => recording.record(event),
       };
       const built = buildWorkflow(this.options.workflow);
-      const executor = createOpenCodeExecutor(built.taskDefinitions, adapter);
-      const compiled = new PlanCompiler().compileWorkflow(built.plan, {
-        executors: new Map([["opencode", executor]]),
-        taskDefinitions: built.taskDefinitions,
-        validatorDefinitions: built.validatorDefinitions,
-        workflowInput: {
-          repository: this.options.repository ?? request.workspace,
-          pullRequestNumber: this.options.pullRequestNumber ?? 0,
-          strategy: this.options.strategy ?? "rebase",
-          baseBranch: this.options.baseBranch ?? "unknown",
-          headBranch: this.options.headBranch ?? "unknown",
-          baseRevision: request.baseRevision,
-          headRevision: request.headRevision,
-          conflictedFiles: request.paths,
-        },
-        events,
-      });
-      const attemptController = new AbortController();
-      this.activeAttemptController = attemptController;
-      let timedOut = false;
-      const timeout = setTimeout(() => {
-        timedOut = true;
-        attemptController.abort();
-      }, this.options.attemptTimeoutMs ?? AGENT_ATTEMPT_TIMEOUT_MS);
+      const createRuntime =
+        this.options.createAgentRuntime ?? createNativeAgentRuntime;
+      const agentRuntime = await createRuntime(
+        runtime.connection,
+        request.workspace,
+        attempt.controller.signal,
+      );
+      let adopted = false;
       try {
-        const active = startCompiledWorkflow(compiled, {
-          signal: attemptController.signal,
-        });
-        const outcome = await active.outcome;
-        if (outcome.status === "succeeded") {
-          return { status: "succeeded", output: outcome.result };
-        }
-        if (outcome.status === "cancelled" && timedOut) {
-          throw agentError(
-            "The conflict-resolution attempt exceeded its deadline.",
-          );
-        }
-        if (outcome.status === "cancelled") return outcome;
-        throw agentError(
-          "The Seqlane workflow returned a failure.",
-          outcome.error,
+        const result = await runWithAttemptDeadline(
+          () => {
+            const handle = startWorkflowRun({
+              workflow: built,
+              input: {
+                repository: this.options.repository ?? request.workspace,
+                pullRequestNumber: this.options.pullRequestNumber ?? 0,
+                strategy: this.options.strategy ?? "rebase",
+                baseBranch: this.options.baseBranch ?? "unknown",
+                headBranch: this.options.headBranch ?? "unknown",
+                baseRevision: request.baseRevision,
+                headRevision: request.headRevision,
+                conflictedFiles: request.paths,
+              },
+              agentRuntime,
+              workspace: request.workspace,
+              events,
+              signal: attempt.controller.signal,
+              onObservation: this.options.onObservation,
+            });
+            adopted = true;
+            attempt.handle = handle;
+            return handle;
+          },
+          attempt.controller,
+          this.options.attemptTimeoutMs ?? AGENT_ATTEMPT_TIMEOUT_MS,
         );
+        return { outcome: result.outcome, timedOut: result.timedOut };
       } finally {
-        clearTimeout(timeout);
-        if (this.activeAttemptController === attemptController) {
-          this.activeAttemptController = undefined;
-        }
+        if (!adopted) await agentRuntime.close?.();
       }
     } catch (error: unknown) {
       if (error instanceof ActionResolutionError) throw error;

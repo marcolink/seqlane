@@ -5,13 +5,17 @@ status: completed
 owners:
   - core
 created: 2026-09-04
-updated: 2026-09-05
+updated: 2026-10-22
 upstream:
   - spec.agent-adapter-boundary-and-capabilities
 supersedes: []
 ---
 
 # Add Adapter Integration Coverage and Complete Migration
+
+> Historical task record. Scope and outcomes describe work before the current migration.
+> Current execution authority: [Effect v4 execution and operations](../specs/2026-10-21-effect-v4-execution-and-operations.md).
+> Current-owner links record the later contract transfer. They do not establish historical Effect v4 use or current delivery.
 
 ## Objective
 
@@ -36,7 +40,7 @@ all nearby documentation with the active specification.
 
 ## Scope
 
-- Test the pinned Mastra ACP library with a controlled ACP process.
+- Test ACP translation with a controlled ACP process.
 - Test the pinned OpenCode SDK with a controlled OpenCode server.
 - Cover configuration, workspace, model, output, cancellation, permissions, and activity.
 - Cover shared sessions, checkpoints, exact forks, and unsupported capability failures.
@@ -49,7 +53,7 @@ all nearby documentation with the active specification.
 - New adapter implementations.
 - Live external model tests in the required continuous integration gate.
 - Public workflow authoring changes.
-- Unrelated Mastra operational changes.
+- Unrelated operational-host changes.
 
 ## Implementation plan
 
@@ -70,7 +74,7 @@ all nearby documentation with the active specification.
 
 ## Verification
 
-- Prove ACP behavior through the pinned Mastra ACP implementation.
+- Prove supported ACP behavior through the real transport boundary.
 - Prove OpenCode behavior through the pinned SDK client.
 - Prove configured workspace and model propagation for each adapter.
 - Prove cancellation and interaction rejection at each real boundary.
@@ -99,4 +103,4 @@ The task branch is prepared for pull request delivery.
 
 - [spec.agent-adapter-boundary-and-capabilities](../specs/2026-09-04-agent-adapter-boundary-and-capabilities.md)
 - [task.session-checkpoint-fork-capabilities](./2026-09-04-session-checkpoint-fork-capabilities.md)
-- [task.mastra-agent-acp](./2026-09-03-mastra-agent-acp.md)
+- [task.effect-v4-acp-transport](./2026-10-21-effect-v4-acp-transport.md)

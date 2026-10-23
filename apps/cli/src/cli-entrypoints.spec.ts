@@ -3,7 +3,6 @@
 // @test-scope ./run-execution.ts
 // @test-scope ./run-outcome.ts
 // @test-scope ./index.ts
-// @test-scope ./run-operational-host.ts
 // @test-scope ./run-result.ts
 // @test-scope ./run-lifecycle.ts
 // @test-scope ./run-cleanup.ts
@@ -13,7 +12,6 @@
 // @test-scope ./event-dispatcher.ts
 // @test-scope ./output.ts
 // @test-scope ./recording.ts
-// @test-scope ./commands/unstable_studio.ts
 // @test-scope ./commands/unstable_plan.ts
 // @test-scope ./commands/unstable_serve.ts
 // @test-scope ./cli-contracts.ts

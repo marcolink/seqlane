@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-03
+updated: 2026-10-22
 upstream:
   - adr.autonomous-non-interactive-execution
 supersedes: []
@@ -31,7 +31,7 @@ autonomous runner and executor work
 success | failure | cancellation
 ```
 
-The existing spec.mastra-runtime-integration, spec.dedicated-runner-process, and spec.opencode-executor-integration paths provide cancellation, JSON-only IPC, and OpenCode interaction rejection. This TS defines the shared policy and closes setup-time gaps.
+The existing spec.effect-v4-execution-and-operations, spec.dedicated-runner-process, and spec.opencode-executor-integration paths provide cancellation, JSON-only IPC, and OpenCode interaction rejection. This TS defines the shared policy and closes setup-time gaps.
 
 ## 2. Normative Invariants
 
@@ -52,7 +52,7 @@ The existing spec.mastra-runtime-integration, spec.dedicated-runner-process, and
 
 ## 3. Interaction Failure Contract
 
-`@seqlane/core` defines a Mastra-independent error that executor adapters use when work cannot continue without a person.
+`@seqlane/core` defines a engine-independent error that executor adapters use when work cannot continue without a person.
 
 ```ts
 type InteractionRequirement =
@@ -67,7 +67,7 @@ class InteractionRequiredError extends Error {
 
 The error has a stable, safe message. It does not contain the raw request, prompt text, interaction payload, or executor error.
 
-An executor throws this error instead of opening an interaction channel. spec.mastra-runtime-integration normalizes it through the existing executor failure path:
+An executor throws this error instead of opening an interaction channel. spec.effect-v4-execution-and-operations normalizes it through the existing executor failure path:
 
 ```text
 executor detects interaction requirement
@@ -158,7 +158,7 @@ Use deterministic fake executors and a fake OpenCode server. The tests must not 
 
 spec.autonomous-non-interactive-execution is complete when:
 
-- Seqlane has one shared, Mastra-independent interaction failure contract
+- Seqlane has one shared, engine-independent interaction failure contract
 - every executor can fail an unresolved interaction through the existing executor failure path
 - no Seqlane runner command or event represents a human response
 - the CLI and runner perform no terminal interaction after `run.start`

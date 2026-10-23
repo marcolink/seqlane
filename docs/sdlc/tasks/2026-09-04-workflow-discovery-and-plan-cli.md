@@ -5,28 +5,32 @@ status: completed
 owners:
   - core
 created: 2026-09-04
-updated: 2026-09-06
+updated: 2026-10-22
 upstream:
-  - spec.mastra-runtime-and-operational-integration
+  - spec.effect-v4-execution-and-operations
 supersedes: []
 ---
 
 # Add Workflow Discovery and Plan Commands
 
+> Historical task record. Scope and outcomes describe work before the current migration.
+> Current execution authority: [Effect v4 execution and operations](../specs/2026-10-21-effect-v4-execution-and-operations.md).
+> Current-owner links record the later contract transfer. They do not establish historical Effect v4 use or current delivery.
+
 ## Objective
 
 Make repository and user workflows discoverable and inspectable before a run.
 
-## Dependencies
+## Current replacement
 
-- [task.mastra-architectural-cleanup](./2026-09-03-mastra-architectural-cleanup.md)
+This later task owns replacement work. It was not an original prerequisite.
+
+- [task.effect-v4-complete-removal-and-release](./2026-10-21-effect-v4-complete-removal-and-release.md)
 - [task.workflow-discovery-bounds](./2026-09-05-workflow-discovery-bounds.md)
 
 ## Delivery
 
 - Stack order: 14
-- Branch: `mastra-14-workflow-discovery-plan`
-- Pull request base: `mastra-13-workflow-discovery-bounds`
 - Implementation agent: a fresh `gpt-5.6-luna` subagent with `high` reasoning
 - Delivery unit: exactly one task branch and one pull request
 
@@ -111,7 +115,7 @@ move shared workflow-root flag handling out of the list command.
 
 ## Traceability
 
-- [spec.mastra-runtime-and-operational-integration](../specs/2026-09-03-mastra-runtime-and-operational-integration.md)
+- [spec.effect-v4-execution-and-operations](../specs/2026-10-21-effect-v4-execution-and-operations.md)
 - [adr.repository-user-workflow-discovery-and-composition](../adrs/2026-09-02-repository-user-workflow-discovery-and-composition.md)
-- [prd.seqlane-on-mastra](../prd/2026-09-03-seqlane-on-mastra.md)
-- [rfc.mastra-runtime-and-operational-foundation](../rfcs/2026-09-03-mastra-runtime-and-operational-foundation.md)
+- [prd.seqlane-runtime](../prd/2026-10-21-seqlane-runtime.md)
+- [rfc.effect-v4-migration](../rfcs/2026-10-21-effect-v4-migration.md)

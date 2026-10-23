@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-03
+updated: 2026-10-22
 upstream:
   - adr.work-run-invocation-identity-model
 supersedes: []
@@ -39,7 +39,7 @@ The initial one-to-one Work → Run relationship is an implementation profile, n
 - Plan binding references and dependency edges address Plan nodes, not runtime Invocations.
 - Every lifecycle event carries its applicable execution hierarchy: Run events carry Work ID and Run ID; invocation events additionally carry Invocation ID; `invocation.started` also carries Task ID.
 - Runner IPC validates the full identity shape and rejects missing, empty, unknown, or non-serializable identity fields.
-- No Mastra, executor, session, Git, or provider identity enters core contracts, Plans, workflow authoring, or runner IPC.
+- No runtime-library, executor, session, Git, or provider identity enters core contracts, Plans, workflow authoring, or runner IPC.
 
 ## 3. Static Plan Addresses
 
@@ -88,7 +88,7 @@ The private runner allocates the Work and Run before it emits `run.started`, inc
 
 The compiler receives the Work/Run pair through its private execution context. For each ordered Plan node, it allocates and retains a runtime Invocation ID before emitting the node's first lifecycle event. The context maps `PlanNodeId` to the corresponding Invocation ID for the lifetime of that Run. It uses the static node ID for binding resolution and the runtime Invocation ID for lifecycle events and executor requests.
 
-The compiler and runner expose only Seqlane-owned values to the event bridge. Mastra run IDs, step IDs, executor identifiers, session IDs, and private profile details remain implementation state.
+The compiler and runner expose only Seqlane-owned values to the event bridge. Runtime-library IDs, executor identifiers, session IDs, and private profile details remain implementation state.
 
 ## 6. CLI and Process Boundary
 
@@ -148,7 +148,7 @@ spec.work-run-invocation-identity-model is complete when:
 - [adr.work-run-invocation-identity-model — Distinguish Work, Run, and Invocation Identity](../adrs/2026-09-02-work-run-invocation-identity-model.md) defines the canonical hierarchy and MVP exclusions.
 - [rfc.seqlane-technical-architecture — Seqlane Technical Architecture](../rfcs/2026-09-02-seqlane-technical-architecture.md) assigns execution identities and structured events to Seqlane-owned contracts.
 - [MVP — Seqlane](../prd/2026-09-02-seqlane.md) defines one fresh runner process per execution and excludes persistent Work, cross-run continuation, and Git provenance.
-- spec.mastra-runtime-integration, spec.dedicated-runner-process, spec.seqlane-plan-ir-typed-dataflow, and spec.executor-neutral-workflow-authoring define the current runtime, runner, Plan, and executor-neutral boundaries this migration updates.
+- spec.effect-v4-execution-and-operations, spec.dedicated-runner-process, spec.seqlane-plan-ir-typed-dataflow, and spec.executor-neutral-workflow-authoring define the current runtime, runner, Plan, and executor-neutral boundaries this migration updates.
 
 ## Traceability
 

@@ -1,9 +1,9 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { acquireOpenCodeServiceProcess } from "./service-process.js";
+import type { ChildProcess, SpawnOptions } from "node:child_process";
+
 import { randomBytes } from "node:crypto";
-import {
-  OpenCodeServiceCleanupError,
-  OpenCodeServiceStartupError,
-} from "./errors.js";
+import { Effect, Exit, Option, Scope } from "effect";
+import { OpenCodeServiceStartupError } from "./errors.js";
 
 const OPENCODE_HOST = "127.0.0.1";
 const STARTUP_TIMEOUT_MS = 30_000;
@@ -28,15 +28,44 @@ export interface StartOpenCodeServiceOptions {
   readonly port?: number;
   readonly startupTimeoutMs?: number;
   readonly shutdownTimeoutMs?: number;
-  readonly spawn?: typeof spawn;
+  readonly spawn?: (
+    command: string,
+    args: readonly string[],
+    options: SpawnOptions,
+  ) => ChildProcess;
   readonly fetch?: typeof fetch;
+  /** Registers the spawned service before startup polling or HTTP begins. */
+  readonly onOwnedProcessAcquired?: (pid: number) => Promise<void>;
+}
+
+function startupError(
+  cause: unknown,
+  cleanupFailure?: { readonly cause: unknown },
+): OpenCodeServiceStartupError {
+  const primary =
+    cause instanceof OpenCodeServiceStartupError
+      ? cause
+      : new OpenCodeServiceStartupError(
+          typeof cause === "object" &&
+            cause !== null &&
+            Reflect.get(cause, "code") === "ENOENT"
+            ? "OpenCode executable is unavailable; install OpenCode and authenticate with its native setup"
+            : "OpenCode could not be started",
+          cause,
+        );
+  return cleanupFailure === undefined
+    ? primary
+    : new OpenCodeServiceStartupError(primary.message, primary, cleanupFailure);
 }
 
 function appendBounded(current: string, chunk: Buffer): string {
-  const next = current + chunk.toString("utf8");
-  return Buffer.byteLength(next, "utf8") <= OUTPUT_LIMIT_BYTES
-    ? next
-    : Buffer.from(next, "utf8").subarray(-OUTPUT_LIMIT_BYTES).toString("utf8");
+  const bytes = Buffer.from(current + chunk.toString("utf8"));
+  if (bytes.byteLength <= OUTPUT_LIMIT_BYTES) return bytes.toString("utf8");
+  const tail = bytes.subarray(-OUTPUT_LIMIT_BYTES);
+  // The re-encoded string is valid UTF-8. Drop a partial leading code point.
+  let offset = 0;
+  while (((tail[offset] ?? 0) & 0xc0) === 0x80) offset += 1;
+  return tail.subarray(offset).toString("utf8");
 }
 
 function parseOpenCodeUrl(
@@ -64,148 +93,75 @@ function parseOpenCodeUrl(
   }
 }
 
-function ownedProcessGroupIsAlive(pid: number): boolean {
-  try {
-    process.kill(-pid, 0);
-    return true;
-  } catch (cause) {
-    if (
-      typeof cause === "object" &&
-      cause !== null &&
-      Reflect.get(cause, "code") === "EPERM"
-    ) {
-      return true;
-    }
-    return false;
-  }
-}
-
-async function waitForOwnedServiceExit(
-  child: ChildProcess,
-  timeoutMs: number,
-): Promise<boolean> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const exited =
-      process.platform !== "win32" && child.pid !== undefined
-        ? !ownedProcessGroupIsAlive(child.pid)
-        : child.exitCode !== null || child.signalCode !== null;
-    if (exited) return true;
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-  return process.platform !== "win32" && child.pid !== undefined
-    ? !ownedProcessGroupIsAlive(child.pid)
-    : child.exitCode !== null || child.signalCode !== null;
-}
-
-async function stopOwnedProcess(
-  child: ChildProcess,
-  timeoutMs: number,
-): Promise<void> {
-  if (child.pid === undefined) return;
-  if (process.platform !== "win32" && !ownedProcessGroupIsAlive(child.pid)) {
-    return;
-  }
-  if (
-    process.platform === "win32" &&
-    (child.exitCode !== null || child.signalCode !== null)
-  ) {
-    return;
-  }
-  const kill = (signal: NodeJS.Signals): void => {
-    if (process.platform !== "win32" && child.pid !== undefined) {
-      try {
-        process.kill(-child.pid, signal);
-        return;
-      } catch (cause) {
-        if (
-          typeof cause !== "object" ||
-          cause === null ||
-          Reflect.get(cause, "code") !== "ESRCH"
-        ) {
-          throw new OpenCodeServiceCleanupError(
-            `Could not signal owned OpenCode process group with ${signal}`,
-            cause,
-          );
-        }
-      }
-    }
-    try {
-      if (child.kill(signal)) return;
-    } catch (cause) {
-      if (
-        typeof cause === "object" &&
-        cause !== null &&
-        Reflect.get(cause, "code") === "ESRCH"
-      ) {
-        return;
-      }
-      throw new OpenCodeServiceCleanupError(
-        `Could not signal owned OpenCode process with ${signal}`,
-        cause,
-      );
-    }
-    if (child.exitCode !== null || child.signalCode !== null) return;
-    throw new OpenCodeServiceCleanupError(
-      `Could not signal owned OpenCode process with ${signal}`,
-    );
-  };
-
-  kill("SIGTERM");
-  if (await waitForOwnedServiceExit(child, timeoutMs)) return;
-  kill("SIGKILL");
-  if (await waitForOwnedServiceExit(child, Math.min(timeoutMs, 1_000))) {
-    return;
-  }
-  throw new OpenCodeServiceCleanupError(
-    "Owned OpenCode process did not exit after SIGKILL",
-  );
-}
-
-async function waitForOpenCodeReady(options: {
+function waitForOpenCodeReady(options: {
   readonly child: ChildProcess;
   readonly signal: AbortSignal;
   readonly timeoutMs: number;
   readonly url: () => string | undefined;
-  readonly startupFailure: () => unknown;
+  readonly startupFailure: () => { readonly cause: unknown } | undefined;
   readonly fetch: typeof fetch;
   readonly authorization: string;
 }): Promise<string> {
-  const deadline = Date.now() + options.timeoutMs;
-  while (Date.now() < deadline) {
+  let readyUrl: string | undefined;
+  const check = Effect.gen(function* () {
     if (options.signal.aborted) {
-      throw new OpenCodeServiceStartupError("OpenCode startup was cancelled");
+      return yield* Effect.fail(
+        new OpenCodeServiceStartupError("OpenCode startup was cancelled"),
+      );
     }
     const startupFailure = options.startupFailure();
-    if (startupFailure !== undefined) throw startupFailure;
+    if (startupFailure !== undefined)
+      return yield* Effect.fail(startupFailure.cause);
     if (options.child.exitCode !== null || options.child.signalCode !== null) {
-      throw new OpenCodeServiceStartupError(
-        "OpenCode exited before becoming ready",
+      return yield* Effect.fail(
+        new OpenCodeServiceStartupError(
+          "OpenCode exited before becoming ready",
+        ),
       );
     }
     const url = options.url();
     if (url !== undefined) {
-      try {
-        const response = await options.fetch(`${url}/global/health`, {
-          headers: { authorization: options.authorization },
-          signal: AbortSignal.any([
-            options.signal,
-            AbortSignal.timeout(
-              Math.min(2_000, Math.max(1, deadline - Date.now())),
+      const response = yield* Effect.tryPromise({
+        try: (signal) =>
+          options.fetch(`${url}/global/health`, {
+            headers: { authorization: options.authorization },
+            signal: AbortSignal.any([options.signal, signal]),
+          }),
+        catch: (cause) => cause,
+      }).pipe(
+        Effect.timeoutOption(2_000),
+        Effect.catch(() => Effect.succeed(Option.none())),
+      );
+      if (Option.isSome(response)) {
+        yield* Effect.tryPromise({
+          try: () =>
+            Promise.resolve(response.value.body?.cancel()).then(
+              () => undefined,
             ),
-          ]),
-        });
-        await response.body?.cancel();
-        if (response.ok) return url;
-      } catch {
-        // The owned service can accept TCP before its health endpoint is ready.
+          catch: (cause: unknown) => cause,
+        }).pipe(Effect.catch(() => Effect.void));
+        if (response.value.ok) readyUrl = url;
       }
     }
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-  throw new OpenCodeServiceStartupError(
-    "OpenCode did not become ready before the startup timeout",
-  );
+    if (readyUrl === undefined) yield* Effect.sleep("50 millis");
+  });
+  const poll = Effect.whileLoop({
+    while: () => readyUrl === undefined && !options.signal.aborted,
+    body: () => check,
+    step: () => undefined,
+  }).pipe(Effect.timeoutOption(options.timeoutMs));
+  return Effect.runPromise(poll).then((result) => {
+    if (readyUrl !== undefined) return readyUrl;
+    if (options.signal.aborted) {
+      throw new OpenCodeServiceStartupError("OpenCode startup was cancelled");
+    }
+    if (Option.isNone(result)) {
+      throw new OpenCodeServiceStartupError(
+        "OpenCode did not become ready before the startup timeout",
+      );
+    }
+    throw new OpenCodeServiceStartupError("OpenCode did not become ready");
+  });
 }
 
 /** Starts one private OpenCode service without changing its native configuration. */
@@ -217,56 +173,61 @@ export async function startOpenCodeService(
   }
   const host = options.host ?? OPENCODE_HOST;
   const port = options.port ?? 0;
-  const start = options.spawn ?? spawn;
   // OpenCode supports Basic auth through these native environment variables.
   // A distinct secret prevents other local processes from using this run's API.
   const password = randomBytes(32).toString("base64url");
   const authorization = `Basic ${Buffer.from(
     `${OPENCODE_SERVER_USERNAME}:${password}`,
   ).toString("base64")}`;
-  const child = start(
-    "opencode",
-    ["serve", `--hostname=${host}`, `--port=${port}`, "--print-logs"],
-    {
-      cwd: options.workspace,
-      detached: process.platform !== "win32",
-      env: {
-        ...process.env,
-        OPENCODE_SERVER_USERNAME,
-        OPENCODE_SERVER_PASSWORD: password,
-      },
-      stdio: ["ignore", "pipe", "pipe"],
-      windowsHide: true,
-    },
-  );
+  const serviceScope = Effect.runSync(Scope.make("sequential"));
   let output = "";
   let endpoint: string | undefined;
-  let startupFailure: unknown;
+  let startupFailure: { readonly cause: unknown } | undefined;
+  let cleanupFailure: { readonly cause: unknown } | undefined;
   const onOutput = (chunk: Buffer): void => {
     output = appendBounded(output, chunk);
     endpoint ??= parseOpenCodeUrl(output, host, port);
   };
   const onError = (cause: unknown): void => {
-    startupFailure = cause;
+    startupFailure = { cause };
   };
-  child.stdout?.on("data", onOutput);
-  child.stderr?.on("data", onOutput);
-  child.on("error", onError);
   const shutdownTimeoutMs = options.shutdownTimeoutMs ?? SHUTDOWN_TIMEOUT_MS;
+  const acquire = acquireOpenCodeServiceProcess(options, {
+    host,
+    port,
+    password,
+    shutdownTimeoutMs,
+    onOutput,
+    onError,
+    onCleanupFailure: (cause) => {
+      cleanupFailure = { cause };
+    },
+  }).pipe(Effect.provideService(Scope.Scope, serviceScope));
+  let child: ChildProcess;
+  try {
+    child = await Effect.runPromise(acquire);
+  } catch (cause) {
+    await Effect.runPromise(Scope.close(serviceScope, Exit.void));
+    throw startupError(cause, cleanupFailure);
+  }
   let closePromise: Promise<void> | undefined;
   const close = (): Promise<void> => {
     closePromise ??= (async () => {
-      await stopOwnedProcess(child, shutdownTimeoutMs);
-      if (await waitForOwnedServiceExit(child, 0)) {
-        child.stdout?.off("data", onOutput);
-        child.stderr?.off("data", onOutput);
-        child.off("error", onError);
-      }
+      await Effect.runPromise(Scope.close(serviceScope, Exit.void));
+      if (cleanupFailure !== undefined) throw cleanupFailure.cause;
     })();
     return closePromise;
   };
 
   try {
+    if (options.onOwnedProcessAcquired !== undefined) {
+      if (child.pid === undefined) {
+        throw new OpenCodeServiceStartupError(
+          "OpenCode process ownership could not be identified",
+        );
+      }
+      await options.onOwnedProcessAcquired(child.pid);
+    }
     const url = await waitForOpenCodeReady({
       child,
       signal: options.signal,
@@ -278,29 +239,14 @@ export async function startOpenCodeService(
     });
     return { url, authorization, diagnostics: () => output, close };
   } catch (cause) {
-    let cleanupFailure: unknown;
+    let startupCleanupFailure: { readonly cause: unknown } | undefined;
     try {
       await close();
     } catch (cleanupCause) {
-      cleanupFailure = cleanupCause;
+      startupCleanupFailure = { cause: cleanupCause };
     }
-    const primary =
-      cause instanceof OpenCodeServiceStartupError
-        ? cause
-        : new OpenCodeServiceStartupError(
-            typeof cause === "object" &&
-              cause !== null &&
-              Reflect.get(cause, "code") === "ENOENT"
-              ? "OpenCode executable is unavailable; install OpenCode and authenticate with its native setup"
-              : "OpenCode could not be started",
-            cause,
-          );
-    if (cleanupFailure !== undefined) {
-      Object.defineProperty(primary, "cleanupFailure", {
-        value: cleanupFailure,
-        enumerable: false,
-      });
-    }
-    throw primary;
+    const primaryCause =
+      startupFailure === undefined ? cause : startupFailure.cause;
+    throw startupError(primaryCause, startupCleanupFailure);
   }
 }

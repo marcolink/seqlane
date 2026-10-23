@@ -5,7 +5,7 @@ status: superseded
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-05
+updated: 2026-10-22
 upstream:
   - adr.local-development-studio-trust-and-lifecycle
 supersedes: []
@@ -13,11 +13,11 @@ supersedes: []
 
 # Local Development Studio Trust and Lifecycle
 
-> Superseded by [spec.mastra-runtime-and-operational-integration](./2026-09-03-mastra-runtime-and-operational-integration.md).
+> Superseded by [spec.effect-v4-execution-and-operations](./2026-10-21-effect-v4-execution-and-operations.md).
 
-The implementation now launches the upstream Mastra Community Studio. The
-local Seqlane Studio service and `seqlane run --studio` contract described in
-this historical specification are not supported.
+The local Seqlane Studio service and `seqlane run --studio` contract in this
+historical specification are retired. Current inspection uses terminal output,
+supplied-file replay, and explicit hosted APIs under the Effect runtime contract.
 
 > Migrated from legacy technical specification `TS-014`.
 

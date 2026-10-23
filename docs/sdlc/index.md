@@ -21,12 +21,15 @@ and tasks.
 - [Implementation tasks](./tasks/index.md)
 - [Document templates](./templates/)
 
-## Next implementation deliverable
+## Current implementation delivery
 
-[Demonstrate Classifier Tasks in Git Diff Summary](./tasks/2026-09-23-classifier-example-and-documentation.md)
-is next. Its prerequisite, [classifier retries and observations](./tasks/2026-09-23-classifier-reliability-and-observation.md),
-is on `main` at `ae11ebf` (PR #165).
-Static Choice, Score, and Noul support are on `main` at `1e3b915`.
+The Effect migration, seven-task optimization follow-up and
+[main activity-limit integration](./tasks/2026-10-22-effect-v4-integrate-codex-activity-limits.md)
+are implemented and locally verified. The integration preserves the earlier
+task commits and main's correction. Earlier outcomes retain their checkpoint
+verification evidence. Feature-branch delivery and exact-head checks are tracked
+in [draft PR #180](https://github.com/marcolink/seqlane/pull/180).
+No default-branch merge or registry publication is claimed.
 
 ## Authority
 
@@ -73,13 +76,13 @@ documents or clauses.
 
 Allowed statuses are:
 
-| Type | Statuses |
-| --- | --- |
-| BRD | `draft`, `review`, `accepted`, `superseded` |
-| PRD | `draft`, `review`, `accepted`, `superseded` |
-| RFC | `proposed`, `accepted`, `rejected`, `superseded` |
-| ADR | `proposed`, `accepted`, `rejected`, `superseded` |
-| SPEC | `draft`, `active`, `superseded` |
+| Type | Statuses                                                      |
+| ---- | ------------------------------------------------------------- |
+| BRD  | `draft`, `review`, `accepted`, `superseded`                   |
+| PRD  | `draft`, `review`, `accepted`, `superseded`                   |
+| RFC  | `proposed`, `accepted`, `rejected`, `superseded`              |
+| ADR  | `proposed`, `accepted`, `rejected`, `superseded`              |
+| SPEC | `draft`, `active`, `superseded`                               |
 | TASK | `planned`, `in-progress`, `blocked`, `completed`, `cancelled` |
 
 Superseded and rejected documents remain at their original canonical path. A

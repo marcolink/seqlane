@@ -1,8 +1,19 @@
 // @test-scope ./opencode-runtime.ts
+// @test-scope ./opencode-process.ts
 
-import { describe, expect, it } from "vitest";
+import { execFile, spawn, type ChildProcess } from "node:child_process";
+import * as crypto from "node:crypto";
+import * as filesystem from "node:fs/promises";
+import { createServer } from "node:http";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { promisify } from "node:util";
+import { describe, expect, it, vi } from "vitest";
+
+import * as processOwnership from "@seqlane/agent-adapter/private/owned-process";
 
 import {
+  NodeOpenCodeRuntime,
   OPENCODE_ARCHIVE_MAX_BYTES,
   OPENCODE_DOWNLOAD_TIMEOUT_MS,
   OPENCODE_ARCHIVE_SHA256,
@@ -15,8 +26,11 @@ import {
   downloadOpenCodeArchive,
   resolveOpenCodeSkillDirectory,
   verifyOpenCodeArchive,
-  waitForOpenCodeReady,
+  type OpenCodeRuntimeOptions,
 } from "./opencode-runtime.js";
+
+vi.mock("node:crypto", { spy: true });
+vi.mock("node:fs/promises", { spy: true });
 
 describe("resolver OpenCode runtime", () => {
   it("keeps the pinned model, version, policy, and loopback binding", () => {
@@ -108,37 +122,242 @@ describe("resolver OpenCode runtime", () => {
     }
   });
 
-  it("fails immediately when the OpenCode child exits before readiness", async () => {
-    const child = { exitCode: 1 };
-    let healthChecks = 0;
-    await expect(
-      waitForOpenCodeReady(
-        child,
-        async () => {
-          healthChecks += 1;
-          return false;
-        },
-        60_000,
-        60_000,
-      ),
-    ).rejects.toMatchObject({ code: "AGENT_FAILED" });
-    expect(healthChecks).toBe(0);
+  it.each([
+    {
+      reason: "a non-OK status",
+      status: 503,
+      headers: {},
+      error: "Archive download failed: 503",
+    },
+    {
+      reason: "an oversized content length",
+      status: 200,
+      headers: { "content-length": String(OPENCODE_ARCHIVE_MAX_BYTES + 1) },
+      error: "The OpenCode archive exceeds the maximum download size.",
+    },
+  ])(
+    "closes the HTTP socket after $reason",
+    async ({ status, headers, error }) => {
+      let connectionClosed = false;
+      const server = createServer((request, response) => {
+        request.socket.once("close", () => {
+          connectionClosed = true;
+        });
+        response.writeHead(status, headers);
+        response.write("a response that remains open");
+      });
+      await new Promise<void>((resolveListen) =>
+        server.listen(0, "127.0.0.1", resolveListen),
+      );
+      const address = server.address();
+      if (address === null || typeof address === "string")
+        throw new Error("Missing archive fixture address.");
+      try {
+        await expect(
+          downloadOpenCodeArchive(`http://127.0.0.1:${address.port}/archive`),
+        ).rejects.toThrow(error);
+        await expect
+          .poll(() => connectionClosed, { timeout: 1_000 })
+          .toBe(true);
+      } finally {
+        server.closeAllConnections();
+        await new Promise<void>((resolveClose) =>
+          server.close(() => resolveClose()),
+        );
+      }
+    },
+  );
+});
+
+describe("OpenCode parent workspace ownership", () => {
+  it("marks startup cleanup uncertainty before rejecting with its original null cause", async () => {
+    const fixture = await runtimeFixture();
+    const events: string[] = [];
+    const onUncertain = vi.fn(() => events.push("unsafe"));
+    const startupFailure = new Error("health fixture failed");
+    try {
+      const failure = await fixture
+        .runtime({
+          onUncertain,
+          healthcheck: async () => {
+            vi.spyOn(
+              processOwnership,
+              "terminateOwnedProcess",
+            ).mockRejectedValueOnce(null);
+            throw startupFailure;
+          },
+        })
+        .start(fixture.directory)
+        .catch((cause: unknown) => {
+          events.push("failed");
+          return cause;
+        });
+      expect(events).toEqual(["unsafe", "failed"]);
+      expect(onUncertain).toHaveBeenCalledExactlyOnceWith(null);
+      expect(failure).toMatchObject({
+        cause: { errors: [startupFailure, null] },
+      });
+      expect(
+        await filesystem.readFile(
+          join(fixture.installation, "opencode"),
+          "utf8",
+        ),
+      ).toBe("fixture executable");
+    } finally {
+      await fixture.cleanup();
+    }
   });
 
-  it("fails immediately when the OpenCode child reports a startup error", async () => {
-    let healthChecks = 0;
-    await expect(
-      waitForOpenCodeReady(
-        { exitCode: null },
-        async () => {
-          healthChecks += 1;
-          return false;
-        },
-        60_000,
-        60_000,
-        () => new Error("spawn failed"),
-      ),
-    ).rejects.toMatchObject({ code: "AGENT_FAILED" });
-    expect(healthChecks).toBe(0);
+  it("marks stop uncertainty once before rejecting with its original false cause", async () => {
+    const fixture = await runtimeFixture();
+    const events: string[] = [];
+    const onUncertain = vi.fn(() => events.push("unsafe"));
+    try {
+      const handle = await fixture
+        .runtime({ onUncertain })
+        .start(fixture.directory);
+      vi.spyOn(processOwnership, "terminateOwnedProcess").mockRejectedValueOnce(
+        false,
+      );
+      const failure = await handle.stop().catch((cause: unknown) => {
+        events.push("failed");
+        return cause;
+      });
+      expect(events).toEqual(["unsafe", "failed"]);
+      expect(failure).toMatchObject({ cause: false });
+      await expect(handle.stop()).rejects.toBe(failure);
+      expect(onUncertain).toHaveBeenCalledExactlyOnceWith(false);
+      expect(
+        await filesystem.readFile(
+          join(fixture.installation, "opencode"),
+          "utf8",
+        ),
+      ).toBe("fixture executable");
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+
+  it("keeps the parent safe after a startup failure with confirmed process cleanup", async () => {
+    const fixture = await runtimeFixture();
+    const onUncertain = vi.fn();
+    const startupFailure = new Error("health fixture failed");
+    try {
+      await expect(
+        fixture
+          .runtime({
+            onUncertain,
+            healthcheck: async () => {
+              throw startupFailure;
+            },
+          })
+          .start(fixture.directory),
+      ).rejects.toMatchObject({ cause: startupFailure });
+      expect(onUncertain).not.toHaveBeenCalled();
+      expect(fixture.child?.signalCode).toBe("SIGTERM");
+      await expect(filesystem.stat(fixture.installation)).rejects.toMatchObject(
+        { code: "ENOENT" },
+      );
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+
+  it("keeps the parent safe when file removal fails after confirmed process cleanup", async () => {
+    const fixture = await runtimeFixture();
+    const onUncertain = vi.fn();
+    const removalFailure = new Error("file fixture failed");
+    try {
+      const handle = await fixture
+        .runtime({ onUncertain })
+        .start(fixture.directory);
+      vi.spyOn(filesystem, "rm").mockRejectedValueOnce(removalFailure);
+      await expect(handle.stop()).rejects.toMatchObject({
+        cause: removalFailure,
+      });
+      expect(onUncertain).not.toHaveBeenCalled();
+      expect(fixture.child?.signalCode).toBe("SIGTERM");
+      expect(
+        await filesystem.readFile(
+          join(fixture.installation, "opencode"),
+          "utf8",
+        ),
+      ).toBe("fixture executable");
+    } finally {
+      await fixture.cleanup();
+    }
   });
 });
+
+const execFileAsync = promisify(execFile);
+
+// Substitute only the production archive pin. Extraction and process ownership stay real.
+function fixtureDigest(): Buffer<ArrayBuffer>;
+function fixtureDigest(encoding: crypto.BinaryToTextEncoding): string;
+function fixtureDigest(
+  encoding?: crypto.BinaryToTextEncoding,
+): Buffer<ArrayBuffer> | string {
+  const digest = Buffer.from(OPENCODE_ARCHIVE_SHA256, "hex");
+  return encoding === undefined ? digest : digest.toString(encoding);
+}
+
+async function runtimeFixture() {
+  const directory = await filesystem.mkdtemp(
+    join(tmpdir(), "seqlane-runtime-parent-"),
+  );
+  const archivePath = join(directory, "archive.tar.gz");
+  await filesystem.writeFile(join(directory, "opencode"), "fixture executable");
+  await execFileAsync("tar", [
+    "-czf",
+    archivePath,
+    "-C",
+    directory,
+    "opencode",
+  ]);
+  const hash = crypto.createHash("sha256");
+  hash.digest = fixtureDigest;
+  vi.spyOn(crypto, "createHash").mockReturnValueOnce(hash);
+  let child: ChildProcess | undefined;
+  let installation = "";
+  return {
+    directory,
+    get child() {
+      return child;
+    },
+    get installation() {
+      return installation;
+    },
+    runtime: (options: OpenCodeRuntimeOptions) =>
+      new NodeOpenCodeRuntime({
+        healthcheck: async () => true,
+        ...options,
+        temporaryParent: directory,
+        skillDirectory: directory,
+        download: () => filesystem.readFile(archivePath),
+        start: (executable, _args, options) => {
+          installation = dirname(executable);
+          child = spawn(
+            process.execPath,
+            ["-e", "setInterval(() => {}, 1000)"],
+            { ...options, stdio: "ignore" },
+          );
+          return child;
+        },
+      }),
+    cleanup: async () => {
+      vi.restoreAllMocks();
+      if (
+        child !== undefined &&
+        child.exitCode === null &&
+        child.signalCode === null
+      ) {
+        const closed = new Promise<void>((resolveClose) =>
+          child?.once("close", () => resolveClose()),
+        );
+        child.kill("SIGKILL");
+        await closed;
+      }
+      await filesystem.rm(directory, { recursive: true, force: true });
+    },
+  };
+}

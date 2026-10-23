@@ -20,7 +20,11 @@ export class OpenCodeModelSelectionError extends OpenCodeExecutorError {
 }
 
 export class OpenCodeServiceStartupError extends OpenCodeExecutorError {
-  constructor(message: string, cause?: unknown) {
+  constructor(
+    message: string,
+    cause?: unknown,
+    readonly cleanupFailure?: { readonly cause: unknown },
+  ) {
     super(message, cause);
     this.name = "OpenCodeServiceStartupError";
   }

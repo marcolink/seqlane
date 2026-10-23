@@ -5,7 +5,7 @@ status: superseded
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-05
+updated: 2026-10-22
 upstream:
   - rfc.seqlane-technical-architecture
 supersedes: []
@@ -13,7 +13,7 @@ supersedes: []
 
 # Make Studio a Vite React App with Isolated Replay
 
-> Superseded by [adr.local-mastra-operational-host](./2026-09-05-local-mastra-operational-host.md).
+> Superseded by [rfc.effect-v4-migration](../rfcs/2026-10-21-effect-v4-migration.md).
 
 ## Context
 

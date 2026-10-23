@@ -5,13 +5,17 @@ status: completed
 owners:
   - core
 created: 2026-09-12
-updated: 2026-09-14
+updated: 2026-10-22
 upstream:
   - spec.codex-app-server-adapter
 supersedes: []
 ---
 
 # Integrate the Codex Runtime Adapter
+
+> Historical task record. Scope and outcomes describe work before the current migration.
+> Current execution authority: [Effect v4 execution and operations](../specs/2026-10-21-effect-v4-execution-and-operations.md).
+> Current-owner links record the later contract transfer. They do not establish historical Effect v4 use or current delivery.
 
 ## Objective
 
@@ -43,7 +47,7 @@ Select the Codex adapter through private runtime configuration and prove end-to-
 - Adapter selection in workflow source, Plans, or public CLI flags.
 - Cross-run Codex thread reuse and external app-server connections.
 - Changes to ACP or OpenCode behavior.
-- A new Mastra runtime, scheduler, or canonical run store.
+- A new private runtime, scheduler, or canonical run store.
 
 ## Implementation plan
 
@@ -65,7 +69,7 @@ Select the Codex adapter through private runtime configuration and prove end-to-
 - Prove invalid configuration and unsupported capabilities fail before agent work.
 - Prove two runs never share a Codex process or thread under one persistent host.
 - Prove cancellation and interaction failure retain existing Seqlane outcomes.
-- Check public declarations, Plans, events, and IPC for Codex and Mastra leaks.
+- Check public declarations, Plans, events, and IPC for Codex and runtime-engine leaks.
 - Run test mapping, focused runtime tests, typecheck, lint, build, format, and documentation checks.
 
 ## Completion criteria
@@ -85,7 +89,7 @@ resources close at direct-run completion and persistent-host run completion
 or host shutdown. Focused runtime and Codex tests cover configuration,
 capability selection, model discovery, and cleanup.
 
-## Delivery state
+## Historical delivery state
 
 Implementation is on the target branch through [pull request
 #110](https://github.com/marcolink/seqlane/pull/110). This follow-up branch

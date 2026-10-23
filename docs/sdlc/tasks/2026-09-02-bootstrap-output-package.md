@@ -5,13 +5,17 @@ status: completed
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-03
+updated: 2026-10-22
 upstream:
   - spec.seqlane-execution-output-package
 supersedes: []
 ---
 
 # Bootstrap the Output Package and Renderer Contract
+
+> Historical task record. Scope and outcomes describe work before the current migration.
+> Current execution authority: [Effect v4 execution and operations](../specs/2026-10-21-effect-v4-execution-and-operations.md).
+> Current-owner links record the later contract transfer. They do not establish historical Effect v4 use or current delivery.
 
 > Migrated from implementation story `TS-011-00`.
 
@@ -38,7 +42,7 @@ or runtime contracts.
 - ANSI terminal rendering.
 - CI or JSON rendering.
 - CLI flags and integration.
-- Mastra, OpenCode, or runtime dependencies.
+- runtime-engine, OpenCode, or runtime dependencies.
 
 ## Implementation Notes
 
@@ -49,26 +53,30 @@ Do not expose terminal-library types from the package contract.
 ## Acceptance Criteria
 
 **Scenario:** The output package builds
+
 - **Given:** The new workspace package
 - **When:** Nx builds seqlane-output
 - **Then:** JavaScript and declarations are emitted under its own dist directory
 
 **Scenario:** The package exports its contract
+
 - **Given:** A compiled package consumer
 - **When:** It imports the supported package entrypoint
 - **Then:** It can access the renderer factory and contract types through package exports
 
 **Scenario:** The package preserves boundaries
+
 - **Given:** The package manifest and source imports
 - **When:** They are inspected
-- **Then:** They contain no Mastra, OpenCode, seqlane-runtime, or process-termination dependency
+- **Then:** They contain no runtime-engine, OpenCode, seqlane-runtime, or process-termination dependency
 
 **Scenario:** The renderer is testable
+
 - **Given:** An injected recording output sink
 - **When:** A renderer receives an event
 - **Then:** The test can inspect output without using a real terminal
 
-## Source
+## Source and current owners
 
 - [adr.dedicated-seqlane-output-package — Isolate Seqlane Execution Output](../adrs/2026-09-02-dedicated-seqlane-output-package.md)
 - [spec.seqlane-execution-output-package — Seqlane Execution Output Package](../specs/2026-09-02-seqlane-execution-output-package.md)

@@ -1,5 +1,3 @@
-import { z } from "zod";
-
 import {
   conflictResolutionOutputSchema,
   type ResolveMergeConflictsWorkflowOutput,
@@ -9,24 +7,6 @@ import {
   agentResolutionRequestSchema,
   type AgentResolutionRequest,
 } from "./contracts.js";
-
-export const seqlaneAgentExecutionResultSchema = z.discriminatedUnion(
-  "status",
-  [
-    z.strictObject({
-      status: z.literal("succeeded"),
-      output: z.unknown().optional(),
-    }),
-    z.strictObject({
-      status: z.literal("failed"),
-      message: z.string().min(1).max(512),
-    }),
-    z.strictObject({ status: z.literal("cancelled") }),
-  ],
-);
-export type SeqlaneAgentExecutionResult = z.infer<
-  typeof seqlaneAgentExecutionResultSchema
->;
 
 export function validateSeqlaneAgentWorkflowOutput(
   value: unknown,
@@ -50,14 +30,6 @@ export function validateSeqlaneAgentWorkflowOutput(
     throw new TypeError("The Seqlane workflow output is malformed.");
   }
   return parsed.data;
-}
-
-export interface SeqlaneAgentExecutionRequest extends AgentResolutionRequest {
-  readonly workspace: string;
-}
-
-export interface SeqlaneAgentExecutionPort {
-  readonly execute: (request: SeqlaneAgentExecutionRequest) => Promise<unknown>;
 }
 
 export function validateAgentResolutionRequest(

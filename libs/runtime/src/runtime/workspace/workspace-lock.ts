@@ -1,233 +1,231 @@
-import type { WorkspaceResource } from "./workspace-resource.js";
-
+import { Effect, TxRef } from "effect";
 import type { WorkspacePolicy } from "@seqlane/core";
+import type { WorkspaceResource } from "./workspace-resource.js";
+import {
+  acquireTransactional,
+  admissionSync,
+  type AdmissionDecision,
+} from "../invocation/transactional-admission.js";
 
 export type WorkspaceAdmission = WorkspacePolicy;
-
 export interface WorkspaceLockLease {
   release(): void;
 }
 
-interface WaitingWorkspaceLock {
+export class QuarantinedWorkspaceError extends Error {
+  constructor(cause: unknown) {
+    super("Workspace is quarantined for this Run", { cause });
+    this.name = "QuarantinedWorkspaceError";
+  }
+}
+
+export interface WorkspaceClaim {
+  readonly token: symbol;
   readonly policy: WorkspaceAdmission;
   readonly creationOrdinal: number;
-  readonly invocationId: string;
   readonly ownerId: string;
-  readonly resolve: (lease: WorkspaceLockLease) => void;
+  readonly ownerAncestors: readonly string[];
 }
 
-interface WorkspaceLockState {
-  readonly readers: Map<string, number>;
-  writerInvocationId: string | undefined;
-  writerDepth: number;
-  readonly waiting: WaitingWorkspaceLock[];
+export interface WorkspaceLockState {
+  readonly holders: ReadonlyMap<symbol, WorkspaceClaim>;
+  readonly quarantined?: QuarantinedWorkspaceError;
+  readonly waiting: readonly WorkspaceClaim[];
 }
 
-/** Private workspace admission primitive with creation-ordered queues. */
+export function workspaceAvailable(
+  state: WorkspaceLockState | undefined,
+  policy: WorkspaceAdmission,
+  ownerId = "",
+  ownerAncestors: readonly string[] = [],
+): boolean {
+  if (state?.quarantined !== undefined) throw state.quarantined;
+  return [...(state?.holders.values() ?? [])].every(
+    (holder) =>
+      holder.ownerId === ownerId ||
+      ownerAncestors.includes(holder.ownerId) ||
+      holder.ownerAncestors.includes(ownerId) ||
+      (policy === "shared" && holder.policy === "shared"),
+  );
+}
+
+export function workspaceTurn(
+  state: WorkspaceLockState | undefined,
+  claim: WorkspaceClaim,
+  waiting: readonly WorkspaceClaim[],
+): boolean {
+  const ancestorReservation = [...(state?.holders.values() ?? [])].some(
+    (holder) => claim.ownerAncestors.includes(holder.ownerId),
+  );
+  const ownIndex = waiting.findIndex((waiter) => waiter.token === claim.token);
+  return !waiting.some(
+    (waiter, index) =>
+      waiter.token !== claim.token &&
+      (waiter.creationOrdinal < claim.creationOrdinal ||
+        (waiter.creationOrdinal === claim.creationOrdinal &&
+          ownIndex >= 0 &&
+          index < ownIndex)) &&
+      (claim.policy === "exclusive" || waiter.policy === "exclusive") &&
+      (!ancestorReservation ||
+        waiter.ownerAncestors.at(-1) === claim.ownerAncestors.at(-1)),
+  );
+}
+
+export function blockingInvocationId(
+  state: WorkspaceLockState | undefined,
+): string | undefined {
+  const holders = [...(state?.holders.values() ?? [])];
+  return (holders.find((holder) => holder.policy === "exclusive") ?? holders[0])
+    ?.ownerId;
+}
+
+/** Immutable ownership and demand; native transactions provide waiting and wakeup. */
 export class WorkspaceLockRegistry {
-  readonly #locks = new Map<string, WorkspaceLockState>();
-  readonly #changeWaiters = new Set<() => void>();
+  readonly state = TxRef.makeUnsafe<ReadonlyMap<string, WorkspaceLockState>>(
+    new Map(),
+  );
   #nextAnonymousInvocation = 0;
 
-  acquire(
+  acquireEffect(
     resource: WorkspaceResource,
     policy: WorkspaceAdmission,
     onWaiting?: (blockingInvocationId: string | undefined) => void,
     creationOrdinal = Number.MAX_SAFE_INTEGER,
     invocationId?: string,
     ownerId?: string,
-  ): Promise<WorkspaceLockLease> {
-    const holderId =
-      invocationId ?? `anonymous:${this.#nextAnonymousInvocation++}`;
-    const owner = ownerId ?? holderId;
-    const state = this.#locks.get(resource.key) ?? this.#createState(resource);
-
-    if (state.writerInvocationId === owner) {
-      state.writerDepth += 1;
-      return Promise.resolve(
-        this.#createLease(resource.key, state, "exclusive", owner),
-      );
-    }
-
-    if (
-      policy === "shared" &&
-      state.writerInvocationId === undefined &&
-      state.waiting.length === 0
-    ) {
-      return Promise.resolve(
-        this.#createLease(resource.key, state, policy, owner),
-      );
-    }
-
-    if (
-      policy === "exclusive" &&
-      state.writerInvocationId === undefined &&
-      state.readers.size === 0 &&
-      state.waiting.length === 0
-    ) {
-      return Promise.resolve(
-        this.#createLease(resource.key, state, policy, owner),
-      );
-    }
-
-    onWaiting?.(state.writerInvocationId ?? state.readers.keys().next().value);
-    return new Promise((resolve) => {
-      state.waiting.push({
+    ownerAncestors: readonly string[] = [],
+    signal?: AbortSignal,
+  ): Effect.Effect<WorkspaceLockLease, unknown> {
+    return Effect.suspend(() => {
+      const token = Symbol();
+      const claim: WorkspaceClaim = {
+        token,
         policy,
         creationOrdinal,
-        invocationId: holderId,
-        ownerId: owner,
-        resolve,
+        ownerId:
+          ownerId ??
+          invocationId ??
+          `anonymous:${this.#nextAnonymousInvocation++}`,
+        ownerAncestors,
+      };
+      return acquireTransactional({
+        signal,
+        register: TxRef.update(this.state, (states) => {
+          const state: WorkspaceLockState = states.get(resource.key) ?? {
+            holders: new Map(),
+            waiting: [],
+          };
+          return new Map(states).set(resource.key, {
+            ...state,
+            waiting: [...state.waiting, claim].sort(
+              (a, b) => a.creationOrdinal - b.creationOrdinal,
+            ),
+          });
+        }),
+        attempt: Effect.gen({ self: this }, function* () {
+          const state = (yield* TxRef.get(this.state)).get(resource.key);
+          if (state?.quarantined !== undefined)
+            return yield* Effect.fail(state.quarantined);
+          if (
+            !workspaceAvailable(state, policy, claim.ownerId, ownerAncestors) ||
+            !workspaceTurn(state, claim, state?.waiting ?? [])
+          ) {
+            const blocking = blockingInvocationId(state);
+            return {
+              _tag: "Waiting",
+              reason: `workspace:${blocking ?? ""}`,
+              notify: () => onWaiting?.(blocking),
+            } satisfies AdmissionDecision<WorkspaceLockLease>;
+          }
+          return {
+            _tag: "Acquired",
+            lease: yield* this.take(resource, claim),
+          } satisfies AdmissionDecision<WorkspaceLockLease>;
+        }),
+        cleanup: (failed) => this.remove(resource.key, token, failed),
       });
-      state.waiting.sort(
-        (first, second) => first.creationOrdinal - second.creationOrdinal,
-      );
     });
-  }
-
-  tryAcquire(
-    resource: WorkspaceResource,
-    policy: WorkspaceAdmission,
-    onWaiting?: (blockingInvocationId: string | undefined) => void,
-    invocationId?: string,
-    ownerId?: string,
-  ): WorkspaceLockLease | undefined {
-    const holderId =
-      invocationId ?? `anonymous:${this.#nextAnonymousInvocation++}`;
-    const owner = ownerId ?? holderId;
-    const state = this.#locks.get(resource.key) ?? this.#createState(resource);
-    if (state.writerInvocationId === owner) {
-      state.writerDepth += 1;
-      return this.#createLease(resource.key, state, "exclusive", owner);
-    }
-    const available =
-      state.waiting.length === 0 &&
-      state.writerInvocationId === undefined &&
-      (policy === "shared" || state.readers.size === 0);
-    if (!available) {
-      onWaiting?.(
-        state.writerInvocationId ?? state.readers.keys().next().value,
-      );
-      return undefined;
-    }
-    return this.#createLease(resource.key, state, policy, owner);
   }
 
   isAvailable(
     resource: WorkspaceResource,
     policy: WorkspaceAdmission,
     ownerId?: string,
+    ownerAncestors: readonly string[] = [],
   ): boolean {
-    const state = this.#locks.get(resource.key);
-    const owner = ownerId;
-    if (owner !== undefined && state?.writerInvocationId === owner) return true;
-    return (
-      state === undefined ||
-      (state.waiting.length === 0 &&
-        state.writerInvocationId === undefined &&
-        (policy === "shared" || state.readers.size === 0))
+    return admissionSync(
+      TxRef.get(this.state).pipe(
+        Effect.map((states) =>
+          workspaceAvailable(
+            states.get(resource.key),
+            policy,
+            ownerId,
+            ownerAncestors,
+          ),
+        ),
+      ),
     );
   }
 
-  blockingInvocationId(resource: WorkspaceResource): string | undefined {
-    const state = this.#locks.get(resource.key);
-    return state?.writerInvocationId ?? state?.readers.keys().next().value;
+  /** Compose with all resource checks inside one joint transaction. */
+  take(
+    resource: WorkspaceResource,
+    claim: WorkspaceClaim,
+  ): Effect.Effect<WorkspaceLockLease> {
+    return TxRef.update(this.state, (states) => {
+      const state: WorkspaceLockState = states.get(resource.key) ?? {
+        holders: new Map(),
+        waiting: [],
+      };
+      return new Map(states).set(resource.key, {
+        ...state,
+        holders: new Map(state.holders).set(claim.token, claim),
+      });
+    }).pipe(
+      Effect.as({
+        release: () =>
+          admissionSync(this.remove(resource.key, claim.token, true)),
+      }),
+    );
   }
 
-  waitForChange(): Promise<void> {
-    return new Promise((resolve) => this.#changeWaiters.add(resolve));
+  quarantine(resource: WorkspaceResource, cause: unknown): void {
+    admissionSync(
+      TxRef.update(this.state, (states) => {
+        const state: WorkspaceLockState = states.get(resource.key) ?? {
+          holders: new Map(),
+          waiting: [],
+        };
+        return state.quarantined === undefined
+          ? new Map(states).set(resource.key, {
+              ...state,
+              quarantined: new QuarantinedWorkspaceError(cause),
+            })
+          : states;
+      }),
+    );
   }
 
-  #createState(resource: WorkspaceResource): WorkspaceLockState {
-    const state: WorkspaceLockState = {
-      readers: new Map(),
-      writerInvocationId: undefined,
-      writerDepth: 0,
-      waiting: [],
-    };
-    this.#locks.set(resource.key, state);
-    return state;
-  }
-
-  #createLease(
-    resourceKey: string,
-    state: WorkspaceLockState,
-    policy: WorkspaceAdmission,
-    invocationId: string,
-  ): WorkspaceLockLease {
-    if (policy === "shared") {
-      state.readers.set(
-        invocationId,
-        (state.readers.get(invocationId) ?? 0) + 1,
-      );
-    } else if (state.writerInvocationId === undefined) {
-      state.writerInvocationId = invocationId;
-      state.writerDepth = 1;
-    }
-
-    let released = false;
-    return {
-      release: () => {
-        if (released) return;
-        released = true;
-        this.#release(resourceKey, state, policy, invocationId);
-      },
-    };
-  }
-
-  #release(
-    resourceKey: string,
-    state: WorkspaceLockState,
-    policy: WorkspaceAdmission,
-    invocationId: string,
-  ): void {
-    this.#notifyChange();
-    if (policy === "shared") {
-      const depth = state.readers.get(invocationId) ?? 0;
-      if (depth <= 1) state.readers.delete(invocationId);
-      else state.readers.set(invocationId, depth - 1);
-    } else if (state.writerInvocationId === invocationId) {
-      state.writerDepth -= 1;
-      if (state.writerDepth === 0) state.writerInvocationId = undefined;
-    }
-
-    this.#grantWaiting(resourceKey, state);
-    if (
-      state.writerInvocationId === undefined &&
-      state.readers.size === 0 &&
-      state.waiting.length === 0
-    ) {
-      this.#locks.delete(resourceKey);
-    }
-  }
-
-  #grantWaiting(resourceKey: string, state: WorkspaceLockState): void {
-    if (state.writerInvocationId !== undefined || state.waiting.length === 0) {
-      return;
-    }
-
-    const first = state.waiting[0];
-    if (first === undefined) return;
-    if (first.policy === "exclusive") {
-      if (state.readers.size > 0) return;
-      state.waiting.shift();
-      first.resolve(
-        this.#createLease(resourceKey, state, "exclusive", first.ownerId),
-      );
-      return;
-    }
-
-    while (state.waiting[0]?.policy === "shared") {
-      const reader = state.waiting.shift();
-      if (reader === undefined) return;
-      reader.resolve(
-        this.#createLease(resourceKey, state, "shared", reader.ownerId),
-      );
-    }
-  }
-
-  #notifyChange(): void {
-    for (const resolve of this.#changeWaiters) resolve();
-    this.#changeWaiters.clear();
+  remove(key: string, token: symbol, release: boolean): Effect.Effect<void> {
+    return TxRef.update(this.state, (states) => {
+      const state = states.get(key);
+      if (state === undefined) return states;
+      const holders = new Map(state.holders);
+      if (release && state.quarantined === undefined) holders.delete(token);
+      const next = {
+        ...state,
+        holders,
+        waiting: state.waiting.filter((waiter) => waiter.token !== token),
+      };
+      const updated = new Map(states);
+      if (
+        next.holders.size === 0 &&
+        next.waiting.length === 0 &&
+        next.quarantined === undefined
+      )
+        updated.delete(key);
+      else updated.set(key, next);
+      return updated;
+    });
   }
 }

@@ -5,13 +5,17 @@ status: completed
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-03
+updated: 2026-10-22
 upstream:
   - spec.fluent-seqlane-flow-dsl
 supersedes: []
 ---
 
 # Execute Bounded Conditioned Repeats
+
+> Historical task record. Scope and outcomes describe work before the current migration.
+> Current execution authority: [Effect v4 execution and operations](../specs/2026-10-21-effect-v4-execution-and-operations.md).
+> Current-owner links record the later contract transfer. They do not establish historical Effect v4 use or current delivery.
 
 > Migrated from implementation story `TS-012-03`.
 
@@ -43,33 +47,33 @@ iteration raises `LoopLimitExceededError`. Executor details remain private.
 
 ## Acceptance Criteria
 
-**Scenario:** *The first iteration succeeds*
+**Scenario:** _The first iteration succeeds_
 
 - **Given:** A repeat body returns `passed: true` on iteration 1
 - **When:** The workflow runs
 - **Then:** The repeat returns that state without another body execution
 
-**Scenario:** *The final allowed iteration succeeds*
+**Scenario:** _The final allowed iteration succeeds_
 
 - **Given:** A repeat with `maximumIterations: 3`
 - **When:** Its condition becomes true on iteration 3
 - **Then:** The workflow succeeds after exactly three body executions
 
-**Scenario:** *The limit produces a normalized failure*
+**Scenario:** _The limit produces a normalized failure_
 
 - **Given:** A repeat condition remains false through its final iteration
 - **When:** The workflow runs
 - **Then:** The outcome contains `LoopLimitExceededError`
 
-**Scenario:** *Cancellation stops the active repeat*
+**Scenario:** _Cancellation stops the active repeat_
 
 - **Given:** A body task is active
 - **When:** The run cancels
 - **Then:** Seqlane cancels the task and does not start another iteration
 
-## Source
+## Source and current owners
 
-- [adr.mastra-internal-workflow-engine — Internal Workflow Engine](../adrs/2026-09-02-mastra-internal-workflow-engine.md)
+- [rfc.effect-v4-migration — Current runtime architecture](../rfcs/2026-10-21-effect-v4-migration.md)
 - [adr.fluent-seqlane-flow-dsl — Fluent Seqlane Flow DSL](../adrs/2026-09-02-fluent-seqlane-flow-dsl.md)
 - [spec.fluent-seqlane-flow-dsl — Fluent Flow DSL and Conditioned Repeat](../specs/2026-09-02-fluent-seqlane-flow-dsl.md)
 

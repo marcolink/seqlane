@@ -69,7 +69,6 @@ describe("agent runtime contract", () => {
     await expect(
       adapter.execute({
         invocationId: "fixture:1",
-        observability: {},
         task,
         input: null,
         signal: new AbortController().signal,

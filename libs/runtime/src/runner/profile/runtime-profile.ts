@@ -56,6 +56,7 @@ export interface RuntimeExecution {
   readonly workspaceIdentities: WorkspaceIdentityRegistry;
   readonly workspaceResources: WorkspaceResourceRegistry;
   readonly classifier?: ClassifierTaskRunner;
+  readonly onOwnedProcessAcquired?: (pid: number) => Promise<void>;
   readonly close?: () => Promise<void>;
 }
 
@@ -81,6 +82,7 @@ function createSessionUiExecutor(
   taskDefinitions: TaskDefinitionRegistry,
   effectiveSelection: ModelSelection | undefined,
   onSessionUiAvailable: RuntimeSessionUiNotifier | undefined,
+  onOwnedProcessAcquired?: (pid: number) => Promise<void>,
 ): SeqlaneExecutor {
   let reported = false;
 
@@ -102,7 +104,7 @@ function createSessionUiExecutor(
         adapter,
         taskDefinitions,
         effectiveSelection,
-        request,
+        { ...request, onOwnedProcessAcquired },
       );
     },
   };
@@ -159,13 +161,13 @@ export async function executeAgentAdapterRequest(
   const deadline = createExecutionDeadline(
     request.signal,
     agentTaskTimeoutMsSchema.parse(request.agent?.timeoutMs),
+    request.nativeContext,
   );
   try {
     deadline.signal.throwIfAborted();
     const result = await awaitWithAbortPrecedence(
       adapter.execute({
         invocationId: request.invocationId,
-        observability: request.observability,
         task,
         input: request.input,
         ...(request.agent === undefined ? {} : { agent: request.agent }),
@@ -182,13 +184,14 @@ export async function executeAgentAdapterRequest(
         onObservation: request.onObservation,
         onUncertainActivity: request.onUncertainActivity,
         onBackgroundProcess: request.onBackgroundProcess,
+        onOwnedProcessAcquired: request.onOwnedProcessAcquired,
       }),
       deadline.signal,
     );
     if (!deadline.started) throw new RuntimeAdapterExecutionStartError();
     return result;
   } finally {
-    deadline.dispose();
+    await deadline.dispose();
   }
 }
 
@@ -199,6 +202,7 @@ export function createAgentSession(
   effectiveSelection: ModelSelection | undefined,
   checkpointBinding: SessionCheckpointBinding,
   onAdapterCreated: (adapter: AgentAdapter) => void,
+  onOwnedProcessAcquired?: (pid: number) => Promise<void>,
 ): ResolvedExecutorSession {
   const checkpointState: SessionCheckpointState = { generation: 0 };
   const capture = adapter.captureCheckpoint;
@@ -240,6 +244,7 @@ export function createAgentSession(
       taskDefinitions,
       effectiveSelection,
       onSessionUiAvailable,
+      onOwnedProcessAcquired,
     ),
     ...(captureCheckpoint === undefined
       ? {}
@@ -284,6 +289,7 @@ export function createAgentSession(
               selection,
               checkpointBinding,
               onAdapterCreated,
+              onOwnedProcessAcquired,
             );
           },
         }),
@@ -294,16 +300,18 @@ function createLazyAgentSession(
   taskDefinitions: TaskDefinitionRegistry,
   agentRuntime: AgentRuntime,
   signal: AbortSignal,
-  requestContext: unknown,
   onSessionUiAvailable: RuntimeSessionUiNotifier | undefined,
   effectiveSelection: ModelSelection | undefined,
   checkpointBinding: SessionCheckpointBinding,
   onAdapterCreated: (adapter: AgentAdapter) => void,
+  onOwnedProcessAcquired?: (pid: number) => Promise<void>,
 ): ResolvedExecutorSession {
   const adapter = agentRuntime.redactAdapter(
     agentRuntime.createAdapter({
       signal,
-      requestContext,
+      ...(onOwnedProcessAcquired === undefined
+        ? {}
+        : { onOwnedProcessAcquired }),
       ...(effectiveSelection === undefined
         ? {}
         : { modelSelection: effectiveSelection }),
@@ -318,6 +326,7 @@ function createLazyAgentSession(
     effectiveSelection,
     checkpointBinding,
     onAdapterCreated,
+    onOwnedProcessAcquired,
   );
 }
 
@@ -325,9 +334,8 @@ export interface RuntimeProfileResolutionOptions {
   /** Composition-owned runtime for one workflow run. */
   readonly agentRuntime?: AgentRuntimeFactory;
   readonly runId?: RunId;
-  /** Opaque execution context retained for concrete adapter integrations. */
-  readonly requestContext?: unknown;
   readonly classifierConnection?: PrivateClassifierConnection;
+  readonly onOwnedProcessAcquired?: (pid: number) => Promise<void>;
 }
 
 /** Resolves private adapter state after the generic profile crosses IPC. */
@@ -369,6 +377,9 @@ export async function resolveRuntimeProfile(
       workspaceIdentities,
       workspaceResources,
       ...classifierOption,
+      ...(options.onOwnedProcessAcquired === undefined
+        ? {}
+        : { onOwnedProcessAcquired: options.onOwnedProcessAcquired }),
       close: async () => undefined,
     };
   }
@@ -400,7 +411,13 @@ export async function resolveRuntimeProfile(
     workspacePath,
   );
   const workspaceResources = createWorkspaceResources(workspaceIdentities);
-  const agentRuntime = await agentRuntimeFactory(signal, workspacePath);
+  const agentRuntime = await agentRuntimeFactory(
+    signal,
+    workspacePath,
+    options.onOwnedProcessAcquired === undefined
+      ? undefined
+      : { onOwnedProcessAcquired: options.onOwnedProcessAcquired },
+  );
   const capabilities = agentRuntime.capabilities;
   const checkpointBinding: SessionCheckpointBinding = {
     adapter: agentRuntime.identity,
@@ -430,11 +447,11 @@ export async function resolveRuntimeProfile(
         taskDefinitions,
         agentRuntime,
         signal,
-        options.requestContext,
         onSessionUiAvailable,
         effectiveSelection,
         checkpointBinding,
         (adapter) => ownedAdapters.add(adapter),
+        options.onOwnedProcessAcquired,
       ),
   };
 
@@ -445,7 +462,9 @@ export async function resolveRuntimeProfile(
       const oneShotAdapter = agentRuntime.redactAdapter(
         agentRuntime.createAdapter({
           signal,
-          requestContext: options.requestContext,
+          ...(options.onOwnedProcessAcquired === undefined
+            ? {}
+            : { onOwnedProcessAcquired: options.onOwnedProcessAcquired }),
         }),
       );
       ownedAdapters.add(oneShotAdapter);
@@ -456,7 +475,10 @@ export async function resolveRuntimeProfile(
             oneShotAdapter,
             taskDefinitions,
             undefined,
-            request,
+            {
+              ...request,
+              onOwnedProcessAcquired: options.onOwnedProcessAcquired,
+            },
           ),
       };
     },
@@ -468,6 +490,9 @@ export async function resolveRuntimeProfile(
     workspaceIdentities,
     workspaceResources,
     ...classifierOption,
+    ...(options.onOwnedProcessAcquired === undefined
+      ? {}
+      : { onOwnedProcessAcquired: options.onOwnedProcessAcquired }),
     close,
   };
 }

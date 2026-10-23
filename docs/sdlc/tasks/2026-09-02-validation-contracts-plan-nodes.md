@@ -5,7 +5,7 @@ status: completed
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-03
+updated: 2026-10-22
 upstream:
   - spec.semantic-validation-gates
 supersedes: []
@@ -13,12 +13,16 @@ supersedes: []
 
 # Add Validation Contracts, Plan Nodes, and Registries
 
+> Historical task record. Scope and outcomes describe work before the current migration.
+> Current execution authority: [Effect v4 execution and operations](../specs/2026-10-21-effect-v4-execution-and-operations.md).
+> Current-owner links record the later contract transfer. They do not establish historical Effect v4 use or current delivery.
+
 > Migrated from implementation story `TS-015-00`.
 
 ## User outcome
 
 As a workflow author, I can define typed semantic validation contracts that
-remain independent of Mastra and concrete executors.
+remain independent of runtime engines and concrete executors.
 
 ## Scope
 
@@ -44,27 +48,27 @@ remain independent of Mastra and concrete executors.
 
 ## Acceptance criteria
 
-**Scenario:** *A validation result is typed and JSON-safe*
+**Scenario:** _A validation result is typed and JSON-safe_
 
 - **Given:** A validator returns a result
 - **When:** The result is typed
 - **Then:** success is the only control-flow field, failed results contain at
   least one issue, and evidence is JSON-safe
 
-**Scenario:** *A Plan contains no validator callbacks*
+**Scenario:** _A Plan contains no validator callbacks_
 
 - **Given:** A workflow uses a mechanical validator
 - **When:** The workflow is built
 - **Then:** The Plan contains only validator identity, bindings, policy, and
   dependencies
 
-**Scenario:** *Duplicate validator IDs are rejected*
+**Scenario:** _Duplicate validator IDs are rejected_
 
 - **Given:** Two definitions use the same validator ID
 - **When:** The workflow is built
 - **Then:** Build fails with a duplicate registry identity error
 
-## Source
+## Source and current owners
 
 - [adr.semantic-validation-gates](../adrs/2026-09-02-semantic-validation-gates.md)
 - [spec.semantic-validation-gates](../specs/2026-09-02-semantic-validation-gates.md)

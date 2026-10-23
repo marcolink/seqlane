@@ -5,13 +5,17 @@ status: completed
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-03
+updated: 2026-10-22
 upstream:
   - spec.work-run-invocation-identity-model
 supersedes: []
 ---
 
 # Separate Plan-node addresses from execution identities
+
+> Historical task record. Scope and outcomes describe work before the current migration.
+> Current execution authority: [Effect v4 execution and operations](../specs/2026-10-21-effect-v4-execution-and-operations.md).
+> Current-owner links record the later contract transfer. They do not establish historical Effect v4 use or current delivery.
 
 > Migrated from implementation story `TS-007-00`.
 
@@ -38,22 +42,25 @@ Use a breaking migration; do not retain an `invocationId` compatibility alias in
 
 ## Acceptance Criteria
 
-**Scenario:** *A Plan contains static node addresses only*
+**Scenario:** _A Plan contains static node addresses only_
+
 - **Given:** A typed workflow is built
 - **When:** Its Plan is serialized
 - **Then:** every task node, dependency edge, and value reference uses `PlanNodeId`, and the Plan contains no Work, Run, or runtime Invocation identity
 
-**Scenario:** *Repeated task definitions remain distinguishable in one Plan*
+**Scenario:** _Repeated task definitions remain distinguishable in one Plan_
+
 - **Given:** A workflow invokes the same Task definition more than once
 - **When:** the Plan is built
 - **Then:** each resulting node has a distinct deterministic Plan-node address and bindings resolve through that address
 
-**Scenario:** *Core keeps its public boundary*
+**Scenario:** _Core keeps its public boundary_
+
 - **Given:** a consumer imports the core authoring API
 - **When:** it builds a Plan
-- **Then:** it needs no runtime, Mastra, executor, or ID-generation import
+- **Then:** it needs no runtime, runtime-engine, executor, or ID-generation import
 
-## Source
+## Source and current owners
 
 - [rfc.seqlane-technical-architecture — Seqlane Technical Architecture](../rfcs/2026-09-02-seqlane-technical-architecture.md)
 - [adr.work-run-invocation-identity-model — Distinguish Work, Run, and Invocation Identity](../adrs/2026-09-02-work-run-invocation-identity-model.md)

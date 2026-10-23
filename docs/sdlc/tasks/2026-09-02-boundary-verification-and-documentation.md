@@ -5,13 +5,17 @@ status: completed
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-03
+updated: 2026-10-22
 upstream:
   - spec.consumer-agnostic-seqlane-execution-events
 supersedes: []
 ---
 
 # Verify Boundaries and Complete the Migration
+
+> Historical task record. Scope and outcomes describe work before the current migration.
+> Current execution authority: [Effect v4 execution and operations](../specs/2026-10-21-effect-v4-execution-and-operations.md).
+> Current-owner links record the later contract transfer. They do not establish historical Effect v4 use or current delivery.
 
 > Migrated from implementation story `TS-016-05`.
 
@@ -27,21 +31,21 @@ without reintroducing runtime, Studio, or executor coupling.
 
 ## Acceptance Criteria
 
-**Scenario:** *Public boundaries remain executor-neutral*
+**Scenario:** _Public boundaries remain executor-neutral_
 
 - **Given:** The repository builds all affected packages
 - **When:** dependency, export, and type checks run
-- **Then:** canonical events contain no Mastra, OpenCode, executor, prompt,
+- **Then:** canonical events contain no runtime-engine, OpenCode, executor, prompt,
   credential, or raw callback types, and all imports use package exports
 
-**Scenario:** *End-to-end consumers agree*
+**Scenario:** _End-to-end consumers agree_
 
 - **Given:** A representative workflow uses normal tasks and repeats
 - **When:** It runs through runner, CLI, output, Studio, and recording
 - **Then:** all consumers observe the same ordered event stream and Studio
   renders the same final state as replay
 
-**Scenario:** *Documentation describes the supported contract*
+**Scenario:** _Documentation describes the supported contract_
 
 - **Given:** An engineer wants to add a new consumer
 - **When:** They read the architecture and package documentation
@@ -67,7 +71,7 @@ READMEs, docs indexes, boundary tests, fixtures, and CI/test configuration.
 - Adding third-party consumer plugin discovery
 - Changing workflow authoring or executor boundaries
 
-## Source
+## Source and current owners
 
 - [adr.consumer-agnostic-seqlane-execution-events](../adrs/2026-09-02-consumer-agnostic-seqlane-execution-events.md)
 - [spec.consumer-agnostic-seqlane-execution-events](../specs/2026-09-02-consumer-agnostic-seqlane-execution-events.md)

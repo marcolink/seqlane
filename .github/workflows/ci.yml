@@ -48,6 +48,9 @@ jobs:
 
       - name: Set up pnpm
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        env:
+          # Avoid the retired audit endpoint during the integrity-locked bootstrap.
+          NPM_CONFIG_AUDIT: "false"
         with:
           version: 10.33.0
 
@@ -76,6 +79,9 @@ jobs:
       - name: Check test mappings
         run: pnpm test:mapping
 
+      - name: Audit runtime source and production dependencies
+        run: pnpm verify:runtime --source
+
       - name: Test workflow helper
         run: pnpm test:workflow-helper
 
@@ -89,6 +95,12 @@ jobs:
       - name: Test affected projects
         if: ${{ !cancelled() }}
         run: pnpm exec nx affected -t test --output-style=static
+
+      - name: Build and consume production packages
+        run: |
+          pnpm exec nx run-many -t build --output-style=static
+          pnpm verify:installed
+          pnpm verify:runtime --distributions
 
       - name: Materialize Ripwire Action
         if: steps.classify.outputs.ripwire_relevant != 'false'
@@ -169,9 +181,112 @@ jobs:
           }
           NODE
 
+  action-smoke:
+    name: Hosted Action entrypoints
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out trusted Action source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        env:
+          # Avoid the retired audit endpoint during the integrity-locked bootstrap.
+          NPM_CONFIG_AUDIT: "false"
+        with:
+          version: 10.33.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install and build Action bundles
+        run: |
+          pnpm install --frozen-lockfile --prefer-offline
+          pnpm exec nx run-many -t build -p action-setup-opencode,action-opencode-server,action-zvec-grep-server,action-ripwire-server,action-code-review,action-resolve-merge-conflicts --output-style=static
+
+      - name: Verify bundled main and post process lifetimes
+        run: pnpm verify:actions
+
+      - name: Prepare isolated Git and HTTP fixtures
+        run: node scripts/action-hosted-smoke.mjs prepare
+
+      - name: Install exact OpenCode without a model call
+        id: setup
+        uses: ./actions/setup-opencode
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          version: 1.18.27
+
+      - name: Verify installed executable
+        env:
+          EXECUTABLE: ${{ steps.setup.outputs.executable }}
+        run: 'test "$("$EXECUTABLE" --version)" = "1.18.27"'
+
+      - name: Start OpenCode executable fixture
+        id: opencode
+        uses: ./actions/opencode-server
+        with:
+          working-directory: ${{ env.SMOKE_TARGET }}
+          executable: ${{ env.SMOKE_EXECUTABLE }}
+          port: ${{ env.SMOKE_OPENCODE_PORT }}
+
+      - name: Start zvec package-manager fixture
+        uses: ./actions/zvec-grep-server
+        with:
+          working-directory: ${{ env.SMOKE_TARGET }}
+          package-manager: ${{ env.SMOKE_EXECUTABLE }}
+          listen: ${{ env.SMOKE_ZVEC_LISTEN }}
+          model-cache: false
+
+      - name: Review stale fixture without model or publication
+        id: review
+        uses: ./actions/code-review
+        env:
+          NODE_OPTIONS: --require=${{ env.SMOKE_API_PRELOAD }}
+        with:
+          github-token: hosted-fixture-token
+          repository: ${{ github.repository }}
+          pull-request-number: 1
+          review-target: ${{ env.SMOKE_TARGET }}
+          base-branch: main
+          base-revision: ${{ env.SMOKE_SHA }}
+          head-revision: ${{ env.SMOKE_SHA }}
+          runtime: ${{ steps.opencode.outputs.url }}
+
+      - name: Integrate clean Git fixture without commit or push
+        id: conflicts
+        uses: ./actions/resolve-merge-conflicts
+        env:
+          NODE_OPTIONS: --require=${{ env.SMOKE_API_PRELOAD }}
+          GITHUB_TOKEN: hosted-fixture-token
+        with:
+          pull-request-number: 2
+          source-directory: ${{ env.SMOKE_SOURCE_DIRECTORY }}
+          target-directory: ${{ env.SMOKE_TARGET_DIRECTORY }}
+          commit: false
+          push: false
+
+      - name: Verify outputs and deny all publication writes
+        env:
+          SMOKE_OPENCODE_URL: ${{ steps.opencode.outputs.url }}
+          SMOKE_REVIEW_VERDICT: ${{ steps.review.outputs.verdict }}
+          SMOKE_REVIEW_PUBLICATION: ${{ steps.review.outputs.publication-status }}
+          SMOKE_CONFLICT_RESULT: ${{ steps.conflicts.outputs.result }}
+          SMOKE_CONFLICT_PUSHED: ${{ steps.conflicts.outputs.pushed }}
+        run: node scripts/action-hosted-smoke.mjs verify
+
   publish:
     name: Publish npm packages
-    needs: quality
+    needs: [quality, action-smoke]
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/next') && github.event.repository.private == false
     uses: ./.github/workflows/publish.yml
     permissions:

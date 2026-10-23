@@ -1,5 +1,5 @@
 // @test-scope ./model-preflight.ts
-// @test-scope ./workflow-run.ts
+// @test-scope ./workflow-run.test-support.ts
 // @test-scope ../compile/compile-plan.ts
 // @test-scope ../session/session-preflight.ts
 // @test-scope ../../../../fixtures/src/model-selection-workflow.ts
@@ -14,11 +14,9 @@ import { modelSelectionWorkflow } from "@seqlane/fixtures/model-selection-workfl
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { PlanCompiler } from "../compile/compile-plan.js";
-import { preflightCompiledWorkflowModels } from "./model-preflight.js";
-import { resolveCompiledWorkflowSessions } from "../session/session-preflight.js";
 import type { ResolvedExecutorSession } from "../session/session-resolution.js";
 import type { SeqlaneExecutor } from "./executor.js";
-import { runCompiledWorkflow } from "./workflow-run.js";
+import { runCompiledWorkflow } from "./workflow-run.test-support.js";
 
 const availableModels: readonly ModelRef[] = [
   { provider: "openai", model: "gpt-6.1-sol" },
@@ -99,8 +97,6 @@ describe("model-selection fixture integration", () => {
       events: { emit: (event) => events.push(event) },
     });
 
-    await preflightCompiledWorkflowModels(compiled);
-    await resolveCompiledWorkflowSessions(compiled);
     await expect(runCompiledWorkflow(compiled)).resolves.toMatchObject({
       status: "succeeded",
     });
@@ -189,8 +185,6 @@ describe("model-selection fixture integration", () => {
       },
     );
 
-    await preflightCompiledWorkflowModels(compiled);
-    await resolveCompiledWorkflowSessions(compiled);
     await expect(runCompiledWorkflow(compiled)).resolves.toMatchObject({
       status: "succeeded",
     });

@@ -1,6 +1,7 @@
 // @test-scope ./start-workflow-run.ts
 // @test-scope ./runtime/validation/plan-validation.ts
-// @test-scope ./runtime/compile/mastra-choice-compiler.ts
+// @test-scope ./runtime/execution/effect-plan.ts
+// @test-scope ./runtime/execution/effect-choice.ts
 
 import { describe, expect, it } from "vitest";
 import { z } from "zod";

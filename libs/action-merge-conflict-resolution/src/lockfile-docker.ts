@@ -1,4 +1,3 @@
-import { execFile } from "node:child_process";
 import {
   lstat,
   mkdtemp,
@@ -11,6 +10,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 import { z } from "zod";
+import { Effect } from "effect";
 
 import { ActionResolutionError } from "./errors.js";
 import { NodeGitCli } from "./git-cli.js";
@@ -18,7 +18,6 @@ import { type GitWorkspacePort } from "./git-port.js";
 import {
   type DockerCommandPort,
   type DockerCommandRequest,
-  type DockerCommandResult,
   type LockfileRegenerationPort,
 } from "./lockfile-port.js";
 import {
@@ -26,6 +25,9 @@ import {
   validateSafeFileWithinRoot,
   validateSeparateWorkspaceRoots,
 } from "./workspace-boundary.js";
+import { dockerIo, type DockerOwnershipState } from "./docker-cli.js";
+import { dockerPortEffect, runDockerOperation } from "./docker-container.js";
+export { runDockerCommand } from "./docker-container.js";
 
 export const LOCKFILE_DOCKER_IMAGE =
   "node@sha256:6642ef280aebc09c4541bee0b15c9f89f0f3f3c247ddee79ae1d37eddfdcbbaa";
@@ -126,41 +128,6 @@ export function buildDockerLockfileArguments(
   ];
 }
 
-export function runDockerCommand(
-  request: DockerCommandRequest,
-): Promise<DockerCommandResult> {
-  return new Promise((resolveResult) => {
-    execFile(
-      request.executable,
-      [...request.args],
-      {
-        cwd: request.cwd,
-        env: {
-          PATH: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin",
-          ...request.env,
-        },
-        encoding: "utf8",
-        maxBuffer: 8 * 1024 * 1024,
-        signal: request.signal,
-        timeout: request.timeoutMs ?? LOCKFILE_DOCKER_TIMEOUT_MS,
-        killSignal: "SIGTERM",
-        windowsHide: true,
-      },
-      (error, _stdout, stderr) => {
-        resolveResult({
-          exitCode:
-            error === null
-              ? 0
-              : typeof error.code === "number"
-                ? error.code
-                : 1,
-          stderr,
-        });
-      },
-    );
-  });
-}
-
 export interface NodeLockfileRegeneratorOptions {
   /** The checkout whose manifests are regenerated. */
   readonly targetRoot: string;
@@ -177,6 +144,7 @@ export interface NodeLockfileRegeneratorOptions {
   readonly uid?: number;
   readonly gid?: number;
   readonly image?: string;
+  readonly onUncertain?: (cause: unknown) => void;
 }
 
 function currentUserId(
@@ -251,7 +219,6 @@ export class NodeLockfileRegenerator implements LockfileRegenerationPort {
   private readonly targetRoot: string;
   private readonly trustedSourceRoot: string;
   private readonly temporaryParent: string;
-  private readonly docker: DockerCommandPort;
   private readonly git: GitWorkspacePort;
   private readonly options: NodeLockfileRegeneratorOptions;
 
@@ -260,51 +227,83 @@ export class NodeLockfileRegenerator implements LockfileRegenerationPort {
     this.targetRoot = resolve(options.targetRoot);
     this.trustedSourceRoot = resolve(options.trustedSourceRoot);
     this.temporaryParent = resolve(options.temporaryParent ?? tmpdir());
-    this.docker = options.docker ?? { run: runDockerCommand };
     this.git = options.git ?? new NodeGitCli(this.targetRoot);
   }
 
-  async regenerate(): Promise<void> {
-    const roots = await validateSeparateWorkspaceRoots(
-      this.trustedSourceRoot,
-      this.targetRoot,
-    );
-    const packageJsonPath = await validateSafeFileWithinRoot(
-      roots.sourceRoot,
-      "package.json",
-      "Trusted package.json",
-    );
-    const pnpmVersion = await readExactPnpmVersion(packageJsonPath);
-    const workspace = await mkdtemp(
-      join(this.temporaryParent, ".seqlane-lockfile-"),
-    );
-    try {
-      await prepareLockfileWorkspace(roots.targetRoot, workspace, this.git);
-
-      const request: DockerCommandRequest = {
-        executable: this.options.dockerExecutable ?? "docker",
-        args: buildDockerLockfileArguments({
-          workspace,
-          pnpmVersion,
-          uid: currentUserId(this.options.uid, () => process.getuid?.() ?? 0),
-          gid: currentUserId(this.options.gid, () => process.getgid?.() ?? 0),
-          image: this.options.image,
-        }),
-        cwd: resolve(this.options.cwd ?? this.targetRoot),
-        env: { ...this.options.env },
-        signal: this.options.signal,
-        timeoutMs: this.options.timeoutMs,
-      };
-      const result = await this.docker.run(request);
-      if (result.exitCode !== 0) {
-        throw lockfileError(
-          "The Docker lockfile regeneration command failed.",
-          result.stderr,
+  regenerateEffect(state: DockerOwnershipState) {
+    const options = this.options;
+    const git = this.git;
+    const targetRoot = this.targetRoot;
+    const sourceRoot = this.trustedSourceRoot;
+    const temporaryParent = this.temporaryParent;
+    return Effect.scoped(
+      Effect.gen(function* () {
+        const roots = yield* dockerIo(() =>
+          validateSeparateWorkspaceRoots(sourceRoot, targetRoot),
         );
-      }
-      await copyGeneratedLockfile(workspace, roots.targetRoot);
-    } finally {
-      await rm(workspace, { recursive: true, force: true });
+        const packageJsonPath = yield* dockerIo(() =>
+          validateSafeFileWithinRoot(
+            roots.sourceRoot,
+            "package.json",
+            "Trusted package.json",
+          ),
+        );
+        const pnpmVersion = yield* dockerIo(() =>
+          readExactPnpmVersion(packageJsonPath),
+        );
+        const workspace = yield* Effect.acquireRelease(
+          dockerIo(() => mkdtemp(join(temporaryParent, ".seqlane-lockfile-"))),
+          (path) =>
+            state.uncertainty === undefined
+              ? dockerIo(() => rm(path, { recursive: true, force: true })).pipe(
+                  Effect.orDie,
+                )
+              : Effect.void,
+        );
+        yield* Effect.uninterruptible(
+          dockerIo(() =>
+            prepareLockfileWorkspace(roots.targetRoot, workspace, git),
+          ),
+        );
+
+        const request: DockerCommandRequest = {
+          executable: options.dockerExecutable ?? "docker",
+          args: buildDockerLockfileArguments({
+            workspace,
+            pnpmVersion,
+            uid: currentUserId(options.uid, () => process.getuid?.() ?? 0),
+            gid: currentUserId(options.gid, () => process.getgid?.() ?? 0),
+            image: options.image,
+          }),
+          cwd: resolve(options.cwd ?? targetRoot),
+          env: { ...options.env },
+          timeoutMs: options.timeoutMs ?? LOCKFILE_DOCKER_TIMEOUT_MS,
+        };
+        const result = yield* dockerPortEffect(request, options.docker, state);
+        if (result.exitCode !== 0) {
+          throw lockfileError(
+            "The Docker lockfile regeneration command failed.",
+            result.stderr,
+          );
+        }
+        yield* Effect.uninterruptible(
+          dockerIo(() => copyGeneratedLockfile(workspace, roots.targetRoot)),
+        );
+      }),
+    );
+  }
+
+  async regenerate(): Promise<void> {
+    const state: DockerOwnershipState = {};
+    try {
+      await runDockerOperation(
+        this.regenerateEffect(state),
+        state,
+        this.options,
+      );
+    } catch (cause: unknown) {
+      if (cause instanceof ActionResolutionError) throw cause;
+      throw lockfileError("Docker lockfile regeneration failed.", cause);
     }
   }
 }

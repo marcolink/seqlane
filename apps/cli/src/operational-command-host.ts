@@ -7,6 +7,8 @@ import {
   type OperationalSessionUiNotifier,
 } from "@seqlane/runtime/operational-host";
 import type { AgentRuntimeFactory } from "@seqlane/agent-adapter";
+import type { PrivateClassifierConnection } from "@seqlane/runtime/runner";
+import type { TelemetryConfiguration } from "@seqlane/runtime/private/telemetry";
 import { loadWorkflow } from "@seqlane/runtime/workflow";
 import { loadOperationalWorkflows } from "./operational-workflows.js";
 import type { WorkflowRoots } from "./workflow-discovery.js";
@@ -23,9 +25,11 @@ export interface OwnedOperationalHostOptions {
   }) => OperationalEventSink;
   readonly onSessionUiAvailable?: OperationalSessionUiNotifier;
   readonly agentRuntime?: AgentRuntimeFactory;
+  readonly classifierConnection?: PrivateClassifierConnection;
+  readonly telemetryConfiguration?: TelemetryConfiguration;
 }
 
-export async function startOwnedOperationalHost(
+export async function createOwnedOperationalHost(
   options: OwnedOperationalHostOptions,
 ): Promise<OperationalHost> {
   const workflows = [
@@ -56,17 +60,12 @@ export async function startOwnedOperationalHost(
     );
   }
 
-  const host = await createOperationalHost({
+  return createOperationalHost({
     workflows,
     host: options.host,
     port: options.port,
     storageUrl: options.storageUrl,
+    classifierConnection: options.classifierConnection,
+    telemetryConfiguration: options.telemetryConfiguration,
   });
-  try {
-    await host.listen();
-    return host;
-  } catch (cause) {
-    await host.close().catch(() => undefined);
-    throw cause;
-  }
 }

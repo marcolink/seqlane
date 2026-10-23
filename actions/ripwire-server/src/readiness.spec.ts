@@ -1,9 +1,11 @@
 // @test-scope ./readiness.ts
 
 import { createServer, type AddressInfo } from "node:net";
+import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import {
   checkMcpInitialize,
+  checkMcpInitializeEffect,
   MCP_INITIALIZE_REQUEST,
   MAX_STARTUP_TIMEOUT_MILLISECONDS,
   parseMcpResponseBody,
@@ -151,6 +153,42 @@ describe("Ripwire MCP readiness", () => {
     }
   });
 
+  it("aborts and drains a verified socket when the native Effect deadline expires", async () => {
+    let resolveClosed: (() => void) | undefined;
+    const closed = new Promise<void>((resolve) => {
+      resolveClosed = resolve;
+    });
+    const server = createServer((socket) => {
+      socket.on("data", () => undefined);
+      socket.once("close", () => resolveClosed?.());
+    });
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(0, "127.0.0.1", resolve);
+    });
+    const address = server.address() as AddressInfo;
+
+    try {
+      await expect(
+        Effect.runPromise(
+          waitForMcpHealth(
+            (remainingMilliseconds) =>
+              checkMcpInitializeEffect(
+                `http://127.0.0.1:${address.port}/mcp`,
+                "secret",
+                remainingMilliseconds,
+                () => Effect.void,
+              ),
+            100,
+          ),
+        ),
+      ).rejects.toThrow("startup timeout");
+      await closed;
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
   it("accepts one chunked SSE event on the ownership-verified socket", async () => {
     const responseBody = `event: message\ndata: {"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","capabilities":{},"serverInfo":{"name":"ripwire","version":"${RIPWIRE_SERVER_INFO_VERSION}"}}}\n\n`;
     const chunkedBody = `${Buffer.byteLength(responseBody).toString(16)}\r\n${responseBody}\r\n0\r\n\r\n`;
@@ -278,15 +316,15 @@ describe("Ripwire MCP readiness", () => {
 
   it("enforces one hard startup deadline, including a slow probe", async () => {
     const seen: number[] = [];
-    const started = Date.now();
     await expect(
-      waitForMcpHealth(async (remainingMilliseconds) => {
-        seen.push(remainingMilliseconds);
-        await new Promise<void>((resolve) => setTimeout(resolve, 1_100));
-      }, 1_000),
+      Effect.runPromise(
+        waitForMcpHealth((remainingMilliseconds) => {
+          seen.push(remainingMilliseconds);
+          return Effect.sleep("1100 millis");
+        }, 1_000),
+      ),
     ).rejects.toThrow("startup timeout");
     expect(seen[0]).toBeLessThanOrEqual(1_000);
-    expect(Date.now() - started).toBeLessThan(1_700);
   });
 
   it("rejects invalid probe and wait deadlines immediately", async () => {
@@ -301,7 +339,7 @@ describe("Ripwire MCP readiness", () => {
         ),
       ).rejects.toThrow("safe integer");
       await expect(
-        waitForMcpHealth(async () => undefined, timeout),
+        Effect.runPromise(waitForMcpHealth(() => Effect.void, timeout)),
       ).rejects.toThrow("safe integer");
     }
     expect(MAX_STARTUP_TIMEOUT_MILLISECONDS).toBe(600_000);

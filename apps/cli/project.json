@@ -9,7 +9,7 @@
       "executor": "nx:run-commands",
       "options": {
         "cwd": "apps/cli",
-        "command": "tsc --build tsconfig.json"
+        "command": "rm -rf dist && tsc --build tsconfig.json"
       },
       "outputs": ["{projectRoot}/dist"]
     },

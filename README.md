@@ -46,18 +46,16 @@ workflow layer:  workflow.ts + runtime profile: direct
 
 This separation keeps the same workflow portable across runtime environments.
 
-## Current Mastra dependency
+## Runtime
 
-Mastra is the runtime engine used by Seqlane today. Seqlane owns the workflow
-authoring API, typed Plan, task contracts, session policies, workspace policies,
-and stable CLI and event contracts. The private runtime layer compiles each
-Seqlane Plan into Mastra workflows and steps, then uses Mastra to execute the
-workflow.
+Effect v4 owns execution, concurrency, resource lifetime, HTTP, SQL, and telemetry.
+Seqlane owns workflow authoring, typed Plans, task behavior, session and workspace
+policies, and stable outcomes. Zod owns public and wire validation. Oclif owns
+the CLI commands.
 
-Users write workflows against `@seqlane/core`; they do not need to use Mastra
-workflow APIs directly. Mastra remains behind the Seqlane runtime boundary and
-currently supplies workflow execution, operational API and MCP transport,
-storage, tracing, and the Community Studio integration.
+CLI, direct, HTTP, and MCP callers use one private Effect Plan program.
+Standalone runs use memory only. An explicit operational host retains run
+history and correlated inspection data in its own SQLite database.
 
 ## Install Seqlane
 
@@ -343,6 +341,42 @@ The CLI runs one workflow and prints the result. Add `--adapter opencode` or
 `seqlane run --help` to see all options. See the
 [CLI guide](apps/cli/README.md) for input, output, adapter, and workspace
 options.
+
+## Verify distribution changes
+
+Use Node.js 24 or later. Before building, run the runtime audit:
+
+```sh
+pnpm verify:runtime
+```
+
+After a build, run `pnpm verify:installed` to pack all eight release packages.
+The check installs those tarballs outside this checkout and verifies declarations,
+direct execution, and the production Oclif commands. Private test helpers and
+development runners must not enter release archives.
+
+Run `pnpm verify:actions` after building the Actions. It executes each service
+bundle's main and post in separate processes and checks cleanup and foreign
+process survival. It also runs the review and conflict entrypoints against
+isolated Git and HTTP fixtures. Ripwire uses its pinned public release.
+
+CI also invokes the local Actions with `uses:` on a hosted runner. Fixtures
+exercise service handoff, a stale review, and clean Git integration without
+model prompts or publication writes. The runner then invokes each service post.
+
+For the complete distribution gate, build and materialize the verified artifacts:
+
+```sh
+pnpm build
+pnpm verify:installed
+pnpm verify:actions
+pnpm verify:runtime --distributions
+```
+
+The audit requires zero retired-runtime evidence in tracked filenames, contents,
+production dependencies, and rebuilt distributions. Documentation and tests have
+no exceptions. The distribution gate requires all eight package archives and
+all six Actions' entrypoint assets.
 
 ## License
 

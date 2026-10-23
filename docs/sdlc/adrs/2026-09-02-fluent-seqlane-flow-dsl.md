@@ -5,13 +5,16 @@ status: superseded
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-08
+updated: 2026-10-22
 upstream:
   - rfc.seqlane-technical-architecture
 supersedes: []
 ---
 
 # Provide a Fluent Seqlane Flow DSL
+
+> Superseded by [the current runtime architecture](../rfcs/2026-10-21-effect-v4-migration.md).
+> Current authoring contracts belong to the workflow semantics specification.
 
 ## Context
 
@@ -20,9 +23,8 @@ for each task invocation. This API creates a typed, static DAG. It does not
 give authors one clear surface for task names, output selection, and the final
 Plan.
 
-Mastra provides a fluent workflow DSL. A similar Seqlane surface can make
-workflow definitions easier to read. Seqlane cannot expose Mastra types or
-use Mastra workflow objects as its public model.
+A fluent Seqlane surface can make workflow definitions easier to read.
+Its public model must remain independent of runtime-library types and objects.
 
 Seqlane is dataflow-first. A task reference creates a dependency. A fluent
 call order must not create a dependency by itself. A `.then()`-only DSL makes
@@ -35,7 +37,7 @@ Seqlane will provide a fluent, Seqlane-owned Flow DSL in
 `@seqlane/core`.
 
 The DSL will construct the existing Seqlane Plan IR. It will not construct or
-return a Mastra workflow.
+return a runtime-library workflow.
 
 The DSL will provide these authoring operations:
 
@@ -196,7 +198,7 @@ export const repairWorkflow = createFlow({
 
 `parallel`, `branch`, and `foreach` are not part of the first DSL release.
 They require Seqlane-owned Plan semantics and runtime behavior. Later helpers
-must compile to Seqlane Plan nodes. They must not pass through Mastra
+must compile to Seqlane Plan nodes. They must not pass through runtime-library
 control-flow objects.
 
 ### Result lifetime
@@ -220,10 +222,10 @@ storage, not the execution-context result map.
 This API is correct and small. It does not give authors a named fluent surface
 or an obvious place for the final workflow output. This option is rejected.
 
-### Copy Mastra's DSL and public types
+### Copy a runtime library's DSL and public types
 
 This reduces short-term API design work. It exposes a private runtime engine
-and makes Seqlane behavior depend on Mastra. This option is rejected.
+and makes Seqlane behavior depend on that library. This option is rejected.
 
 ### Use a `.then()` pipeline DSL
 
@@ -288,7 +290,7 @@ Before implementation, create spec.fluent-seqlane-flow-dsl and implementation st
 
 ## Constraints
 
-- `seqlane-core` must not import or expose Mastra or executor types.
+- `seqlane-core` must not import or expose runtime-library or executor types.
 - A Flow DSL definition must build only Seqlane-owned serializable Plan data.
 - Flow construction must not execute a task or executor callback.
 - A binding reference remains the sole source of a static dependency edge.
@@ -311,5 +313,8 @@ requires a different Plan model.
 
 ## Traceability
 
+- [Replacement runtime architecture](../rfcs/2026-10-21-effect-v4-migration.md)
+- [Current workflow semantics](../specs/2026-10-22-workflow-execution-semantics.md)
+
 - [rfc.seqlane-technical-architecture: Seqlane Technical Architecture](../rfcs/2026-09-02-seqlane-technical-architecture.md)
-- [adr.mastra-backed-seqlane-workflows: Center Seqlane Workflows on a Mastra-Backed Executable DSL](./2026-09-08-mastra-backed-seqlane-workflows.md)
+- [rfc.effect-v4-migration: Full Effect v4 Migration](../rfcs/2026-10-21-effect-v4-migration.md)

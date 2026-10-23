@@ -1,3 +1,4 @@
+import type { Context } from "effect";
 import type {
   ModelSelection,
   AgentTaskRequest,
@@ -6,10 +7,7 @@ import type {
   SeqlaneInvocationMetrics,
 } from "@seqlane/core";
 import type { AgentRuntimeModelCapabilities } from "@seqlane/agent-adapter";
-import type { ObservabilityContext } from "@mastra/core/observability";
 import type { SeqlaneObservation } from "@seqlane/protocol";
-
-type LegacyTaskNode = TaskNode & { readonly executor?: string };
 
 export interface SeqlaneExecutorActivity {
   readonly activityId: string;
@@ -41,6 +39,21 @@ export class UnconfirmedInvocationTerminationError extends Error {
     super(`Executor ${reason} has no termination confirmation`);
     this.name = "UnconfirmedInvocationTerminationError";
   }
+
+  /** Preserve an executor failure learned after this error quarantines owners. */
+  attachCause(cause: unknown): void {
+    if (cause !== this && this.cause === undefined) this.cause = cause;
+  }
+}
+
+export function findUnconfirmedInvocationTermination(
+  cause: unknown,
+  seen = new Set<unknown>(),
+): UnconfirmedInvocationTerminationError | undefined {
+  if (cause instanceof UnconfirmedInvocationTerminationError) return cause;
+  if (!(cause instanceof Error) || seen.has(cause)) return undefined;
+  seen.add(cause);
+  return findUnconfirmedInvocationTermination(cause.cause, seen);
 }
 
 /** An executor-private child session owned by its parent invocation. */
@@ -65,10 +78,11 @@ export class UntrackedMutatingBackgroundProcessError extends Error {
 }
 
 export interface ExecutorRequest {
+  /** Native services retained across the authored Promise callback. */
+  readonly nativeContext?: Context.Context<never>;
   readonly taskDefinition?: TaskDefinition;
   readonly modelSelection?: ModelSelection;
   readonly invocationId: string;
-  readonly observability: Partial<ObservabilityContext>;
   readonly taskId: string;
   readonly executor: string;
   readonly input: unknown;
@@ -89,6 +103,7 @@ export interface ExecutorRequest {
   readonly onBackgroundProcess?: (
     process: SeqlaneBackgroundProcessRequest,
   ) => void;
+  readonly onOwnedProcessAcquired?: (pid: number) => Promise<void>;
 }
 
 export interface SeqlaneExecutor {
@@ -105,7 +120,7 @@ export interface ExecutorResolvers {
   readonly modelCapabilities?: ExecutorModelCapabilities;
 }
 
-/** Temporary internal union while callers migrate from executor-name maps. */
+/** Private callers can resolve task executors from a factory or registry. */
 export type ExecutorRegistry =
   ExecutorResolvers | ReadonlyMap<string, SeqlaneExecutor>;
 
@@ -127,15 +142,11 @@ export function getExecutor<Input, Output>(
     return registry.agent(task);
   }
 
-  const legacyExecutor = (node as LegacyTaskNode).executor;
   const executor =
-    (legacyExecutor && registry.get(legacyExecutor)) ??
     registry.get(node.taskId) ??
     (registry.size === 1 ? registry.values().next().value : undefined);
   if (!executor) {
-    throw new Error(
-      `No executor registered for "${legacyExecutor ?? node.taskId}"`,
-    );
+    throw new Error(`No executor registered for "${node.taskId}"`);
   }
   return executor;
 }
@@ -148,7 +159,7 @@ export interface ResolvedExecutorModelCapabilities {
 /** Resolves model capabilities without creating a session. */
 export function getExecutorModelCapabilities(
   registry: ExecutorRegistry,
-  node: Pick<TaskNode, "taskId"> & { readonly executor?: string },
+  node: Pick<TaskNode, "taskId">,
 ): ResolvedExecutorModelCapabilities | undefined {
   if (isExecutorResolvers(registry)) {
     if (registry.modelCapabilities !== undefined) {
@@ -160,13 +171,7 @@ export function getExecutorModelCapabilities(
     return undefined;
   }
 
-  const legacyExecutor = (node as LegacyTaskNode).executor;
-  const registeredLegacyExecutor =
-    legacyExecutor === undefined || legacyExecutor.length === 0
-      ? undefined
-      : registry.get(legacyExecutor);
   const executor =
-    registeredLegacyExecutor ??
     registry.get(node.taskId) ??
     (registry.size === 1 ? registry.values().next().value : undefined);
   if (executor === undefined) return undefined;

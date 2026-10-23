@@ -1,24 +1,29 @@
 ---
 id: rfc.high-fidelity-local-observability
 title: High-Fidelity Local Model and Agent Observability
-status: proposed
+status: superseded
 owners:
   - core
 created: 2026-09-19
-updated: 2026-09-19
+updated: 2026-10-22
 upstream:
-  - prd.seqlane-on-mastra
+  - prd.seqlane-runtime
   - rfc.execution-observability-and-debugging
 supersedes: []
 ---
 
 # High-Fidelity Local Model and Agent Observability
 
+> Superseded by [the Effect runtime RFC](./2026-10-21-effect-v4-migration.md).
+> Complete capture remains owned by [the canonical observation contract](../specs/2026-09-19-otel-aligned-observation-contract.md)
+> and [adapter observation lifecycle](../specs/2026-10-22-adapter-observation-projection.md).
+> This earlier proposal does not establish current implementation delivery.
+
 ## Summary
 
 Seqlane needs complete execution data during local runs. Model requests and
 responses, task values, tool calls, and skill calls must enter one
-protocol-owned canonical observation stream. Mastra and CLI/TUI consume that
+protocol-owned canonical observation stream. runtime telemetry and CLI/TUI consume that
 stream as projections.
 
 This RFC proposes a local high-fidelity capture mode. It keeps raw values in
@@ -27,26 +32,22 @@ policy. It does not change the executor-neutral public authoring boundary.
 
 The current RFC for execution observability remains the broad foundation. This
 RFC proposes a focused change to its data-capture policy and to the
-OpenCode-observation-to-protocol pipeline. Mastra is a downstream projection,
+OpenCode-observation-to-protocol pipeline. runtime telemetry is a downstream projection,
 not a second source of truth.
 
 ## Context
 
-The runtime already emits task input, task result, and executor activity
-events. These events do not provide a complete model exchange. The OpenCode
-assistant observation keeps identity, timing, usage, model, provider, and cost
-fields, but drops message content before the observation reaches Mastra.
-
-The native Mastra projection also records model usage and tool state without
-the request, response, or tool payload. Some protocol values pass through a
-selection and size policy, so users cannot always inspect the data that drove
-the workflow.
+At proposal time, summaries and selected fields did not expose every available
+model, tool, and skill payload. Users could not reliably inspect the data that
+drove a workflow. That historical gap motivated the complete canonical
+observation contract. It is not a description of the current target runtime.
 
 Users need this information to improve workflows, compare model attempts,
 measure input and output, and understand tool and skill use.
 
-The current runtime is local. This RFC does not authorize raw data export to
-remote services, shared telemetry, production storage, or recording files.
+The original proposal covered local live capture. It did not authorize remote
+export or recording. Current hosted persistence and explicit remote export
+follow the replacement runtime contract.
 
 The canonical contract is defined in
 [spec.otel-aligned-observation-contract](../specs/2026-09-19-otel-aligned-observation-contract.md).
@@ -61,7 +62,7 @@ it does not add an OpenTelemetry SDK dependency.
 - Capture exact tool and skill input, output, and metadata available from the
   adapter.
 - Forward one validated canonical observation into the protocol event stream;
-  project that event to Mastra and CLI/TUI.
+  project that event to runtime telemetry and CLI/TUI.
 - Preserve model, provider, usage, cost, timing, identity, and lifecycle data.
 - Make missing source data visible instead of silently dropping it.
 - Keep all protocol and adapter contracts engine-neutral.
@@ -69,7 +70,7 @@ it does not add an OpenTelemetry SDK dependency.
 
 ## Non-goals
 
-- Adding Mastra or provider types to `@seqlane/core` or
+- Adding runtime telemetry or provider types to `@seqlane/core` or
   `@seqlane/protocol`.
 - Defining model, tool, skill, or permission controls for workflow authors.
 - Persisting events for recording or replay.
@@ -167,7 +168,7 @@ activity callback. The runtime forwards the canonical observation to the
 protocol event bridge.
 
 Concrete adapters own extraction and validation of their native data. The
-generic contract MUST contain no Mastra, OpenCode, ACP, provider SDK, or
+generic contract MUST contain no runtime telemetry, OpenCode, ACP, provider SDK, or
 provider-specific type.
 
 The first implementation slice MUST cover the OpenCode adapter. ACP, Codex,
@@ -182,36 +183,27 @@ protocol observation. The pipeline is:
 1. native OpenCode observation;
 2. protocol-owned canonical observation and `invocation.observation` event;
 3. serialized protocol event stream; and
-4. Mastra and CLI/TUI projections, plus existing derived activity, metrics,
+4. runtime telemetry and CLI/TUI projections, plus existing derived activity, metrics,
    diagnostics, interaction, and lifecycle callbacks.
 
 The runtime MUST NOT reconstruct model or activity payloads from aggregate
-metrics, terminal summaries, rendered terminal output, or Mastra spans. The
+metrics, terminal summaries, rendered terminal output, or runtime telemetry spans. The
 protocol observation/event is the single source of truth for downstream
 consumers.
 
-The protocol event and Mastra projection MUST retain stable Work, Run,
+The protocol event and runtime telemetry projection MUST retain stable Work, Run,
 Invocation, attempt, model exchange, message, and activity correlation.
 
-### R6. Mastra payload projection
+### R6. runtime telemetry payload projection
 
-The private runtime projection MUST consume the validated protocol observation
-event and project full model request and response data into the Mastra
-model-generation observation supported by the pinned Mastra version. It MUST
-prefer the pinned Mastra span `input`/`output` fields or a supported event span
-mechanism. If no current Mastra span exists, it MUST diagnose and skip the
-Mastra projection while protocol delivery continues.
+Runtime telemetry derives model, tool, and skill records from accepted canonical
+observations. The current runtime and observation specifications own Effect span
+mapping, context propagation, explicit export policy, and shutdown.
 
-Tool and skill spans MUST carry their available payloads through the equivalent
-supported Mastra mechanism. Raw payloads MUST remain data fields, not generic
-attributes, metric labels, sampling keys, or span names.
-
-The Mastra projection MUST be attempted for every local protocol observation.
-A missing exporter or span write failure MUST be diagnosed and MUST NOT
-suppress protocol events or change execution.
-
-The Mastra projection MUST include all model, tool, and skill data exposed by
-the adapter, including reasoning traces when the adapter provides them.
+Complete available payloads remain canonical, including available reasoning.
+Projection or exporter failure cannot suppress protocol events or change the
+execution outcome. An absent optional exporter is normal standalone behavior.
+No adapter-owned span API or duplicate native trace tree is required.
 
 ### R7. Data availability and failures
 
@@ -223,7 +215,7 @@ The adapter MUST report when a native protocol does not provide a requested
 value, when a value cannot be represented in JSON, or when a projection fails.
 
 A missing response payload MUST NOT prevent the lifecycle, identity, usage, and
-error fields from reaching the protocol or Mastra.
+error fields from reaching the protocol or runtime telemetry.
 
 Observation failures MUST remain separate from execution failures unless the
 existing execution contract already treats the source failure as fatal.
@@ -255,19 +247,19 @@ Serialized protocol event
      +-----------+-----------+
      |                       |
      v                       v
-Mastra projection      CLI/TUI projection
+runtime telemetry projection      CLI/TUI projection
 ```
 
 The private adapter remains the owner of native model, tool, and skill
 translation. The protocol package owns the canonical observation schema,
 event envelope, validation, and serialization. The runtime owns Work, Run,
-Invocation, and protocol event sequencing. Mastra and CLI/TUI are downstream
-projections. The protocol remains independent of Mastra and native executor
+Invocation, and protocol event sequencing. runtime telemetry and CLI/TUI are downstream
+projections. The protocol remains independent of runtime telemetry and native executor
 types.
 
 The model exchange contract is semantic. It MUST use names such as request,
 response, model, provider, tool, skill, and activity. It MUST NOT expose
-OpenCode event names, ACP chunks, Mastra span classes, or provider SDK shapes.
+OpenCode event names, ACP chunks, runtime telemetry span classes, or provider SDK shapes.
 
 ## Standards alignment
 
@@ -303,14 +295,14 @@ References:
 Rejected for local debugging. It prevents users from seeing the data needed to
 improve workflows and measure model behavior.
 
-### Add raw data only to Mastra
+### Add raw data only to runtime telemetry
 
-Rejected. Mastra is implementation-only. Protocol consumers, local tools, and
+Rejected. runtime telemetry is implementation-only. Protocol consumers, local tools, and
 future inspectors also need the same semantic data.
 
 ### Add raw data only to protocol output
 
-Rejected. Mastra traces would remain incomplete and model, tool, and skill
+Rejected. runtime telemetry traces would remain incomplete and model, tool, and skill
 behavior would not be correlated in native observability.
 
 ### Put model data into `invocation.output`
@@ -328,8 +320,8 @@ adapter-specific payloads.
 - Local memory, IPC, and trace volume will increase with payload size.
 - Raw payloads create a deliberate local data exposure risk. This RFC accepts
   that risk within the local-only scope.
-- Payloads can exceed the limits of some Mastra exporters. The adapter must
-  preserve the protocol event and report the exporter limitation.
+- Payloads can exceed exporter limits. Runtime export must report whole-record
+  omission while canonical observations remain complete.
 - The protocol gains a larger stable contract. The model exchange schema must
   remain engine-neutral and versioned.
 - Different adapters expose different data. The protocol must distinguish
@@ -341,9 +333,9 @@ adapter-specific payloads.
 2. Approve the active protocol observation specification with the model exchange
    and raw payload contracts.
 3. Implement one OpenCode tracer through native observation, protocol event,
-   serialized protocol stream, and downstream Mastra/TUI projections.
+   serialized protocol stream, and downstream runtime telemetry/TUI projections.
 4. Add protocol round-trip, malformed-input, payload-preservation, ordering,
-   and Mastra span tests.
+   and runtime telemetry span tests.
 5. Extend the same adapter contract to ACP and Codex after the OpenCode path
    is verified.
 6. Measure local payload cost and add transport chunking only when evidence
@@ -359,20 +351,20 @@ adapter-specific payloads.
 - Every reported tool and skill activity preserves exact input, output, and
   metadata in the protocol event.
 - Protocol encode/decode preserves captured JSON values exactly.
-- Mastra model, tool, and skill observations project the same payloads and
+- runtime telemetry model, tool, and skill observations project the same payloads and
   correlation identities from the protocol event when the pinned API supports
-  them; Mastra is never the source of truth.
+  them; runtime telemetry is never the source of truth.
 - Missing or unrepresentable values produce bounded diagnostics and do not
   cause silent loss.
 - Raw payloads never become metric labels, span names, or sampling keys.
-- No Mastra, OpenCode, ACP, or provider SDK type appears in public protocol or
+- No runtime telemetry, OpenCode, ACP, or provider SDK type appears in public protocol or
   core declarations.
 - Exporter failure does not change the model result or protocol event stream.
 
 ## Open questions
 
-- Which Mastra 1.64.0 payload fields or span events provide the most stable
-  local storage path for full request and response data?
+The replacement specifications resolve runtime projection and explicit export.
+The remaining questions below describe later transport or recording work.
 - Does the local runner need payload chunking in the first implementation, or
   does measured local traffic fit within the current IPC framing?
 - Should a future recording or replay mode use a separate capture policy and
@@ -380,10 +372,10 @@ adapter-specific payloads.
 
 ## Traceability
 
-- [prd.seqlane-on-mastra: Seqlane on Mastra](../prd/2026-09-03-seqlane-on-mastra.md)
+- [prd.seqlane-runtime: Seqlane Runtime Product Requirements](../prd/2026-10-21-seqlane-runtime.md)
 - [rfc.execution-observability-and-debugging: Seqlane Execution Observability and Debugging](./2026-09-02-execution-observability-and-debugging.md)
-- [spec.opencode-mastra-observability-projection: OpenCode-to-Mastra Observability Projection](../specs/2026-09-08-opencode-mastra-observability-projection.md)
-- [spec.mastra-native-agent-observability: Mastra Native Agent Observability](../specs/2026-09-07-mastra-native-agent-observability.md)
+- [spec.adapter-observation-projection: Adapter Observation Lifecycle and Projection](../specs/2026-10-22-adapter-observation-projection.md)
 - [spec.otel-aligned-observation-contract: OTel-Aligned Seqlane Observation Contract](../specs/2026-09-19-otel-aligned-observation-contract.md)
 - [task.implement-otel-aligned-opencode-observations: Implement OTel-Aligned OpenCode Observations](../tasks/2026-09-19-implement-otel-aligned-opencode-observations.md)
-- [adr.engine-opaque-agent-adapter-contracts: Engine-Opaque Agent Adapter Contracts](../adrs/2026-09-18-engine-opaque-agent-adapter-contracts.md)
+- [Replacement runtime decision](./2026-10-21-effect-v4-migration.md)
+- [Superseded opaque adapter context decision](../adrs/2026-09-18-engine-opaque-agent-adapter-contracts.md)

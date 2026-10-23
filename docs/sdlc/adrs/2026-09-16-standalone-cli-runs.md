@@ -5,12 +5,11 @@ status: accepted
 owners:
   - core
 created: 2026-09-16
-updated: 2026-09-16
+updated: 2026-10-22
 upstream:
-  - prd.seqlane-on-mastra
-  - rfc.mastra-runtime-and-operational-foundation
-supersedes:
-  - adr.local-mastra-operational-host
+  - prd.seqlane-runtime
+  - rfc.effect-v4-migration
+supersedes: []
 ---
 
 # Execute Standalone CLI Runs Without an Operational Host
@@ -21,8 +20,8 @@ A developer needs to execute one workflow from a file or installed package.
 The command must not require an app, workflow catalog, Seqlane configuration,
 manual adapter service startup, or persistent operational host.
 
-The previous decision routes CLI runs through a Mastra server and its storage.
-Current host initialization also loads the discovered catalog before the selected
+The previous execution design routed CLI runs through a host and its storage.
+Its initialization also loaded the discovered catalog before the selected
 workflow. Unrelated workflow imports can therefore prevent a direct run.
 
 The user accepted this standalone scope on 2026-09-16. App-based hosting and
@@ -34,13 +33,13 @@ constrain this decision.
 ### decision-standalone-execution
 
 `seqlane run` resolves one explicit entrypoint and executes its authored workflow
-through Mastra. It loads that entrypoint and its dependencies only. Normal local
+through the private runtime. It loads that entrypoint and its dependencies only. Normal local
 and package imports remain supported. Workflow modules are trusted executable
 code, including their import-time side effects.
 
 The run owns its runtime lifecycle. It does not start or connect to a Seqlane
-operational server. Mastra remains the sole workflow engine. This decision does
-not restore the former scheduler or create a second run store.
+operational server. The shared Effect program supplies execution under the
+current runtime RFC. This lifecycle split does not create a second run store.
 
 ### decision-adapter-ownership
 
@@ -81,10 +80,10 @@ storage nor introduces its own persistent copy.
 
 ### decision-hosted-scope-preserved
 
-This ADR supersedes `adr.local-mastra-operational-host` for the lifecycle split.
-Its hosted decisions remain in force: `serve` owns a foreground Mastra host,
-canonical hosted state, server routes, MCP, and tracing. Studio uses Community
-Mastra surfaces. Unauthenticated operational endpoints remain loopback-only.
+The lifecycle split keeps hosted execution separate. `serve` owns a foreground
+host, canonical hosted state, server routes, MCP, and tracing. The current
+Effect runtime specification owns hosted inspection and launcher removal.
+Unauthenticated operational endpoints remain loopback-only.
 
 Hosted discovery, retention, and cross-surface identity requirements remain
 unchanged. Standalone runs do not appear in that host's history or Studio.
@@ -126,8 +125,8 @@ The workflow's model and the operator's adapter remain authoritative instead.
 
 The standalone specification defines exact loading, input, workspace, lifecycle,
 and migration behavior. The delivery task is the next implementation deliverable.
-Implementation must verify the pinned Mastra APIs and reuse native runtime
-facilities. No new dependency is selected by this ADR.
+Implementation must follow the current runtime specification and verify its
+pinned native APIs. No new dependency is selected by this ADR.
 
 ## Delivery state
 
@@ -137,9 +136,8 @@ reachable delivery commit or merged pull request.
 
 ## Traceability
 
-- [prd.seqlane-on-mastra](../prd/2026-09-03-seqlane-on-mastra.md#requirement-standalone-cli-runs)
-- [rfc.mastra-runtime-and-operational-foundation](../rfcs/2026-09-03-mastra-runtime-and-operational-foundation.md)
-- [Previous host decision](./2026-09-05-local-mastra-operational-host.md)
+- [prd.seqlane-runtime](../prd/2026-10-21-seqlane-runtime.md)
+- [rfc.effect-v4-migration](../rfcs/2026-10-21-effect-v4-migration.md)
 - [Executor-neutral authoring](./2026-09-02-executor-neutral-workflow-authoring.md)
 - [spec.standalone-cli-runs](../specs/2026-09-16-standalone-cli-runs.md)
 - [task.deliver-standalone-cli-runs](../tasks/2026-09-16-deliver-standalone-cli-runs.md)

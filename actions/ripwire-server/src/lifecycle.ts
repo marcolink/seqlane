@@ -1,23 +1,25 @@
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { Cause, Effect } from "effect";
 import {
   adoptDetachedProcess,
+  assertDirectory,
+  cleanupDetachedProcess,
+  completeDetachedProcessHandoff,
+  detachedProcessOwnershipSchema,
   readProcessIdentity,
   spawnDetached,
   SpawnDetachedError,
-  terminateProcessGroup,
   type DetachedProcess,
   type DetachedProcessOwnership,
-  type ProcessIdentity,
 } from "@seqlane/action-service-lifecycle";
-import { assertDirectory } from "./filesystem.js";
 import { buildRipwireArguments, buildRipwireEnvironment } from "./commands.js";
-import { checkMcpInitialize, waitForMcpHealth } from "./readiness.js";
+import { checkMcpInitializeEffect, waitForMcpHealth } from "./readiness.js";
 import type { RipwireConfig } from "./config.js";
 import { assertListenAvailable } from "./port.js";
 import { assertListenOwnedByProcess } from "./socket-ownership.js";
-import { serializeServiceState, type ServiceState } from "./state.js";
+import { serializeServiceState, serviceStateSchema } from "./state.js";
 
 export interface RipwireLifecycleInput {
   readonly config: RipwireConfig;
@@ -36,12 +38,13 @@ export interface RipwireLifecycleDependencies {
   readonly assertDirectory: typeof assertDirectory;
   readonly spawnDetached: typeof spawnDetached;
   readonly adoptDetachedProcess: typeof adoptDetachedProcess;
-  readonly terminateProcessGroup: typeof terminateProcessGroup;
+  readonly cleanupDetachedProcess: typeof cleanupDetachedProcess;
+  readonly completeDetachedProcessHandoff: typeof completeDetachedProcessHandoff;
   readonly assertListenAvailable: typeof assertListenAvailable;
   readonly assertListenOwnedByProcess: typeof assertListenOwnedByProcess;
   readonly readProcessIdentity: typeof readProcessIdentity;
   readonly isProcessAlive: (pid: number) => boolean;
-  readonly checkMcpInitialize: typeof checkMcpInitialize;
+  readonly checkMcpInitialize: typeof checkMcpInitializeEffect;
   readonly waitForMcpHealth: typeof waitForMcpHealth;
 }
 
@@ -65,71 +68,112 @@ const defaultDependencies: RipwireLifecycleDependencies = {
   assertDirectory,
   spawnDetached,
   adoptDetachedProcess,
-  terminateProcessGroup,
+  cleanupDetachedProcess,
+  completeDetachedProcessHandoff,
   assertListenAvailable,
   assertListenOwnedByProcess,
   readProcessIdentity,
   isProcessAlive,
-  checkMcpInitialize,
+  checkMcpInitialize: checkMcpInitializeEffect,
   waitForMcpHealth,
 };
 
 export function processAnchorPath(): string {
-  return fileURLToPath(new URL("../process-anchor.js", import.meta.url));
+  return fileURLToPath(new URL("../dist/process-anchor.js", import.meta.url));
 }
 
 export function packageExecutionDirectory(): string {
   return dirname(processAnchorPath());
 }
 
-async function saveProcessState(
+function persistOwnership(
   service: DetachedProcess,
   hooks: RipwireLifecycleHooks,
-  dependencies: RipwireLifecycleDependencies,
-): Promise<void> {
-  try {
-    const state: ServiceState = {
-      pid: service.pid,
-      identity: service.identity,
-      sentinel: {
-        pid: service.sentinelPid,
-        identity: service.sentinelIdentity,
-      },
-    };
-    hooks.saveState("service-state", serializeServiceState(state));
-    await dependencies.adoptDetachedProcess(service);
-  } catch (error) {
-    const cleanupSucceeded = await cleanupService(service, hooks, dependencies);
-    throw new RipwireStartupError(error, cleanupSucceeded);
+): Effect.Effect<void, Error> {
+  const parsed = detachedProcessOwnershipSchema.safeParse({
+    pid: service.pid,
+    identity: service.identity,
+    sentinel: {
+      pid: service.sentinelPid,
+      identity: service.sentinelIdentity,
+    },
+  });
+  if (!parsed.success) {
+    return Effect.fail(
+      new Error("Ripwire process ownership did not pass validation", {
+        cause: parsed.error,
+      }),
+    );
   }
+  const withRequiredSentinel = serviceStateSchema.safeParse(parsed.data);
+  if (!withRequiredSentinel.success || !withRequiredSentinel.data.sentinel) {
+    return Effect.fail(
+      new Error("Ripwire sentinel ownership did not pass validation", {
+        cause: withRequiredSentinel.success
+          ? undefined
+          : withRequiredSentinel.error,
+      }),
+    );
+  }
+
+  return Effect.try({
+    try: () =>
+      hooks.saveState(
+        "service-state",
+        serializeServiceState(withRequiredSentinel.data),
+      ),
+    catch: (cause) =>
+      new Error("Ripwire process ownership could not be saved", { cause }),
+  });
 }
 
-export async function cleanupService(
+function persistAmbiguousSpawnOwnership(
+  ownership: DetachedProcessOwnership | undefined,
+  hooks: RipwireLifecycleHooks,
+): Effect.Effect<void, never> {
+  if (!ownership) return Effect.void;
+  const parsed = detachedProcessOwnershipSchema.safeParse(ownership);
+  if (!parsed.success) return Effect.void;
+  return Effect.try({
+    try: () =>
+      hooks.saveState("service-state", serializeServiceState(parsed.data)),
+    catch: (cause) =>
+      new Error("Ripwire ambiguous ownership could not be saved", { cause }),
+  }).pipe(
+    Effect.catch((cause) =>
+      Effect.sync(() =>
+        hooks.warning(
+          `Ripwire ambiguous spawn state persistence failed: ${cause.message}`,
+        ),
+      ),
+    ),
+  );
+}
+
+function cleanupAfterStartupFailure(
   service: DetachedProcess,
   hooks: RipwireLifecycleHooks,
   dependencies: RipwireLifecycleDependencies,
-): Promise<boolean> {
-  try {
-    const stopped = await dependencies.terminateProcessGroup(
-      service.pid,
-      service.identity,
-      {
-        pid: service.sentinelPid,
-        identity: service.sentinelIdentity,
-      },
-    );
-    if (!stopped) {
-      hooks.warning(
-        `Ripwire process group ${service.pid} could not be verified during cleanup`,
-      );
-    }
-    return stopped;
-  } catch (error) {
-    hooks.warning(
-      `Ripwire startup cleanup failed: ${error instanceof Error ? error.message : String(error)}`,
-    );
-    return false;
-  }
+  cause: unknown,
+): Effect.Effect<never, RipwireStartupError> {
+  return dependencies.cleanupDetachedProcess(service).pipe(
+    Effect.map((cleanupSucceeded) => {
+      if (!cleanupSucceeded) {
+        hooks.warning(
+          `Ripwire process group ${service.pid} could not be verified during startup cleanup`,
+        );
+      }
+      return new RipwireStartupError(cause, cleanupSucceeded);
+    }),
+    Effect.catch((cleanupError) =>
+      Effect.sync(() =>
+        hooks.warning(
+          `Ripwire startup cleanup failed: ${cleanupError.message}`,
+        ),
+      ).pipe(Effect.as(new RipwireStartupError(cause, false))),
+    ),
+    Effect.flatMap((error) => Effect.fail(error)),
+  );
 }
 
 function isProcessAlive(pid: number): boolean {
@@ -141,94 +185,128 @@ function isProcessAlive(pid: number): boolean {
   }
 }
 
-async function verifyServiceIdentity(
+function verifyServiceIdentity(
   service: DetachedProcess,
   dependencies: RipwireLifecycleDependencies,
-): Promise<void> {
-  if (!dependencies.isProcessAlive(service.pid)) {
-    throw new Error("Ripwire process exited before startup completed");
-  }
-  const currentIdentity: ProcessIdentity | undefined =
-    await dependencies.readProcessIdentity(service.pid);
-  if (
-    !currentIdentity ||
-    currentIdentity.processGroupId !== service.identity.processGroupId ||
-    currentIdentity.processStartTime !== service.identity.processStartTime
-  ) {
-    throw new Error(
-      "Ripwire process identity changed before startup completed",
+): Effect.Effect<void, Error> {
+  return Effect.gen(function* () {
+    if (!dependencies.isProcessAlive(service.pid)) {
+      return yield* Effect.fail(
+        new Error("Ripwire process exited before startup completed"),
+      );
+    }
+    const currentIdentity = yield* dependencies.readProcessIdentity(
+      service.pid,
     );
-  }
+    if (
+      !currentIdentity ||
+      currentIdentity.processGroupId !== service.identity.processGroupId ||
+      currentIdentity.processStartTime !== service.identity.processStartTime
+    ) {
+      return yield* Effect.fail(
+        new Error("Ripwire process identity changed before startup completed"),
+      );
+    }
+  });
 }
 
-export async function runRipwireLifecycle(
+export function runRipwireLifecycle(
   input: RipwireLifecycleInput,
   hooks: RipwireLifecycleHooks,
   dependencies: RipwireLifecycleDependencies = defaultDependencies,
-): Promise<void> {
-  await dependencies.assertDirectory(input.config.workingDirectory);
-  await dependencies.assertListenAvailable(input.config.listen);
+): Effect.Effect<void, Error | Cause.TimeoutError> {
   const environment = buildRipwireEnvironment(
     input.environment,
     input.binaryDirectory,
     input.sessionToken,
   );
-  let service: DetachedProcess;
-  try {
-    service = await dependencies.spawnDetached({
-      command: "ripwire",
-      args: buildRipwireArguments(input.config),
-      cwd: input.binaryDirectory,
-      env: environment,
-      logPath: input.logPath,
-      anchorPath: processAnchorPath(),
-    });
-  } catch (error) {
-    // No validated DetachedProcess was returned. Preserve the shared spawn
-    // cleanup result instead of inventing an identity or retrying termination.
-    const spawnError = error instanceof SpawnDetachedError ? error : undefined;
-    const cleanupSucceeded = spawnError?.cleanupSucceeded ?? false;
-    if (!cleanupSucceeded && spawnError?.ownership) {
-      try {
-        hooks.saveState(
-          "service-state",
-          serializeServiceState(spawnError.ownership),
-        );
-      } catch (stateError) {
-        hooks.warning(
-          `Ripwire ambiguous spawn state persistence failed: ${stateError instanceof Error ? stateError.message : String(stateError)}`,
-        );
-      }
-    }
-    throw new RipwireStartupError(
-      error,
-      cleanupSucceeded,
-      !cleanupSucceeded ? spawnError?.ownership : undefined,
-    );
-  }
 
-  await saveProcessState(service, hooks, dependencies);
-  try {
-    await dependencies.waitForMcpHealth(
-      (remainingMilliseconds) =>
-        dependencies.checkMcpInitialize(
-          input.config.mcpUrl,
-          input.sessionToken,
-          remainingMilliseconds,
-          fetch,
-          (remainingMilliseconds) =>
-            dependencies.assertListenOwnedByProcess(
-              input.config.listen,
-              service,
-              dependencies.readProcessIdentity,
-              remainingMilliseconds,
+  return Effect.scoped(
+    Effect.gen(function* () {
+      yield* dependencies
+        .assertDirectory(input.config.workingDirectory)
+        .pipe(
+          Effect.mapError(
+            (cause) =>
+              new Error("Ripwire working directory is invalid", { cause }),
+          ),
+        );
+      yield* Effect.tryPromise({
+        try: () => dependencies.assertListenAvailable(input.config.listen),
+        catch: (cause) =>
+          new Error("Ripwire listen address is unavailable", { cause }),
+      });
+
+      const options = {
+        command: "ripwire",
+        args: buildRipwireArguments(input.config),
+        cwd: input.binaryDirectory,
+        env: environment,
+        logPath: input.logPath,
+        anchorPath: processAnchorPath(),
+      };
+      const service = yield* dependencies.spawnDetached(options).pipe(
+        Effect.catch((cause) => {
+          const spawnError =
+            cause instanceof SpawnDetachedError ? cause : undefined;
+          const cleanupSucceeded = spawnError?.cleanupSucceeded ?? false;
+          const ownership = spawnError?.ownership;
+          return persistAmbiguousSpawnOwnership(ownership, hooks).pipe(
+            Effect.flatMap(() =>
+              Effect.fail(
+                new RipwireStartupError(
+                  cause,
+                  cleanupSucceeded,
+                  !cleanupSucceeded ? ownership : undefined,
+                ),
+              ),
             ),
+          );
+        }),
+      );
+
+      const startup = Effect.gen(function* () {
+        yield* persistOwnership(service, hooks);
+        yield* dependencies.adoptDetachedProcess(service);
+        yield* dependencies.waitForMcpHealth(
+          (remainingMilliseconds) =>
+            dependencies.checkMcpInitialize(
+              input.config.mcpUrl,
+              input.sessionToken,
+              remainingMilliseconds,
+              (probeTimeoutMilliseconds) =>
+                Effect.tryPromise({
+                  try: (signal) =>
+                    dependencies.assertListenOwnedByProcess(
+                      input.config.listen,
+                      service,
+                      (pid) =>
+                        Effect.runPromise(
+                          dependencies.readProcessIdentity(pid),
+                          { signal },
+                        ),
+                      process.platform,
+                      undefined,
+                      probeTimeoutMilliseconds,
+                      signal,
+                    ),
+                  catch: (cause) =>
+                    new Error("Ripwire listener ownership check failed", {
+                      cause,
+                    }),
+                }),
+            ),
+          input.config.startupTimeoutSeconds * 1_000,
+        );
+        yield* verifyServiceIdentity(service, dependencies);
+        yield* dependencies.completeDetachedProcessHandoff(service);
+      });
+
+      yield* startup.pipe(
+        Effect.catch((cause) =>
+          cleanupAfterStartupFailure(service, hooks, dependencies, cause),
         ),
-      input.config.startupTimeoutSeconds * 1_000,
-    );
-    await verifyServiceIdentity(service, dependencies);
-  } catch (error) {
-    const cleanupSucceeded = await cleanupService(service, hooks, dependencies);
-    throw new RipwireStartupError(error, cleanupSucceeded);
-  }
+      );
+    }),
+  );
 }

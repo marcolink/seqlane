@@ -5,7 +5,7 @@ status: superseded
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-05
+updated: 2026-10-22
 upstream:
   - rfc.seqlane-technical-architecture
 supersedes: []
@@ -13,7 +13,7 @@ supersedes: []
 
 # Execute Each Seqlane Run in a Dedicated Node Process
 
-> Superseded by [adr.local-mastra-operational-host](./2026-09-05-local-mastra-operational-host.md).
+> Superseded by [rfc.effect-v4-migration](../rfcs/2026-10-21-effect-v4-migration.md).
 
 ## Context
 
@@ -25,7 +25,7 @@ The Seqlane CLI is built with oclif. Executing the workflow runtime directly ins
 - terminal rendering;
 - signal handling;
 - workflow loading;
-- Mastra execution;
+- private Plan execution;
 - executor state;
 - OpenCode session state;
 - memory lifetime.
@@ -59,7 +59,7 @@ seqlane run
 │                          │
 │ workflow loading         │
 │ Plan construction        │
-│ Mastra execution         │
+│ private Plan execution         │
 │ executor state           │
 │ OpenCode session state   │
 │ runtime validation       │
@@ -85,14 +85,14 @@ The runner owns all execution-scoped runtime state, including:
 - workflow module loading;
 - Seqlane Plan construction;
 - Plan validation;
-- Mastra runtime state;
+- worker runtime state;
 - executor instances;
 - OpenCode client/session state;
 - Seqlane Run and Invocation state;
 - output validation;
 - cancellation state.
 
-The oclif process must not own Mastra or executor runtime state.
+The oclif process must not own worker execution or executor runtime state.
 
 ## Communication
 
@@ -100,8 +100,8 @@ CLI and runner communicate using a Seqlane-owned serializable protocol.
 
 The protocol must not expose:
 
-- Mastra event types;
-- Mastra workflow objects;
+- runtime-library event types;
+- runtime-library workflow objects;
 - OpenCode SDK objects;
 - raw executor-internal types.
 
@@ -155,7 +155,7 @@ SIGINT / SIGTERM
        ↓
 runner cancellation
        ↓
-Mastra / Executor abort
+Runtime / Executor abort
        ↓
 OpenCode abort
        ↓
@@ -214,7 +214,7 @@ Would enable runs to outlive the CLI, but conflicts with V1's foreground, autono
 - No persistent Seqlane daemon is introduced.
 - Runner protocol messages must be Seqlane-owned and serializable.
 - The runtime package must remain usable independently of oclif.
-- The CLI must not contain Mastra execution state.
+- The CLI must not contain private Plan execution state.
 - The runner must terminate after success, failure, or cancellation.
 
 ## Decision Test

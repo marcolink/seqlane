@@ -5,13 +5,17 @@ status: completed
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-03
+updated: 2026-10-22
 upstream:
   - spec.fluent-seqlane-flow-dsl
 supersedes: []
 ---
 
 # Migrate Examples and Authoring Documentation
+
+> Historical task record. Scope and outcomes describe work before the current migration.
+> Current execution authority: [Effect v4 execution and operations](../specs/2026-10-21-effect-v4-execution-and-operations.md).
+> Current-owner links record the later contract transfer. They do not establish historical Effect v4 use or current delivery.
 
 > Migrated from implementation story `TS-012-06`.
 
@@ -37,30 +41,30 @@ the Flow DSL, **so that** I can use the public API without runtime details.
 
 The example must use only seqlane-core authoring exports. Documentation must
 state that Flow aliases are source-only and that repeat bodies are bounded.
-It must not expose Mastra, executor, or provider details.
+It must not expose runtime-engine, executor, or provider details.
 
 ## Acceptance Criteria
 
-**Scenario:** *The built-in example uses Flow DSL*
+**Scenario:** _The built-in example uses Flow DSL_
 
 - **Given:** The built-in example workflow
 - **When:** Its Plan builds
 - **Then:** It matches the prior task-only Plan and contract tests pass
 
-**Scenario:** *Public guidance remains executor-neutral*
+**Scenario:** _Public guidance remains executor-neutral_
 
 - **Given:** A reader opens core or runtime authoring guidance
 - **When:** The reader finds Flow DSL and repeat examples
-- **Then:** The guidance contains no Mastra or executor authoring detail
+- **Then:** The guidance contains no runtime-engine or executor authoring detail
 
-**Scenario:** *The delivery gate passes*
+**Scenario:** _The delivery gate passes_
 
 - **Given:** The completed spec.fluent-seqlane-flow-dsl implementation
 - **When:** Repository verification runs
 - **Then:** install, typecheck, test, lint, build, formatting, Nx sync, and
   diff checks pass
 
-## Source
+## Source and current owners
 
 - [adr.fluent-seqlane-flow-dsl — Fluent Seqlane Flow DSL](../adrs/2026-09-02-fluent-seqlane-flow-dsl.md)
 - [spec.fluent-seqlane-flow-dsl — Fluent Flow DSL and Conditioned Repeat](../specs/2026-09-02-fluent-seqlane-flow-dsl.md)

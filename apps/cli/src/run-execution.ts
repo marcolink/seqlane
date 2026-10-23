@@ -1,6 +1,6 @@
+import { Effect } from "effect";
 import type { RunRequest, SeqlaneExecutionEvent } from "@seqlane/protocol";
 import type { RunCommandResult } from "./cli-contracts.js";
-import { createEventDispatcher } from "./event-dispatcher.js";
 import {
   createClassifierStartupEnvironment,
   type ClassifierCliOptions,
@@ -11,15 +11,27 @@ import {
   agentRuntimeConfigurationEnvironment,
   directRunAdapterConfigurationEnvironment,
 } from "./agent-runtime.js";
-import {
-  contextualizeCommandError,
-  errorMessage,
-  writeDiagnostic,
-} from "./command.js";
+import { errorMessage, writeDiagnostic } from "./command.js";
 import { closeRunResources } from "./run-lifecycle.js";
 import type { RunIdentity } from "./run-result.js";
 import { mapRunnerCommandResult } from "./run-outcome.js";
 import { writeSessionUiDiagnostic } from "./session-ui-diagnostic.js";
+import {
+  captureTelemetryConfigurationEnvironment,
+  encodeTelemetryConfiguration,
+  exportTelemetryEffect,
+  telemetryConfigurationEnvironment,
+  withCliTelemetryEffect,
+  type InProcessTelemetry,
+} from "@seqlane/runtime/private/telemetry";
+import { encodeTraceCarrier } from "@seqlane/protocol/private/trace-carrier";
+import type { TraceCarrier } from "@seqlane/protocol/private/trace-carrier";
+import { traceCarrierEnvironment } from "./trace-carrier-environment.js";
+import {
+  spawnRunnerProcess,
+  superviseRunnerEffect,
+  type RunnerChild,
+} from "./runner-client.js";
 
 export interface RunnerCommandOptions {
   readonly request: RunRequest;
@@ -32,66 +44,132 @@ export interface RunnerCommandOptions {
   readonly capabilities: OutputCapabilities;
 }
 
-/** Coordinates the supervised worker, output consumers, and bounded cleanup. */
-export async function executeRunnerCommand({
-  request,
-  sourceReference,
-  classifierOptions,
-  adapterConfiguration,
-  jsonMode,
-  dry,
-  terminalMode,
-  capabilities,
-}: RunnerCommandOptions): Promise<{
+type RunnerCommandResult = {
   readonly exitStatus: 0 | 1 | 130;
   readonly commandResult: RunCommandResult | void;
-}> {
+};
+
+/** Evaluates the CLI run application after Oclif has parsed and validated flags. */
+export async function executeRunnerCommand(
+  options: RunnerCommandOptions,
+): Promise<RunnerCommandResult> {
+  const telemetryConfiguration = captureTelemetryConfigurationEnvironment(
+    process.env,
+  );
+  return Effect.runPromise(
+    Effect.gen(function* () {
+      if (telemetryConfiguration === undefined) {
+        return yield* executeRunnerCommandEffect(
+          options,
+          undefined,
+          undefined,
+          undefined,
+        );
+      }
+
+      const captured = yield* withCliTelemetryEffect(({ carrier, collector }) =>
+        executeRunnerCommandEffect(
+          options,
+          carrier,
+          collector,
+          telemetryConfiguration,
+        ),
+      );
+      const snapshot = captured.snapshot();
+      const cliSpans = snapshot.spans.map((span) => ({
+        name: span.name,
+        traceId: span.traceId,
+        spanId: span.spanId,
+        ...(span.parentSpanId === undefined
+          ? {}
+          : { parentSpanId: span.parentSpanId }),
+        startTime: Number(span.startTime / 1_000_000n),
+        ...(span.endTime === undefined
+          ? {}
+          : { endTime: Number(span.endTime / 1_000_000n) }),
+        startTimeUnixNano: String(span.startTime),
+        ...(span.endTime === undefined
+          ? {}
+          : { endTimeUnixNano: String(span.endTime) }),
+        kind: span.kind,
+        links: span.links.map((link) => ({
+          traceId: link.traceId,
+          spanId: link.spanId,
+          attributes: { ...link.attributes },
+        })),
+        status:
+          span.status === "ended" ? ("ended" as const) : ("started" as const),
+        attributes: { "seqlane.service.role": "cli" },
+      }));
+      yield* exportTelemetryEffect(telemetryConfiguration, {
+        spans: [...snapshot.telemetry.spans, ...cliSpans],
+        logs: snapshot.telemetry.logs,
+        metrics: snapshot.telemetry.metrics,
+      }).pipe(
+        Effect.map((result) => {
+          if (
+            result.failed ||
+            result.droppedRecords > 0 ||
+            snapshot.telemetry.droppedRecords > 0
+          ) {
+            writeDiagnostic(
+              options.capabilities.stderr,
+              "seqlane telemetry export incomplete",
+            );
+          }
+        }),
+        Effect.catch(() =>
+          Effect.sync(() =>
+            writeDiagnostic(
+              options.capabilities.stderr,
+              "seqlane telemetry export failed",
+            ),
+          ),
+        ),
+      );
+      return captured.value;
+    }),
+  );
+}
+
+function executeRunnerCommandEffect(
+  {
+    request,
+    sourceReference,
+    classifierOptions,
+    adapterConfiguration,
+    jsonMode,
+    dry,
+    terminalMode,
+    capabilities,
+  }: RunnerCommandOptions,
+  carrier: TraceCarrier | undefined,
+  telemetry: InProcessTelemetry | undefined,
+  telemetryConfiguration: ReturnType<
+    typeof captureTelemetryConfigurationEnvironment
+  >,
+): Effect.Effect<RunnerCommandResult, unknown> {
   let renderer: ReturnType<typeof createCliRenderer>["renderer"] | undefined;
-  let dispatcher: ReturnType<typeof createEventDispatcher> | undefined;
-  let runnerClient: import("./runner-client.js").RunnerClient | undefined;
+  let runnerChild: RunnerChild | undefined;
+  let receivedWorkerTelemetry = false;
   let identity: RunIdentity | undefined;
 
-  try {
-    try {
-      renderer =
-        terminalMode === undefined
-          ? undefined
-          : createCliRenderer(terminalMode, capabilities).renderer;
-    } catch (error) {
-      throw contextualizeCommandError(errorMessage(error), error);
-    }
+  const application = Effect.gen(function* () {
+    renderer =
+      terminalMode === undefined
+        ? undefined
+        : createCliRenderer(terminalMode, capabilities).renderer;
 
-    const outputConsumer = {
-      consume: (event: SeqlaneExecutionEvent) => {
-        try {
-          if (dry) {
-            if (event.type === "run.plan") {
-              capabilities.stdout.write(
-                JSON.stringify(event.plan, null, 2) + "\n",
-              );
-            }
-            return;
-          }
-          renderer?.handle(event);
-        } catch (error) {
-          writeDiagnostic(
-            capabilities.stderr,
-            "seqlane output error: " + errorMessage(error),
-          );
+    const consumeExecutionEvent = (event: SeqlaneExecutionEvent): void => {
+      if (dry) {
+        if (event.type === "run.plan") {
+          capabilities.stdout.write(JSON.stringify(event.plan, null, 2) + "\n");
         }
-      },
-      flush: async () => undefined,
-      close: async () => undefined,
+        return;
+      }
+      renderer?.handle(event);
     };
-    dispatcher = createEventDispatcher(
-      [{ name: "output", consumer: outputConsumer }],
-      {
-        onDiagnostic: (message) =>
-          writeDiagnostic(capabilities.stderr, message),
-      },
-    );
 
-    const { launchRunner } = await import("./runner-client.js");
     const baseEnvironment = { ...process.env };
     delete baseEnvironment[agentRuntimeConfigurationEnvironment];
     delete baseEnvironment[directRunAdapterConfigurationEnvironment];
@@ -100,17 +178,35 @@ export async function executeRunnerCommand({
       classifierOptions.url,
       classifierOptions.model,
     );
-    runnerClient = launchRunner(request, {
-      environment: {
-        ...environment,
-        ...(adapterConfiguration === undefined
-          ? {}
-          : {
-              [directRunAdapterConfigurationEnvironment]: adapterConfiguration,
-            }),
-      },
+    const child = yield* Effect.tryPromise({
+      try: async () =>
+        spawnRunnerProcess({
+          environment: {
+            ...environment,
+            ...(carrier === undefined
+              ? {}
+              : { [traceCarrierEnvironment]: encodeTraceCarrier(carrier) }),
+            ...(telemetryConfiguration === undefined
+              ? {}
+              : {
+                  [telemetryConfigurationEnvironment]:
+                    encodeTelemetryConfiguration(telemetryConfiguration),
+                }),
+            ...(adapterConfiguration === undefined
+              ? {}
+              : {
+                  [directRunAdapterConfigurationEnvironment]:
+                    adapterConfiguration,
+                }),
+          },
+        }),
+      catch: (cause) => cause,
+    });
+    runnerChild = child;
+    const result = yield* superviseRunnerEffect(child, request, {
       onExecutionEvent: (event) => {
-        dispatcher?.consume(event);
+        telemetry?.record(event);
+        consumeExecutionEvent(event);
         if (event.type === "run.started" && identity === undefined) {
           identity = {
             workId: event.workId,
@@ -119,6 +215,18 @@ export async function executeRunnerCommand({
           };
         }
       },
+      onTelemetrySpans: (frame) => {
+        receivedWorkerTelemetry = true;
+        telemetry?.recordDropped(frame.droppedRecords);
+        if (frame.queuePressure !== undefined)
+          telemetry?.recordQueuePressure(frame.queuePressure);
+        for (const span of frame.spans) telemetry?.recordSpan(span);
+      },
+      onTelemetryDiagnostic: () =>
+        writeDiagnostic(
+          capabilities.stderr,
+          "seqlane telemetry worker snapshot unavailable",
+        ),
       onRuntimeSessionUiAvailable: (notification) => {
         if (renderer?.mode === "human") return;
         if (renderer?.handleRuntimeSessionUi !== undefined) {
@@ -130,7 +238,12 @@ export async function executeRunnerCommand({
         }
       },
     });
-    const result = await runnerClient.result;
+    if (telemetryConfiguration !== undefined && !receivedWorkerTelemetry) {
+      writeDiagnostic(
+        capabilities.stderr,
+        "seqlane telemetry worker snapshot unavailable",
+      );
+    }
     return {
       exitStatus: result.status,
       commandResult: mapRunnerCommandResult(result, {
@@ -140,18 +253,41 @@ export async function executeRunnerCommand({
         workflow: { id: request.workflow.id, reference: sourceReference },
         identity,
       }),
-    };
-  } finally {
-    const cleanupErrors = await closeRunResources({
-      dispatcher,
-      closeClient: () => runnerClient?.close(),
-      finishRenderer: () => renderer?.finish(),
-    });
-    for (const error of cleanupErrors) {
-      writeDiagnostic(
-        capabilities.stderr,
-        "seqlane cleanup error: " + errorMessage(error),
-      );
-    }
-  }
+    } satisfies RunnerCommandResult;
+  });
+
+  const cleanup = Effect.tryPromise({
+    try: () =>
+      closeRunResources({
+        closeClient: () => {
+          if (
+            runnerChild !== undefined &&
+            runnerChild.exitCode === null &&
+            runnerChild.signalCode === null
+          ) {
+            runnerChild.kill?.("SIGTERM");
+          }
+        },
+        finishRenderer: () => renderer?.finish(),
+      }),
+    catch: (cause) => cause,
+  }).pipe(
+    Effect.map((cleanupErrors) => {
+      for (const error of cleanupErrors) {
+        writeDiagnostic(
+          capabilities.stderr,
+          "seqlane cleanup error: " + errorMessage(error),
+        );
+      }
+    }),
+    Effect.catch((error) =>
+      Effect.sync(() =>
+        writeDiagnostic(
+          capabilities.stderr,
+          "seqlane cleanup error: " + errorMessage(error),
+        ),
+      ),
+    ),
+  );
+  return application.pipe(Effect.ensuring(cleanup));
 }

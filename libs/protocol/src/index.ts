@@ -17,3 +17,4 @@ export {
   encodeSeqlaneExecutionEvent,
 } from "./serialization.js";
 export * from "./runner-protocol.js";
+export * from "./operations.js";

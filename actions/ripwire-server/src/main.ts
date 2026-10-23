@@ -2,7 +2,8 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import * as core from "@actions/core";
-import { assertDirectory } from "./filesystem.js";
+import { Effect } from "effect";
+import { assertDirectory } from "@seqlane/action-service-lifecycle";
 import { parseRipwireInputs } from "./config.js";
 import {
   installRipwire,
@@ -41,6 +42,26 @@ export function recordInstallFailure(
   hooks.saveState(CLEANUP_ONLY_STATE_KEY, serializeCleanupOnlyState());
 }
 
+async function runWithActionSignals<A>(
+  effect: Effect.Effect<A, Error>,
+): Promise<A> {
+  const controller = new AbortController();
+  const onInterrupt = (signal: NodeJS.Signals) => {
+    process.exitCode = signal === "SIGINT" ? 130 : 143;
+    controller.abort(new Error(`Ripwire startup interrupted by ${signal}`));
+  };
+  const onSigint = () => onInterrupt("SIGINT");
+  const onSigterm = () => onInterrupt("SIGTERM");
+  process.on("SIGINT", onSigint);
+  process.on("SIGTERM", onSigterm);
+  try {
+    return await Effect.runPromise(effect, { signal: controller.signal });
+  } finally {
+    process.off("SIGINT", onSigint);
+    process.off("SIGTERM", onSigterm);
+  }
+}
+
 export async function run(): Promise<void> {
   const mcpTokenSeed = core.getInput("mcp-token") || undefined;
   const config = parseRipwireInputs({
@@ -59,18 +80,28 @@ export async function run(): Promise<void> {
   if (config.mcpToken) core.setSecret(config.mcpToken);
   core.setSecret(sessionToken);
 
-  await assertDirectory(config.workingDirectory);
   const runnerTemp = process.env.RUNNER_TEMP ?? "/tmp";
   const logPath = runnerTempPath("ripwire.log");
   let install: Awaited<ReturnType<typeof installRipwire>> | undefined;
-  try {
-    install = await installRipwire({
-      version: config.version,
-      runnerTemp,
+  const program = Effect.gen(function* () {
+    yield* assertDirectory(config.workingDirectory).pipe(
+      Effect.mapError(
+        (cause) => new Error("Ripwire working directory is invalid", { cause }),
+      ),
+    );
+    install = yield* Effect.tryPromise({
+      try: (signal) =>
+        installRipwire({ version: config.version, runnerTemp, signal }),
+      catch: (cause) =>
+        cause instanceof Error
+          ? cause
+          : new Error("Ripwire installation failed", { cause }),
     });
-    core.saveState("install-directory", install.binaryDirectory);
-    core.addPath(install.binaryDirectory);
-    await runRipwireLifecycle(
+    yield* Effect.sync(() => {
+      core.saveState("install-directory", install!.binaryDirectory);
+      core.addPath(install!.binaryDirectory);
+    });
+    yield* runRipwireLifecycle(
       {
         config,
         binaryDirectory: install.binaryDirectory,
@@ -78,42 +109,56 @@ export async function run(): Promise<void> {
         environment: process.env,
         sessionToken,
       },
-      {
-        saveState: core.saveState,
-        warning: core.warning,
-      },
+      { saveState: core.saveState, warning: core.warning },
     );
-  } catch (error) {
-    try {
-      recordInstallFailure(error, {
-        saveState: core.saveState,
-        warning: core.warning,
-      });
-    } catch (stateError) {
-      core.warning(
-        `Ripwire cleanup state persistence failed: ${describeError(stateError)}`,
-      );
-    }
-    const cleanupSucceeded =
-      error instanceof RipwireStartupError ? error.cleanupSucceeded : true;
-    if (install && cleanupSucceeded) {
-      try {
-        await removeInstallDirectory(install.binaryDirectory, runnerTemp);
-      } catch (cleanupError) {
-        core.warning(
-          `Ripwire install cleanup failed: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,
-        );
-      }
-    }
-    throw error;
-  }
-
-  if (!install) throw new Error("Ripwire install did not complete");
-  core.setOutput("mcp-url", config.mcpUrl);
-  core.setOutput("log-path", logPath);
-  core.setOutput("binary-path", install.binaryPath);
-  core.setOutput("version", install.version);
-  core.setOutput("mcp-token", sessionToken);
+    yield* Effect.sync(() => {
+      core.setOutput("mcp-url", config.mcpUrl);
+      core.setOutput("log-path", logPath);
+      core.setOutput("binary-path", install!.binaryPath);
+      core.setOutput("version", install!.version);
+      core.setOutput("mcp-token", sessionToken);
+    });
+  }).pipe(
+    Effect.catch((cause) =>
+      Effect.gen(function* () {
+        const error =
+          cause instanceof Error
+            ? cause
+            : new Error("Ripwire startup failed", { cause });
+        yield* Effect.sync(() => {
+          try {
+            recordInstallFailure(error, {
+              saveState: core.saveState,
+              warning: core.warning,
+            });
+          } catch (stateError) {
+            core.warning(
+              `Ripwire cleanup state persistence failed: ${describeError(stateError)}`,
+            );
+          }
+        });
+        const cleanupSucceeded =
+          !(error instanceof RipwireStartupError) || error.cleanupSucceeded;
+        if (install && cleanupSucceeded) {
+          yield* Effect.tryPromise({
+            try: () =>
+              removeInstallDirectory(install!.binaryDirectory, runnerTemp),
+            catch: (cleanupError) => cleanupError,
+          }).pipe(
+            Effect.catch((cleanupError) =>
+              Effect.sync(() =>
+                core.warning(
+                  `Ripwire install cleanup failed: ${describeError(cleanupError)}`,
+                ),
+              ),
+            ),
+          );
+        }
+        return yield* Effect.fail(error);
+      }),
+    ),
+  );
+  await runWithActionSignals(program);
 }
 
 function isDirectEntry(): boolean {

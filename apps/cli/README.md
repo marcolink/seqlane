@@ -1,5 +1,8 @@
 # Seqlane CLI
 
+Use Node.js 24 or later. Oclif owns command parsing and help. Effect v4 owns
+application execution and resource cleanup behind those commands.
+
 Seqlane provides the workflow layer. It defines typed tasks, dependencies,
 schemas, sessions, workspace policy, and workflow outputs.
 
@@ -9,6 +12,9 @@ models, tools, permissions, processes, and adapter configuration. The built-in
 configured adapter runtime, such as OpenCode.
 
 ## Published and local-development entrypoints
+
+The published package includes `bin/run.js` and production output. Development
+entrypoints, test workers, and fixture programs stay in the repository.
 
 Use the published `seqlane` binary when the CLI is installed from npm. Use the
 repository entrypoint when you are developing this workspace. Build the
@@ -65,8 +71,8 @@ seqlane run ./workflows/minimal-example/workflow.ts \
   --output ci
 ```
 
-CI output does not print invocation input or transient output. It prints
-terminal tool and skill activity summaries, including successful calls. Use
+CI output prints complete invocation input, result, activity, and model
+observation events as JSON lines. Transient output has its own channel. Use
 `run --json` for one final machine-readable result.
 
 ## File-accessing workflows
@@ -90,6 +96,60 @@ When the configured OpenCode runtime also serves its browser UI, the terminal
 renderers do not show its session URL. Final JSON results contain no progress.
 Signal cancellation results preserve the received signal, for example
 `Run cancelled after SIGINT` or `Run cancelled after SIGTERM`.
+The CLI sends one cancellation request and waits up to 35 seconds for the
+runner to clean up its owned processes. If cleanup does not complete, the CLI
+stops only process groups whose identity the runner registered and the CLI
+revalidated. Cancellation exits with status `130`.
+
+## Hosted history and inspection
+
+Start the optional loopback host when you need retained history:
+
+```sh
+seqlane unstable_serve --storage-url file:./.seqlane/operations.db
+curl http://127.0.0.1:4111/healthz
+curl http://127.0.0.1:4111/readyz
+curl http://127.0.0.1:4111/api/workflows
+```
+
+Select a workflow key from that list. Start returns immediately with a run
+reference. For example, use the returned key in place of `repository:example`:
+
+```sh
+curl -X POST 'http://127.0.0.1:4111/api/workflows/repository%3Aexample/start-async' \
+  -H 'content-type: application/json' \
+  --data '{"version":1,"runId":"example-run","workId":"example-work","input":{}}'
+curl 'http://127.0.0.1:4111/api/workflows/repository%3Aexample/runs/example-run'
+curl 'http://127.0.0.1:4111/api/workflows/repository%3Aexample/runs/example-run/events?version=1&afterSequence=0&limit=100'
+curl 'http://127.0.0.1:4111/api/workflows/repository%3Aexample/runs/example-run/trace'
+```
+
+Use the event response's `nextSequence` as the next cursor. Check `gap` and
+`completeness` before treating inspection as complete. Run lists use bounded
+`limit` and `cursor` pagination with `version=1`. Cancellation is idempotent for
+the same run.
+
+MCP clients connect to `/api/mcp/seqlane-workflows/mcp` on the same host.
+Workflow tools use the same versioned input envelope and run program as HTTP.
+The host accepts only loopback access and validated browser origins.
+
+The new database starts a new history. Existing history files stay untouched.
+Run one host per database. Use its HTTP or MCP endpoint for concurrent clients.
+After a crash, unfinished runs become interrupted. Restart never repeats their
+external actions. Standalone `run` creates no history database.
+
+Use the terminal UI during a run. To inspect an existing canonical recording,
+use replay; it does not execute the workflow:
+
+```sh
+seqlane unstable_replay ./seqlane-recording.jsonl --output human
+seqlane unstable_replay ./seqlane-recording.jsonl --events ndjson
+```
+
+For an external trace viewer, configure an OTLP receiver such as your existing
+observability collector. Set `SEQLANE_TELEMETRY` with `endpoint` and an explicit
+`payloadPolicy` of `metadata` or `full`. Remote export is optional; canonical
+host history and run results do not depend on receiver availability.
 
 ## Development
 

@@ -31,7 +31,7 @@ export function createCodexAgentRuntimeFactory(
   value: unknown,
 ): AgentRuntimeFactory {
   const configuration = configurationSchema.parse(value);
-  return async (signal, workspace) => {
+  return async (signal, workspace, runtimeOptions) => {
     const resolvedWorkspace = workspace ?? configuration.workspace;
     if (resolvedWorkspace === undefined)
       throw new Error("Codex requires a workspace");
@@ -50,7 +50,11 @@ export function createCodexAgentRuntimeFactory(
           workspace: resolvedWorkspace,
           networkAccess: configuration.networkAccess,
         },
-        { signal, initialDiagnostics: discovered.diagnostics },
+        {
+          signal,
+          initialDiagnostics: discovered.diagnostics,
+          onOwnedProcessAcquired: runtimeOptions?.onOwnedProcessAcquired,
+        },
       );
     } catch (cause) {
       throw redactOpaqueValue(cause, redactText);

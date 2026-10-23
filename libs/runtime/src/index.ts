@@ -1,10 +1,5 @@
-export { compilePlan } from "./runtime/compile/compile-plan.js";
-export { PlanCompiler } from "./runtime/compile/compile-plan.js";
-export type {
-  CompiledPlan,
-  PreparedPlan,
-} from "./runtime/compile/compile-plan.js";
-export type { CompileWorkflowOptions } from "./runtime/compile/compile-plan.js";
+export { compilePlan } from "./runtime/compile/prepare-plan.js";
+export type { PreparedPlan } from "./runtime/compile/prepare-plan.js";
 export { orderPlanNodes } from "./runtime/plan/plan-ordering.js";
 export {
   PlanValidationError,
@@ -25,11 +20,6 @@ export type {
   ExecutionEventBridgeOptions,
   SendExecutionEvent,
 } from "./runner/event-bridge.js";
-export {
-  startCompiledWorkflow,
-  runCompiledWorkflow,
-} from "./runtime/execution/workflow-run.js";
-export type { ActiveWorkflowRun } from "./runtime/execution/workflow-run.js";
 export {
   MissingWorkflowModelSelectionError,
   requireStandaloneModelSelection,

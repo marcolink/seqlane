@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-04
-updated: 2026-10-05
+updated: 2026-10-22
 upstream:
   - adr.executor-neutral-workflow-authoring
   - adr.opencode-executor-integration
@@ -25,22 +25,23 @@ connection configuration remains valid internally; users need not supply it.
 
 OpenCode task execution still uses the SDK. Starting its required service does
 not replace SDK task execution with a CLI prompt transport. Native adapter
-permissions and authentication remain authoritative. This integration is
-pending under the standalone delivery task.
+permissions and authentication remain authoritative. The standalone delivery task records its scoped integration evidence; the
+final migration release gate remains separate.
 
 ## Summary
 
 Seqlane supports agent runtimes through one private adapter contract. The
 current implementations are a generic ACP adapter and an OpenCode SDK adapter.
-The planned Codex app-server adapter uses the same contract.
+The Codex app-server adapter uses the same contract.
 
 The ACP adapter contains no OpenCode types, commands, defaults, or session
 assumptions. The OpenCode adapter uses only the supported OpenCode SDK.
 The Codex adapter uses the app-server protocol and keeps Codex types private.
 
-This specification supersedes the interim ACP/OpenCode design from
-`task.mastra-agent-acp`. That completed task remains a historical delivery
-record, but its adapter design is no longer authoritative.
+This specification owns the generic adapter boundary. The current official
+ACP transport requirement and scoped evidence are linked in
+[the ACP delivery task](../tasks/2026-10-21-effect-v4-acp-transport.md).
+Earlier mixed ACP/OpenCode implementation details are historical.
 
 ## Goals
 
@@ -74,7 +75,7 @@ record, but its adapter design is no longer authoritative.
 ### requirement-agent-adapter-boundary
 
 The runtime must depend on a Seqlane-owned agent adapter contract. The contract
-must not contain ACP, OpenCode, Mastra, or provider SDK types.
+must not contain runtime-library, ACP, OpenCode, or provider SDK types.
 
 The adapter receives validated Seqlane task input, output schema, model
 selection, cancellation signal, and observation callbacks. It returns a
@@ -132,7 +133,8 @@ the Seqlane-owned contract.
 ### requirement-opencode-sdk-only
 
 The OpenCode adapter must use supported exports from the pinned OpenCode SDK.
-It must not route work through ACP, a CLI subprocess, or a Mastra ACP agent.
+It must not route task prompts through ACP or a CLI prompt subprocess.
+Native service startup is separate from SDK task execution.
 
 The adapter must use the selected OpenCode endpoint and workspace
 configuration. It must preserve the OpenCode repository harness and native
@@ -140,7 +142,7 @@ session behavior.
 
 ### requirement-codex-app-server-boundary
 
-The planned Codex adapter must implement this same private adapter contract.
+The Codex adapter implements this same private adapter contract.
 It must keep app-server messages, thread IDs, and turn IDs inside its package.
 Its protocol, lifecycle, and first-delivery scope are defined in
 [spec.codex-app-server-adapter](./2026-09-12-codex-app-server-adapter.md).
@@ -220,8 +222,9 @@ Application composition --> Seqlane runtime
 The generic ACP implementation belongs in a private ACP package. The OpenCode
 package must not export or depend on the ACP adapter.
 
-Mastra can own workflow execution around both adapters. Mastra does not select
-the adapter and does not change the adapter's session semantics.
+The Effect runtime owns workflow execution around concrete adapters.
+Application composition selects the adapter. Runtime mechanisms do not change
+the adapter's declared session semantics.
 
 ### Adapter lifecycle
 
@@ -261,7 +264,7 @@ The OpenCode SDK adapter can declare native session reuse, terminal-message
 checkpoints, and exact session forks after compatibility preflight. It can also
 declare native model selection, activity, and session UI support.
 
-The planned Codex adapter can declare only capabilities proved against its
+The Codex adapter can declare only capabilities proved against its
 pinned app-server version. Its first delivery does not declare session UI.
 
 This mapping is configuration-sensitive. A version or connection that lacks a
@@ -296,8 +299,10 @@ events.
 
 ## Migration
 
-PR 19 can retain its interim design until this follow-up stack replaces it.
-The debt is temporary and does not become a contract for later Mastra work.
+The following PR 19 findings describe the original follow-up backlog. They do
+not redefine the current Effect or official ACP transport contracts.
+PR 19 originally retained its interim design pending that follow-up stack.
+These historical findings do not define a current runtime integration recipe.
 
 The PR 19 review identified four deferred architecture findings. This
 specification is the single owner of those findings.
@@ -307,9 +312,9 @@ specification is the single owner of those findings.
 | ACP ignores the configured runtime endpoint and configuration. | `task.protocol-agnostic-acp-adapter` and `task.explicit-runtime-adapter-selection` |
 | ACP execution and OpenCode checkpoints use different sessions. | `task.session-checkpoint-fork-capabilities` |
 | The native OpenCode executor remains a duplicate exported path. | `task.opencode-sdk-only-adapter` |
-| ACP tests replace the real Mastra ACP boundary with a fake agent. | `task.agent-adapter-integration-cleanup` |
+| ACP transport tests used a fake agent instead of exercising the integration boundary. | `task.agent-adapter-integration-cleanup` |
 
-Later Mastra stack tasks must not copy these findings into their scope. They
+Later runtime tasks must not copy these historical findings into their scope. They
 can depend on this specification without redesigning the adapter boundary.
 
 Migration completes when no production session combines ACP execution with
@@ -334,7 +339,7 @@ configuration inference.
 - Unsupported session requirements fail before execution.
 - Execution and session lifecycle use the same selected adapter.
 - ACP and OpenCode integration tests exercise their real private boundaries.
-- No ACP, OpenCode, or Mastra type enters a public Seqlane contract.
+- No ACP, OpenCode, or runtime-engine type enters a public Seqlane contract.
 - The interim PR 19 exports and mixed-session behavior no longer exist.
 
 ## Delivery tasks
@@ -351,7 +356,7 @@ configuration inference.
 - [adr.executor-neutral-workflow-authoring](../adrs/2026-09-02-executor-neutral-workflow-authoring.md)
 - [adr.opencode-executor-integration](../adrs/2026-09-02-opencode-executor-integration.md)
 - [adr.session-checkpoint-reuse-and-branching](../adrs/2026-09-02-session-checkpoint-reuse-and-branching.md)
-- [spec.mastra-runtime-and-operational-integration](./2026-09-03-mastra-runtime-and-operational-integration.md)
+- [spec.effect-v4-execution-and-operations](./2026-10-21-effect-v4-execution-and-operations.md)
 - [spec.codex-app-server-adapter](./2026-09-12-codex-app-server-adapter.md)
 - Supersedes [spec.opencode-executor-integration](./2026-09-02-opencode-executor-integration.md).
-- Replaces the interim design from [task.mastra-agent-acp](../tasks/2026-09-03-mastra-agent-acp.md).
+- [task.effect-v4-acp-transport: official ACP transport owner](../tasks/2026-10-21-effect-v4-acp-transport.md)

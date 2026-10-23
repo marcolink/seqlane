@@ -5,13 +5,12 @@ status: draft
 owners:
   - core
 created: 2026-09-19
-updated: 2026-09-19
+updated: 2026-10-22
 upstream:
   - rfc.high-fidelity-local-observability
   - spec.agent-adapter-boundary-and-capabilities
   - spec.work-run-invocation-identity-model
-  - spec.opencode-mastra-observability-projection
-  - spec.mastra-native-agent-observability
+  - spec.adapter-observation-projection
 supersedes: []
 ---
 
@@ -21,16 +20,17 @@ supersedes: []
 
 This specification defines the one canonical observation contract emitted by
 concrete adapters into the Seqlane protocol event stream. The protocol owns
-the source-of-truth observation and serialized event. Mastra and CLI/TUI are
+the source-of-truth observation and serialized event. Effect telemetry and CLI/TUI are
 downstream projections of that event.
 
 The contract uses OpenTelemetry GenAI Semantic Conventions as vocabulary and
 mapping guidance. It remains a Seqlane protocol contract. It does not import
-the OpenTelemetry SDK, Mastra types, OpenCode types, ACP types, or provider SDK
+the OpenTelemetry SDK, Effect telemetry types, OpenCode types, ACP types, or provider SDK
 types.
 
-The first implementation targets OpenCode. The same contract can later be
-implemented by ACP, Codex, and other adapters.
+OpenCode, ACP, and Codex use the same canonical contract. Each adapter reports
+its native field availability truthfully; common shape does not imply equal
+source capabilities.
 
 ## Goals
 
@@ -40,7 +40,7 @@ implemented by ACP, Codex, and other adapters.
   definitions, tool calls, skill instructions, usage, cache, cost, timing,
   errors, and lifecycle updates when the source provides them.
 - Emit one engine-neutral observation from the adapter into the protocol-owned
-  canonical event stream; Mastra and CLI/TUI consume that event as projections.
+  canonical event stream; Effect telemetry and CLI/TUI consume that event as projections.
 - Keep Work, Run, Invocation, attempt, exchange, and activity correlation
   stable across projections.
 - Align standard fields with OTel GenAI names without forcing an OTel SDK
@@ -69,7 +69,7 @@ implemented by ACP, Codex, and other adapters.
 - **Activity:** One tool or skill lifecycle. A skill remains distinguishable
   from a tool.
 - **Projection:** A consumer-specific view of the protocol-owned canonical
-  observation/event. Mastra spans/events and the TUI view are projections; the
+  observation/event. Effect telemetry spans/events and the TUI view are projections; the
   protocol event is the source of truth, not a projection.
 - **Unavailable:** The source did not provide a value, or the value cannot be
   represented in the JSON protocol. An unavailable value is not the same as an
@@ -88,9 +88,9 @@ the protocol event bridge, which validates and serializes
 `invocation.observation`. This path is separate from the existing
 `@seqlane/core` execution-event union and bounded activity callback. The
 runtime does not reconstruct observations from metrics, summaries, terminal
-text, or Mastra spans.
+text, or Effect telemetry spans.
 
-The protocol contract MUST contain no OpenCode, ACP, Mastra, provider, or
+The protocol contract MUST contain no OpenCode, ACP, Effect telemetry, provider, or
 runtime-engine types.
 
 ### requirement-otel-vocabulary
@@ -109,8 +109,7 @@ into an OTel attribute map. Nested request and response data remains nested so
 that values and ordering are preserved.
 
 No `@opentelemetry/*` package is required by `@seqlane/core`,
-`@seqlane/protocol`, or the generic adapter contract. OTel SDK export remains a
-future projection concern.
+`@seqlane/protocol`, or the generic adapter contract. OTel export is an explicitly configured private runtime projection concern.
 
 ### requirement-event-envelope
 
@@ -203,7 +202,7 @@ the canonical protocol event. The pipeline is:
 
 1. the protocol-owned canonical observation and event stream;
 2. the serialized protocol event;
-3. the Mastra and CLI/TUI projections; and
+3. the Effect telemetry and CLI/TUI projections; and
 4. existing activity, metrics, diagnostics, and lifecycle callbacks derived
    from the canonical event.
 
@@ -217,17 +216,19 @@ The projections have these responsibilities:
 
 - **Protocol:** own, validate, sequence, and serialize the canonical
   observation. It is the source of truth, not a consumer projection.
-- **Mastra:** consume the validated protocol observation and map standard
-  fields to the pinned Mastra model, tool, and skill span/event mechanisms.
-  Prefer supported span `input`/`output` or event fields. If no current span
-  exists, diagnose and skip this projection. Raw payloads are data fields, not
-  generic attributes, metric labels, span names, or sampling keys.
+- **Effect telemetry:** derive model, tool, and skill spans or events from accepted
+  canonical observations. Preserve observed timing and parentage under the runtime
+  contract. Map semantic fields through the OTel vocabulary below; no specialized
+  adapter span class or span `input`/`output` API is required. Raw payloads remain
+  structured data, never metric labels, span names, or sampling keys. Optional
+  export follows its explicit payload policy and whole-record byte bounds.
 - **CLI/TUI:** render a readable summary by default and expose the complete
   captured payload through the existing detail path. Rendering MUST NOT mutate
   or truncate the protocol observation.
 
-Mastra remains behind private runtime and concrete adapter boundaries. TUI
-imports protocol contracts, not Mastra or native adapter types.
+Effect telemetry types remain behind the private runtime boundary; concrete
+adapters emit canonical observations without a second native trace tree. TUI
+imports protocol contracts, not Effect telemetry or native adapter types.
 
 ### requirement-zod-and-round-trip
 
@@ -242,13 +243,13 @@ rejected at the protocol boundary with a typed validation failure.
 ### requirement-no-recording
 
 This change MUST NOT add a recorder, replay format, event file, local run
-archive, or new persistence API. The live protocol stream and existing
-configured Mastra observation storage remain separate from a future recording
+archive, or new persistence API. The live protocol stream and explicitly configured
+hosted observation storage remain separate from a future recording
 feature. Recording/replay requires a later contract and explicit scope.
 
 ### requirement-boundaries
 
-The implementation MUST keep runtime-engine and Mastra types out of
+The implementation MUST keep runtime-engine and Effect telemetry types out of
 `@seqlane/core`, protocol declarations, Plans, workflow authoring, and stable
 CLI result types. The protocol may define Seqlane-specific `seqlane.*` fields,
 but it MUST NOT expose native adapter shapes.
@@ -305,7 +306,7 @@ projections later.
   one lifecycle record per update sequence.
 - **Out-of-order source update:** preserve source event order and diagnose an
   invalid lifecycle transition without changing unrelated observations.
-- **Mastra projection failure:** diagnose and continue protocol delivery and
+- **Effect telemetry projection failure:** diagnose and continue protocol delivery and
   execution.
 - **Cancellation or failure:** close open observations with the observed
   terminal state and preserve already completed observations.
@@ -322,7 +323,7 @@ Expected first-touch areas are:
   the `@seqlane/core` execution-event union;
 - `libs/opencode`: native OpenCode extraction and canonical observation
   emission;
-- `libs/runtime`: protocol event bridge and private Mastra projection wiring;
+- `libs/runtime`: protocol event bridge and private Effect telemetry projection wiring;
 - `libs/tui`: observation view-model and detail rendering.
 
 No new package is planned for the normalized shape. No OTel SDK dependency is
@@ -335,12 +336,12 @@ Run the test-mapping check before focused tests. Verification MUST include:
 - protocol Zod validation, malformed-input, JSON round-trip, ordering, and
   payload-preservation tests;
 - one OpenCode model exchange through adapter, protocol event serialization,
-  Mastra projection, and TUI detail projection;
+  Effect telemetry projection, and TUI detail projection;
 - tool lifecycle and skill payload tests with stable correlation;
 - multiple model exchanges and structured-output repair attempts;
 - streaming, failure, cancellation, unavailable-value, and non-JSON tests;
 - exporter/projection failure isolation from protocol and execution outcome;
-- public-boundary tests proving no Mastra/native types leak into protocol or
+- public-boundary tests proving no Effect telemetry/native types leak into protocol or
   core;
 - payload size and serialization measurements before any chunking decision;
 - `pnpm docs:index`, `pnpm docs:validate`, and `git diff --check`.
@@ -348,7 +349,7 @@ Run the test-mapping check before focused tests. Verification MUST include:
 ## Acceptance criteria
 
 - One OpenCode adapter observation becomes one canonical protocol event and
-  reaches Mastra and TUI as projections without losing any available JSON/text
+  reaches Effect telemetry and TUI as projections without losing any available JSON/text
   field.
 - Every actual model exchange, tool activity, and skill activity has a stable
   identity and lifecycle.
@@ -358,17 +359,18 @@ Run the test-mapping check before focused tests. Verification MUST include:
   recorded.
 - `seqlane.*` fields cover correlation, availability, lifecycle, and skill
   semantics not supplied by OTel.
-- The protocol observation/event is the single source of truth; Mastra and TUI
+- The protocol observation/event is the single source of truth; Effect telemetry and TUI
   are projections and neither becomes a second source of truth.
 - Projection failure does not change execution or suppress protocol events.
 - No recording/replay/event-file implementation is added.
-- No OTel SDK, Mastra type, native executor type, LangSmith schema, or Datadog
+- No OTel SDK, Effect telemetry type, native executor type, LangSmith schema, or Datadog
   schema leaks into the public protocol contract.
 
 ## Delivery state
 
-Draft implementation contract. No implementation or target-branch delivery is
-claimed. Human approval is required before the planned task starts.
+Field-level observation contract retained by the active Effect runtime
+specification. Its draft metadata is not a release claim. S5, S6, S8, and S10
+record scoped implementation evidence; S12 owns final verification.
 
 ## Traceability
 
@@ -376,6 +378,5 @@ claimed. Human approval is required before the planned task starts.
 - [rfc.execution-observability-and-debugging: Seqlane Execution Observability and Debugging](../rfcs/2026-09-02-execution-observability-and-debugging.md)
 - [spec.agent-adapter-boundary-and-capabilities: Agent Adapter Boundary and Capability Model](./2026-09-04-agent-adapter-boundary-and-capabilities.md)
 - [spec.work-run-invocation-identity-model: Work, Run, and Invocation Identity Model](./2026-09-02-work-run-invocation-identity-model.md)
-- [spec.opencode-mastra-observability-projection: OpenCode-to-Mastra Observability Projection](./2026-09-08-opencode-mastra-observability-projection.md)
-- [spec.mastra-native-agent-observability: Native Mastra Agent Observability Projection](./2026-09-07-mastra-native-agent-observability.md)
+- [spec.adapter-observation-projection: Adapter Observation Lifecycle and Projection](./2026-10-22-adapter-observation-projection.md)
 - [OpenTelemetry GenAI Semantic Conventions](https://github.com/open-telemetry/semantic-conventions-genai)

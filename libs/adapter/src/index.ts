@@ -7,10 +7,7 @@ import type {
 import type { SeqlaneObservation } from "@seqlane/protocol";
 import { z } from "zod";
 
-export {
-  createBoundedNormalizedNameAllocator,
-  type BoundedNormalizedNameAllocator,
-} from "./observability.js";
+export type { SeqlaneObservation } from "@seqlane/protocol";
 
 const agentActivityStateSchema = z.enum([
   "started",
@@ -69,11 +66,6 @@ export interface AgentAdapterCapabilities {
 
 export interface AgentAdapterRequest {
   readonly invocationId: string;
-  /**
-   * Opaque runtime-owned observability state. Concrete adapter integrations
-   * must validate it before use.
-   */
-  readonly observability: unknown;
   readonly task: TaskDefinition;
   readonly input: unknown;
   readonly agent?: AgentTaskRequest;
@@ -90,6 +82,8 @@ export interface AgentAdapterRequest {
   readonly onUncertainActivity?: (activity: AgentUncertainActivity) => void;
   /** Reports a background process started by the adapter. */
   readonly onBackgroundProcess?: (process: AgentBackgroundProcess) => void;
+  /** Registers an owned SDK/service process before its protocol I/O starts. */
+  readonly onOwnedProcessAcquired?: (pid: number) => Promise<void>;
 }
 
 export interface AgentAdapter {
@@ -119,11 +113,7 @@ export interface AgentRuntimeModelCapabilities {
 export interface AgentRuntimeContext {
   readonly signal: AbortSignal;
   readonly modelSelection?: ModelSelection;
-  /**
-   * Opaque execution context supplied by the runtime integration. Concrete
-   * adapters must validate it before use; this contract exposes no engine type.
-   */
-  readonly requestContext: unknown;
+  readonly onOwnedProcessAcquired?: (pid: number) => Promise<void>;
 }
 
 /** A run-scoped, composition-owned runtime for one selected agent adapter. */
@@ -140,6 +130,9 @@ export interface AgentRuntime {
 export type AgentRuntimeFactory = (
   signal: AbortSignal,
   workspace: string | undefined,
+  options?: {
+    readonly onOwnedProcessAcquired?: (pid: number) => Promise<void>;
+  },
 ) => Promise<AgentRuntime>;
 
 /** Validates declared capabilities against an instantiated adapter. */

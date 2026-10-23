@@ -1,81 +1,72 @@
 ---
 id: adr.engine-opaque-agent-adapter-contracts
 title: Keep Generic Agent Adapter Contracts Engine-Opaque
-status: accepted
+status: superseded
 owners:
   - core
 created: 2026-09-18
-updated: 2026-09-18
+updated: 2026-10-22
 upstream:
   - rfc.execution-observability-and-debugging
   - adr.opencode-executor-integration
-supersedes:
-  - adr.mastra-native-agent-observability
+supersedes: []
 ---
 
 # Keep Generic Agent Adapter Contracts Engine-Opaque
 
+> Superseded by [the Effect runtime decision](../rfcs/2026-10-21-effect-v4-migration.md).
+> The retained boundary rationale is recorded below. Current observation and
+> context ownership belongs to [the adapter observation contract](../specs/2026-10-22-adapter-observation-projection.md#requirement-boundary-and-context).
+
 ## Context
 
-The generic agent-adapter contract carried Mastra's
-`Partial<ObservabilityContext>` directly. This made a runtime-engine type part
-of a package shared by all adapter implementations. It conflicts with the
-adapter boundary: the runtime must depend only on generic contracts, while
-concrete integrations own their engine-specific details.
-
-The runtime still needs to preserve the active Mastra workflow-step context.
-OpenCode and ACP still need that context to create native spans. The issue is
-where the type crosses the adapter boundary, not whether native observability
-exists.
+The generic agent-adapter contract exposed a runtime instrumentation type to
+every adapter implementation. That coupling conflicted with the generic
+boundary. Runtime mechanisms and native SDK details need separate owners.
+Observability must preserve invocation correlation without making those
+implementation types part of the shared execution contract.
 
 ## Decision
 
-The generic `AgentAdapterRequest.observability` and
-`AgentRuntimeContext.requestContext` fields are required opaque `unknown`
-values. `@seqlane/agent-adapter` must not import or expose Mastra types.
+The original decision hid runtime instrumentation behind an opaque private
+handoff. It kept runtime types out of the generic adapter package, but still
+required concrete adapters to participate in runtime trace projection.
 
-`@seqlane/runtime` retains Mastra's typed per-invocation context privately and
-passes it unchanged as the opaque request value. A concrete adapter that
-supports Mastra observability narrows that value at its own private integration
-edge before reading the current span. It must treat an absent, malformed, or
-conflicting context as no native instrumentation, without changing execution.
-
-Concrete adapter projection rules remain unchanged: adapters own their source
-validation, reducer, span parentage, lifecycle, data bounds, and failure
-isolation. Public workflow APIs, Plans, events, runner IPC, and generic adapter
-contracts remain Mastra-free.
+The replacement removes that handoff and the adapter-owned trace tree.
+Adapters emit validated canonical observations. Runtime telemetry projects
+those observations and owns tracing resources. The generic boundary remains
+engine-independent; this historical record defines no current request fields.
 
 ## Alternatives considered
 
-### Keep Mastra types in the generic private adapter package
+### Expose runtime instrumentation types in the generic adapter package
 
 Rejected. The package is generic by design. A private package boundary is not
-sufficient reason to expose a runtime-engine type to every adapter.
+sufficient reason to couple every adapter to runtime instrumentation.
 
-### Erase the context in the runtime
+### Remove correlation at the integration boundary
 
-Rejected. Concrete Mastra integrations need the active workflow-step parent to
-produce correctly correlated native spans.
+Rejected. Detailed observations still need the correct invocation and native
+parent relationships. The replacement preserves them through canonical events
+and owned context propagation.
 
 ### Define a generic observability interface
 
-Rejected. A shared interface would either recreate Mastra types or add a
-second, lossy span abstraction. Adapter-specific projection semantics belong in
-the concrete adapter.
+Rejected. A shared interface would either recreate runtime instrumentation or add a
+second, lossy span abstraction. The original decision kept private projection
+in concrete adapters. The replacement keeps native SDK validation and event
+reduction there; runtime telemetry owns span projection.
 
 ## Consequences
 
-- Runtime-only Mastra types stay inside `@seqlane/runtime`.
-- Concrete adapter packages may import Mastra only for their local projection.
-- The generic adapter package can support non-Mastra runtimes without a type
-  dependency on Mastra.
-- Concrete adapters must safely narrow the opaque context before use.
-- Adapter and runtime boundary tests must reject Mastra imports or exported
-  Mastra types from the generic adapter package.
+- The generic adapter contract remains independent of runtime and native SDK types.
+- Concrete adapters own source validation, identity, and lifecycle reduction.
+- Runtime owns telemetry projection, exporters, and shutdown.
+- Boundary tests must reject runtime or native SDK type leaks from generic contracts.
 
 ## Delivery state
 
-Accepted architecture decision. Its implementation is tracked by
+Superseded architecture decision. Its original implementation was tracked by
 `task.decouple-runtime-adapter-composition`; this document does not claim
 delivery on the target branch.
 
@@ -83,7 +74,7 @@ delivery on the target branch.
 
 - [rfc.execution-observability-and-debugging: Seqlane Execution Observability and Debugging](../rfcs/2026-09-02-execution-observability-and-debugging.md)
 - [adr.opencode-executor-integration: Integrate OpenCode Through a Seqlane-Owned Executor Boundary](./2026-09-02-opencode-executor-integration.md)
-- [Previous observability decision](./2026-09-07-mastra-native-agent-observability.md)
+- [Replacement runtime decision](../rfcs/2026-10-21-effect-v4-migration.md)
 - [spec.agent-adapter-boundary-and-capabilities: Agent Adapter Boundary and Capability Model](../specs/2026-09-04-agent-adapter-boundary-and-capabilities.md)
-- [spec.mastra-native-agent-observability: Native Mastra Agent Observability Projection](../specs/2026-09-07-mastra-native-agent-observability.md)
+- [spec.adapter-observation-projection: Adapter Observation Lifecycle and Projection](../specs/2026-10-22-adapter-observation-projection.md)
 - [task.decouple-runtime-adapter-composition: Decouple Runtime from Concrete Adapter Implementations](../tasks/2026-09-16-decouple-runtime-adapter-composition.md)

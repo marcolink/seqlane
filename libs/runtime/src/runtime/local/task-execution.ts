@@ -4,20 +4,22 @@ import type {
   TaskId,
   TaskContext,
 } from "@seqlane/core";
+import type { Context } from "effect";
 import {
-  MastraProcessCancelledError,
-  MastraProcessTerminationError,
-  runMastraProcess,
-} from "./mastra-process.js";
+  LocalProcessCancelledError,
+  LocalProcessTerminationError,
+  runLocalProcess,
+} from "./effect-process.js";
 import type { SeqlaneUncertainActivity } from "../execution/executor.js";
 
 export const DEFAULT_LOCAL_TASK_OUTPUT_LIMIT_BYTES = 1024 * 1024;
 export {
-  DEFAULT_MASTRA_PROCESS_TIMEOUT_MS as DEFAULT_LOCAL_TASK_TIMEOUT_MS,
-  MAX_MASTRA_PROCESS_TIMEOUT_MS as MAX_LOCAL_TASK_TIMEOUT_MS,
-} from "./mastra-process.js";
+  DEFAULT_LOCAL_PROCESS_TIMEOUT_MS as DEFAULT_LOCAL_TASK_TIMEOUT_MS,
+  MAX_LOCAL_PROCESS_TIMEOUT_MS as MAX_LOCAL_TASK_TIMEOUT_MS,
+} from "./effect-process.js";
 
 export interface TaskExecutionRequest {
+  readonly nativeContext?: Context.Context<never>;
   readonly definition: TaskDefinition<unknown, unknown>;
   readonly input: unknown;
   readonly cwd: string;
@@ -28,33 +30,40 @@ export interface TaskExecutionRequest {
   readonly runAgent: TaskContext["runAgent"];
   readonly classify?: NonNullable<TaskContext["classify"]>;
   readonly onUncertainActivity?: (activity: SeqlaneUncertainActivity) => void;
+  readonly onOwnedProcessAcquired?: (pid: number) => Promise<void>;
 }
 
-function taskContext(
-  cwd: string,
-  taskId: TaskId,
-  invocationId: InvocationId,
-  signal: AbortSignal,
-  outputLimitBytes: number,
-  runAgent: TaskContext["runAgent"],
-  classify: NonNullable<TaskContext["classify"]> | undefined,
-  onUncertainActivity: TaskExecutionRequest["onUncertainActivity"],
-): TaskContext {
+function taskContext(request: TaskExecutionRequest): TaskContext {
+  const {
+    cwd,
+    taskId,
+    invocationId,
+    signal,
+    runAgent,
+    classify,
+    onUncertainActivity,
+    onOwnedProcessAcquired,
+  } = request;
   const baseContext: TaskContext = {
-    exec: async (request) => {
+    exec: async (command) => {
       try {
-        return await runMastraProcess({
-          command: request.executable,
-          args: request.argv ?? [],
-          cwd,
-          taskId,
-          invocationId,
-          outputLimitBytes,
-          signal,
-          timeoutMs: request.timeoutMs,
-        });
+        return await runLocalProcess(
+          {
+            command: command.executable,
+            args: command.argv ?? [],
+            cwd,
+            taskId,
+            invocationId,
+            outputLimitBytes:
+              request.outputLimitBytes ?? DEFAULT_LOCAL_TASK_OUTPUT_LIMIT_BYTES,
+            signal,
+            timeoutMs: command.timeoutMs,
+            onOwnedProcessAcquired,
+          },
+          request.nativeContext,
+        );
       } catch (cause) {
-        if (cause instanceof MastraProcessTerminationError) {
+        if (cause instanceof LocalProcessTerminationError) {
           onUncertainActivity?.({ reason: "timeout" });
         }
         throw cause;
@@ -68,23 +77,14 @@ function taskContext(
 export async function executeTask(
   request: TaskExecutionRequest,
 ): Promise<unknown> {
-  const context = taskContext(
-    request.cwd,
-    request.taskId,
-    request.invocationId,
-    request.signal,
-    request.outputLimitBytes ?? DEFAULT_LOCAL_TASK_OUTPUT_LIMIT_BYTES,
-    request.runAgent,
-    request.classify,
-    request.onUncertainActivity,
-  );
+  const context = taskContext(request);
   const output = await request.definition.execute({
     input: request.input,
     signal: request.signal,
     context,
   });
   if (request.signal.aborted) {
-    throw new MastraProcessCancelledError(request.signal.reason);
+    throw new LocalProcessCancelledError(request.signal.reason);
   }
   return output;
 }

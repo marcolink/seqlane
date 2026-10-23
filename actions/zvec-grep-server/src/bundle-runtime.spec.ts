@@ -41,7 +41,7 @@ describe("zvec-grep action bundle", () => {
           "-e",
           "const { processAnchorPath } = await import(process.argv[1]); if (processAnchorPath() !== process.argv[2]) process.exit(1);",
           new URL("../dist/main.js", import.meta.url).href,
-          fileURLToPath(new URL("../process-anchor.js", import.meta.url)),
+          fileURLToPath(new URL("../dist/process-anchor.js", import.meta.url)),
         ],
         { env },
       ),

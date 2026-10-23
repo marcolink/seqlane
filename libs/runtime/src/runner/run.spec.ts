@@ -1,10 +1,19 @@
 // @test-scope ./run.ts
 // @test-scope ./main.ts
+// @test-scope ./ipc-ack.ts
 // @test-scope ../runtime/plan/agent-work.ts
 import { EventEmitter } from "node:events";
+import { spawn, type ChildProcess } from "node:child_process";
+import { once } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { decodeSeqlaneExecutionEvent } from "@seqlane/protocol";
+import {
+  decodeOwnedProcessFrame,
+  type OwnedProcessFrame,
+} from "@seqlane/protocol/private/owned-process";
+import { decodeTelemetrySpanSnapshotFrame } from "@seqlane/protocol/private/telemetry-span-snapshot";
+import { telemetryConfigurationSchema } from "../private/telemetry/configuration.js";
 import {
   requestRunnerCancellation,
   startRun,
@@ -17,6 +26,7 @@ import {
   createRunnerExecutionResolver,
   startRunnerProcess,
 } from "./main.js";
+import { sendWithAcknowledgement } from "./ipc-ack.js";
 import { createFlow, type TaskDefinitionRegistry } from "@seqlane/core";
 import type { RunRequest } from "@seqlane/protocol";
 import type {
@@ -70,14 +80,34 @@ function sharedSessionResolver(
 
 class FakeRunnerHost implements RunnerHost {
   readonly events: unknown[] = [];
+  readonly ownedProcessFrames: OwnedProcessFrame[] = [];
   exitCode: number | undefined;
+  ownedProcessRegistry: RunnerRunControl["ownedProcessRegistry"];
+  acknowledgeOwnedProcess: (frame: OwnedProcessFrame) => boolean = () => true;
 
   on(): this {
     return this;
   }
 
   send(message: string, callback?: (error?: Error) => void): boolean {
-    this.events.push(decodeSeqlaneExecutionEvent(message));
+    try {
+      const frame = decodeOwnedProcessFrame(message);
+      this.ownedProcessFrames.push(frame);
+      if (this.acknowledgeOwnedProcess(frame)) {
+        queueMicrotask(() =>
+          this.ownedProcessRegistry?.acceptAcknowledgement({
+            ...frame,
+            type: "runner.owned-process.ack",
+          }),
+        );
+      }
+    } catch {
+      try {
+        this.events.push(decodeTelemetrySpanSnapshotFrame(message));
+      } catch {
+        this.events.push(decodeSeqlaneExecutionEvent(message));
+      }
+    }
     callback?.();
     return true;
   }
@@ -86,6 +116,22 @@ class FakeRunnerHost implements RunnerHost {
     this.exitCode = code;
     return undefined as never;
   }
+}
+
+async function startOwnedChild(): Promise<ChildProcess> {
+  const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+    detached: true,
+    stdio: "ignore",
+  });
+  await once(child, "spawn");
+  return child;
+}
+
+async function stopOwnedChild(child: ChildProcess): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  const exited = once(child, "exit");
+  child.kill("SIGKILL");
+  await exited;
 }
 
 class FakeRunnerSignalSource extends EventEmitter {
@@ -99,6 +145,97 @@ class FakeRunnerSignalSource extends EventEmitter {
 }
 
 describe("seqlane runner entry point", () => {
+  it.each(["failed", "cancelled"] as const)(
+    "delivers a worker telemetry frame before the %s terminal",
+    async (terminal) => {
+      if (terminal === "failed") {
+        loadWorkflowMock.mockRejectedValue(new Error("workflow import failed"));
+      } else {
+        useLoadedWorkflow({
+          workflow: { id: "telemetry-cancel" },
+          nodes: [],
+          output: null,
+        });
+      }
+      const host = new FakeRunnerHost();
+      const control: RunnerRunControl = {
+        cancellationRequested: terminal === "cancelled",
+        telemetryConfiguration: telemetryConfigurationSchema.parse({
+          endpoint: "http://127.0.0.1:4318",
+          payloadPolicy: "metadata",
+        }),
+      };
+      await startRun(
+        host,
+        {
+          type: "run.start",
+          workflow: {
+            id: `telemetry-${terminal}`,
+            moduleSpecifier: `test:telemetry-${terminal}`,
+            exportName: "workflow",
+          },
+          input: null,
+          runtime: { id: "local" },
+        },
+        () => "work-1",
+        () => "run-1",
+        () => undefined,
+        control,
+      );
+      const eventTypes = host.events.map(
+        (event) => (event as { type: string }).type,
+      );
+      const frameIndex = eventTypes.indexOf("runner.telemetry.spans");
+      const terminalIndex = eventTypes.indexOf(
+        terminal === "failed" ? "run.failed" : "run.cancelled",
+      );
+      expect(frameIndex).toBeGreaterThanOrEqual(0);
+      expect(terminalIndex).toBeGreaterThan(frameIndex);
+    },
+  );
+
+  it("fails supervision when terminal IPC never acknowledges delivery", async () => {
+    useLoadedWorkflow({
+      workflow: { id: "blocked-ack" },
+      nodes: [],
+      output: null,
+    });
+    const host = new FakeRunnerHost();
+    host.send = function (message: string): boolean {
+      this.events.push(decodeSeqlaneExecutionEvent(message));
+      return true;
+    };
+    const request: RunRequest = {
+      type: "run.start",
+      workflow: {
+        id: "blocked-ack",
+        moduleSpecifier: "test:blocked-ack",
+        exportName: "workflow",
+      },
+      input: null,
+      runtime: { id: "local" },
+      dryRun: true,
+    };
+    const control: RunnerRunControl = {
+      cancellationRequested: false,
+      ipcAckTimeoutMs: 5,
+    };
+
+    await startRun(
+      host,
+      request,
+      () => "work-1",
+      () => "run-1",
+      () => undefined,
+      control,
+    );
+
+    expect(host.exitCode).toBe(1);
+    expect(
+      host.events.map((event) => (event as { type: string }).type),
+    ).toContain("run.failed");
+  });
+
   it("is safe to call outside a child process with IPC", () => {
     expect(() => startRunnerProcess()).not.toThrow();
   });
@@ -141,16 +278,9 @@ describe("seqlane runner entry point", () => {
   it("cancels the active run when the runner receives a termination signal", async () => {
     const signals = new FakeRunnerSignalSource();
     const controller = new AbortController();
-    let cancellations = 0;
     const control: RunnerRunControl = {
       cancellationRequested: false,
       abortController: controller,
-      activeRun: {
-        outcome: Promise.resolve({ status: "cancelled" }),
-        cancel: async () => {
-          cancellations += 1;
-        },
-      },
     };
 
     bindRunnerCancellationSignals(signals, control);
@@ -159,22 +289,14 @@ describe("seqlane runner entry point", () => {
 
     expect(control.cancellationRequested).toBe(true);
     expect(controller.signal.aborted).toBe(true);
-    expect(cancellations).toBe(1);
   });
 
   it("cancels active work when its CLI supervisor disconnects", async () => {
     const supervisor = new EventEmitter();
     const controller = new AbortController();
-    let cancellations = 0;
     const control: RunnerRunControl = {
       cancellationRequested: false,
       abortController: controller,
-      activeRun: {
-        outcome: Promise.resolve({ status: "cancelled" }),
-        cancel: async () => {
-          cancellations += 1;
-        },
-      },
     };
 
     bindRunnerSupervisorDisconnect(supervisor, control);
@@ -183,7 +305,31 @@ describe("seqlane runner entry point", () => {
 
     expect(control.cancellationRequested).toBe(true);
     expect(controller.signal.aborted).toBe(true);
-    expect(cancellations).toBe(1);
+    expect(control.supervisorDisconnectController?.signal.aborted).toBe(true);
+  });
+
+  it("settles pending and later IPC sends when the supervisor disconnects", async () => {
+    const supervisor = new EventEmitter();
+    const control: RunnerRunControl = { cancellationRequested: false };
+    bindRunnerSupervisorDisconnect(supervisor, control);
+    const send = vi.fn(() => true);
+    const pending = sendWithAcknowledgement(
+      send,
+      5_000,
+      control.supervisorDisconnectController?.signal,
+    );
+
+    supervisor.emit("disconnect");
+
+    await expect(pending).rejects.toThrow("Runner supervisor disconnected");
+    await expect(
+      sendWithAcknowledgement(
+        send,
+        5_000,
+        control.supervisorDisconnectController?.signal,
+      ),
+    ).rejects.toThrow("Runner supervisor disconnected");
+    expect(send).toHaveBeenCalledOnce();
   });
 
   it("aborts the setup signal passed to the runner-execution factory", async () => {
@@ -354,8 +500,8 @@ describe("seqlane runner entry point", () => {
     );
 
     expect(closed).toBe(1);
-    expect(host.events.at(-1)).toMatchObject({ type: "run.cancelled" });
-    expect(host.exitCode).toBe(0);
+    expect(host.events.at(-1)).toBeUndefined();
+    expect(host.exitCode).toBe(1);
   });
 
   it("emits one Plan event before invocation topology", async () => {
@@ -845,7 +991,7 @@ describe("seqlane runner entry point", () => {
       { cancellationRequested: false },
     );
 
-    expect(host.exitCode).toBe(0);
+    expect(host.exitCode).toBe(1);
     expect(host.events.at(-1)).toMatchObject({
       type: "run.failed",
       metadata: { sequence: 1 },
@@ -853,6 +999,208 @@ describe("seqlane runner entry point", () => {
         message: expect.stringContaining("initial IPC delivery failed"),
       },
     });
+  });
+
+  it("reports cancellation as failure when owned-process release is unconfirmed", async () => {
+    const plan = {
+      workflow: { id: "cancel-release-failure", version: "1" },
+      nodes: [
+        {
+          type: "task" as const,
+          nodeId: "agent:1",
+          taskId: "agent",
+          workspace: "shared" as const,
+          input: {},
+          dependsOn: [],
+        },
+      ],
+      output: { type: "ref" as const, nodeId: "agent:1", path: ["output"] },
+    };
+    const taskDefinitions: TaskDefinitionRegistry = new Map([
+      [
+        "agent",
+        {
+          id: "agent",
+          input: z.unknown(),
+          output: z.unknown(),
+          execute: async ({ context }) =>
+            context.runAgent({ goal: "wait for cancellation" }),
+        },
+      ],
+    ]);
+    useLoadedWorkflow(plan, taskDefinitions);
+    const child = await startOwnedChild();
+    const control: RunnerRunControl = {
+      cancellationRequested: false,
+      ipcAckTimeoutMs: 20,
+    };
+    const deliveryFailure = new Error("required invocation event failed");
+    let failedDelivery = false;
+    let runtimeClosed = false;
+    class FailingInvocationHost extends FakeRunnerHost {
+      override acknowledgeOwnedProcess = (frame: OwnedProcessFrame) =>
+        frame.action === "register";
+
+      override send(message: string, callback?: (error?: Error) => void) {
+        try {
+          const event = decodeSeqlaneExecutionEvent(message);
+          if (event.type === "invocation.started" && !failedDelivery) {
+            failedDelivery = true;
+            this.events.push(event);
+            callback?.(deliveryFailure);
+            return true;
+          }
+        } catch {
+          // Other private frames and telemetry are handled by the base host.
+        }
+        return super.send(message, callback);
+      }
+    }
+    const failingHost = new FailingInvocationHost();
+    try {
+      const run = startRun(
+        failingHost,
+        {
+          type: "run.start",
+          workflow: {
+            id: "cancel-release-failure",
+            moduleSpecifier: "test:cancel-release-failure",
+            exportName: "workflow",
+          },
+          input: null,
+          runtime: { id: "test" },
+        },
+        () => "work-1",
+        () => "run-1",
+        () => undefined,
+        control,
+        async (_profile, definitions, _signal, _input, _notify, options) => {
+          await options?.onOwnedProcessAcquired?.(child.pid!);
+          const executor: ResolvedExecutorSession["executor"] = {
+            execute: ({ signal }) =>
+              new Promise((_resolve, reject) => {
+                signal.addEventListener("abort", () => reject(signal.reason), {
+                  once: true,
+                });
+              }),
+          };
+          return {
+            executors: { agent: () => executor },
+            sessionResolver: sharedSessionResolver(executor),
+            taskDefinitions: definitions!,
+            workspaceIdentities: new Map(),
+            workspaceResources: new Map(),
+            close: async () => {
+              runtimeClosed = true;
+            },
+          };
+        },
+      );
+      failingHost.ownedProcessRegistry = control.ownedProcessRegistry;
+      await run;
+
+      expect(failedDelivery).toBe(true);
+      expect(control.cancellationRequested).toBe(true);
+      expect(runtimeClosed).toBe(true);
+      expect(
+        failingHost.ownedProcessFrames.map(({ action }) => action),
+      ).toEqual(["register"]);
+      expect(failingHost.events.at(-1)).toMatchObject({ type: "run.failed" });
+      expect(failingHost.events.at(-1)).toMatchObject({
+        error: { message: expect.stringContaining(deliveryFailure.message) },
+      });
+      expect(failingHost.exitCode).toBe(1);
+    } finally {
+      await stopOwnedChild(child);
+    }
+  });
+
+  it("keeps the plan failure and reports an owned-process release failure", async () => {
+    const plan = {
+      workflow: { id: "primary-release-failure", version: "1" },
+      nodes: [
+        {
+          type: "task" as const,
+          nodeId: "agent:1",
+          taskId: "agent",
+          workspace: "shared" as const,
+          input: {},
+          dependsOn: [],
+        },
+      ],
+      output: { type: "ref" as const, nodeId: "agent:1", path: ["output"] },
+    };
+    const taskDefinitions: TaskDefinitionRegistry = new Map([
+      [
+        "agent",
+        {
+          id: "agent",
+          input: z.unknown(),
+          output: z.unknown(),
+          execute: async ({ context }) =>
+            context.runAgent({ goal: "fail the plan" }),
+        },
+      ],
+    ]);
+    useLoadedWorkflow(plan, taskDefinitions);
+    const child = await startOwnedChild();
+    const host = new FakeRunnerHost();
+    host.acknowledgeOwnedProcess = (frame) => frame.action === "register";
+    const control: RunnerRunControl = {
+      cancellationRequested: false,
+      ipcAckTimeoutMs: 20,
+    };
+    const primaryFailure = Object.freeze(new Error("primary executor failure"));
+    try {
+      const run = startRun(
+        host,
+        {
+          type: "run.start",
+          workflow: {
+            id: "primary-release-failure",
+            moduleSpecifier: "test:primary-release-failure",
+            exportName: "workflow",
+          },
+          input: null,
+          runtime: { id: "test" },
+        },
+        () => "work-1",
+        () => "run-1",
+        () => undefined,
+        control,
+        async (_profile, definitions, _signal, _input, _notify, options) => {
+          await options?.onOwnedProcessAcquired?.(child.pid!);
+          const executor: ResolvedExecutorSession["executor"] = {
+            execute: async () => {
+              throw primaryFailure;
+            },
+          };
+          return {
+            executors: { agent: () => executor },
+            sessionResolver: sharedSessionResolver(executor),
+            taskDefinitions: definitions!,
+            workspaceIdentities: new Map(),
+            workspaceResources: new Map(),
+            close: async () => undefined,
+          };
+        },
+      );
+      host.ownedProcessRegistry = control.ownedProcessRegistry;
+      await run;
+
+      expect(host.ownedProcessFrames.map(({ action }) => action)).toEqual([
+        "register",
+      ]);
+      expect(host.events.at(-1)).toMatchObject({ type: "run.failed" });
+      const terminal = host.events.at(-1) as {
+        error: { message: string };
+      };
+      expect(terminal.error.message).toContain(primaryFailure.message);
+      expect(terminal.error.message).toContain("Run cleanup also failed");
+      expect(host.exitCode).toBe(0);
+    } finally {
+      await stopOwnedChild(child);
+    }
   });
 
   it("exits nonzero when even the direct terminal failure cannot be delivered", async () => {

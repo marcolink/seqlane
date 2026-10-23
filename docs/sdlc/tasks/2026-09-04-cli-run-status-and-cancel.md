@@ -5,43 +5,41 @@ status: completed
 owners:
   - core
 created: 2026-09-04
-updated: 2026-09-04
+updated: 2026-10-22
 upstream:
-  - spec.mastra-runtime-and-operational-integration
+  - spec.effect-v4-execution-and-operations
 supersedes: []
 ---
 
 # Run, Inspect, and Cancel Through the Operational Host
 
+> Historical task record. Scope and outcomes describe work before the current migration.
+> Current execution authority: [Effect v4 execution and operations](../specs/2026-10-21-effect-v4-execution-and-operations.md).
+> Current-owner links record the later contract transfer. They do not establish historical Effect v4 use or current delivery.
+
 ## Objective
 
-Complete the CLI run-control contract against canonical Mastra run state.
+Complete the CLI run-control contract against authoritative Seqlane run state.
 
-## Dependencies
+## Current replacement
 
-- [task.mastra-operational-host](./2026-09-04-mastra-operational-host.md)
+This later task owns replacement work. It was not an original prerequisite.
+
+- [task.effect-v4-hosted-history-and-inspection](./2026-10-21-effect-v4-hosted-history-and-inspection.md)
 
 ## Delivery
 
 - Stack order: 17
-- Branch: `mastra-17-cli-run-control`
-- Pull request base: `mastra-16-operational-host`
 - Implementation agent: a fresh `gpt-5.6-luna` subagent with `high` reasoning
 - Delivery unit: exactly one task branch and one pull request
 
 ## Upstream requirements
 
-- `requirement-cli-operator-commands`
-- `requirement-local-operational-access`
-- `requirement-cancellation-errors`
-- `requirement-identity-events`
-- `requirement-cross-surface-run`
+The later [CLI contract](../specs/2026-10-21-effect-v4-execution-and-operations.md#requirement-cli) and [hosted operations contract](../specs/2026-10-21-effect-v4-execution-and-operations.md#requirement-hosted-operations) own retained behavior. They do not describe the original integration mechanism.
 
 ## Scope
 
-- Submit `seqlane run` through the operational server path.
-- Support an explicit loopback server URL and reject non-loopback URLs.
-- Own a loopback host for the command lifetime when no server URL is set.
+- Add validated run submission and control operations for the local operational host.
 - Print Work and Run identifiers before progress output.
 - Preserve human, CI, and JSON rendering and final exit statuses.
 - Add `seqlane status <run-id>` with human and JSON output.
@@ -60,7 +58,7 @@ Complete the CLI run-control contract against canonical Mastra run state.
 
 1. Define Zod schemas for CLI and server request boundaries.
 2. Add a private operational client for run, status, and cancel operations.
-3. Switch run supervision to the operational server path.
+3. Connect run supervision to the validated control operation.
 4. Add status and cancel commands.
 5. Preserve output and exit contracts at the CLI boundary.
 6. Delete the replaced direct-only control path after callers switch.
@@ -75,7 +73,7 @@ Complete the CLI run-control contract against canonical Mastra run state.
 ## Verification
 
 - Run prints one Work ID and Run ID before task progress.
-- Status reports active and terminal canonical Mastra state.
+- Status reports active and terminal authoritative Seqlane state.
 - Repeated cancel requests produce one cancelled run outcome.
 - `SIGINT` and explicit cancel use the same operation.
 - An unknown run ID returns a typed, stable failure.
@@ -84,23 +82,19 @@ Complete the CLI run-control contract against canonical Mastra run state.
 
 ## Completion criteria
 
-The CLI can start, observe, and cancel one Mastra run without owning canonical
+The CLI can start, observe, and cancel one Seqlane run without owning canonical
 runtime state.
 
 ## Outcome
 
-Completed. Added the validated private operational client and the `status` and
-`cancel` commands. `run` now uses Mastra's `start-async` route in both modes:
-it owns a loopback host when no server URL is provided and connects to an
-existing host otherwise. The owned host resolves the Seqlane runtime profile,
-workspace resources, model selections, and sessions for each run. It publishes
-the canonical Plan and progress events through the existing CLI renderer and
-recording path. It maps success, cancellation, and failure to the stable CLI
-exit statuses and closes one-shot host resources before exit.
+The original implementation added a validated operational client, status and cancellation commands, and identity output.
+It preserved progress rendering and stable exit handling. It closed resources owned by the command.
+
+The current contract separates standalone execution from the explicit host. Standalone execution creates no Seqlane listener or retained history. The later hosted contract owns status, result, event, and cancellation inspection.
 
 ## Traceability
 
-- [spec.mastra-runtime-and-operational-integration](../specs/2026-09-03-mastra-runtime-and-operational-integration.md)
+- [spec.effect-v4-execution-and-operations](../specs/2026-10-21-effect-v4-execution-and-operations.md)
 - [spec.autonomous-non-interactive-execution](../specs/2026-09-02-autonomous-non-interactive-execution.md)
-- [prd.seqlane-on-mastra](../prd/2026-09-03-seqlane-on-mastra.md)
-- [rfc.mastra-runtime-and-operational-foundation](../rfcs/2026-09-03-mastra-runtime-and-operational-foundation.md)
+- [prd.seqlane-runtime](../prd/2026-10-21-seqlane-runtime.md)
+- [rfc.effect-v4-migration](../rfcs/2026-10-21-effect-v4-migration.md)

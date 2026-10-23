@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import { Buffer } from "node:buffer";
 import {
   encodeSeqlaneExecutionEvent,
   type SeqlaneExecutionEvent,
@@ -58,6 +59,9 @@ class FakeChild extends EventEmitter implements RunnerChild {
   send(message: string, callback?: (error: Error | null) => void): boolean {
     this.messages.push(message);
     callback?.(null);
+    if (message === JSON.stringify({ type: "run.cancel" })) {
+      queueMicrotask(() => this.emit("close", 0, null));
+    }
     return true;
   }
 
@@ -68,6 +72,13 @@ class FakeChild extends EventEmitter implements RunnerChild {
 
   emitEvent(candidate: EventWithoutMetadata): void {
     this.emit("message", encodeSeqlaneExecutionEvent(event(candidate)));
+    if (
+      candidate.type === "run.succeeded" ||
+      candidate.type === "run.failed" ||
+      candidate.type === "run.cancelled"
+    ) {
+      queueMicrotask(() => this.emit("close", 0, null));
+    }
   }
 
   emitExit(code: number | null, signal: NodeJS.Signals | null = null): void {
@@ -117,7 +128,7 @@ describe("runner client", () => {
       output: null,
     });
 
-    child.emit("message", encodeSeqlaneExecutionEvent(terminal));
+    child.emitEvent(terminal);
 
     await expect(result).resolves.toMatchObject({
       status: 0,
@@ -138,6 +149,137 @@ describe("runner client", () => {
         message: "Invalid Seqlane execution event",
       },
     });
+  });
+
+  it.each([
+    { label: "undefined", cause: undefined },
+    { label: "null", cause: null },
+    { label: "frozen", cause: Object.freeze({ reason: "sink failure" }) },
+  ])(
+    "preserves the first sink failure cause ($label) through disconnect and exit",
+    async ({ cause }) => {
+      class DisconnectingChild extends FakeChild {
+        override send(
+          message: string,
+          callback?: (error: Error | null) => void,
+        ): boolean {
+          this.messages.push(message);
+          callback?.(null);
+          if (message === JSON.stringify({ type: "run.cancel" })) {
+            queueMicrotask(() => {
+              this.emit("disconnect");
+              this.emitExit(1);
+            });
+          }
+          return true;
+        }
+      }
+      const child = new DisconnectingChild();
+      const result = superviseRunner(child, request, {
+        signalSource: null,
+        onExecutionEvent: () => {
+          throw cause;
+        },
+      });
+
+      child.emit(
+        "message",
+        encodeSeqlaneExecutionEvent(
+          event({
+            type: "run.succeeded",
+            workId: "work-1",
+            runId: "run-1",
+            output: null,
+          }),
+        ),
+      );
+
+      const outcome = await result;
+      expect(outcome.status).toBe(1);
+      if (!("failure" in outcome)) throw new Error("Expected runner failure");
+      expect(outcome.failure.message).toBe(
+        `Runner output failed: ${String(cause)}`,
+      );
+      expect(Object.hasOwn(outcome.failure, "cause")).toBe(true);
+      expect(outcome.failure.cause).toBe(cause);
+      expect(JSON.stringify(outcome.failure)).toBe(
+        JSON.stringify({
+          type: "runner.failure",
+          message: outcome.failure.message,
+        }),
+      );
+    },
+  );
+
+  it("waits for close after an accepted terminal event and earlier exit", async () => {
+    const child = new FakeChild();
+    const result = superviseRunner(child, request, { signalSource: null });
+    child.emit(
+      "message",
+      encodeSeqlaneExecutionEvent(
+        event({
+          type: "run.succeeded",
+          workId: "work-1",
+          runId: "run-1",
+          output: null,
+        }),
+      ),
+    );
+    child.emitExit(0);
+
+    let settled = false;
+    void result.then(() => {
+      settled = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(settled).toBe(false);
+
+    child.emit("close", 0, null);
+    await expect(result).resolves.toMatchObject({ status: 0 });
+  });
+
+  it("drains a terminal frame queued between exit and disconnect", async () => {
+    const child = new FakeChild();
+    const result = superviseRunner(child, request, { signalSource: null });
+    child.emitExit(0);
+    child.emit(
+      "message",
+      encodeSeqlaneExecutionEvent(
+        event({
+          type: "run.succeeded",
+          workId: "work-1",
+          runId: "run-1",
+          output: null,
+        }),
+      ),
+    );
+    child.emit("disconnect");
+    child.emit("close", 0, null);
+
+    await expect(result).resolves.toMatchObject({ status: 0 });
+  });
+
+  it("diagnoses malformed telemetry frames without failing canonical supervision", async () => {
+    const child = new FakeChild();
+    const diagnostics: number[] = [];
+    const result = superviseRunner(child, request, {
+      signalSource: null,
+      onTelemetryDiagnostic: () => diagnostics.push(1),
+    });
+
+    child.emit(
+      "message",
+      JSON.stringify({ type: "runner.telemetry.spans", spans: "bad" }),
+    );
+    child.emitEvent({
+      type: "run.succeeded",
+      workId: "work-1",
+      runId: "run-1",
+      output: null,
+    });
+
+    await expect(result).resolves.toMatchObject({ status: 0 });
+    expect(diagnostics).toHaveLength(1);
   });
 
   it("forwards canonical plan and execution events to one callback", async () => {
@@ -182,6 +324,7 @@ describe("runner client", () => {
         ),
       ),
     );
+    child.emit("close", 0, null);
 
     await expect(result).resolves.toMatchObject({ status: 0 });
     expect(received.map(({ type }) => type)).toEqual([
@@ -190,6 +333,128 @@ describe("runner client", () => {
       "run.succeeded",
     ]);
     expect(received.every((candidate) => candidate.metadata)).toBe(true);
+  });
+
+  it("fails and cancels after accepted large frames exceed the aggregate byte budget", async () => {
+    const child = new FakeChild();
+    const received: SeqlaneExecutionEvent[] = [];
+    const diagnostics: unknown[] = [];
+    const result = superviseRunner(child, request, {
+      signalSource: null,
+      onExecutionEvent: (candidate) => received.push(candidate),
+      onProtocolError: (error) => diagnostics.push(error),
+    });
+    const largeOutput = (sequence: number): string =>
+      encodeSeqlaneExecutionEvent(
+        event(
+          {
+            type: "invocation.output",
+            workId: "work-1",
+            runId: "run-1",
+            invocationId: `invocation-${sequence}`,
+            policy: "transient",
+            channel: "task",
+            content: "x".repeat(8 * 1024 * 1024),
+          },
+          sequence,
+        ),
+      );
+
+    const frames = [largeOutput(1), largeOutput(2), largeOutput(3)];
+    expect(
+      frames.every(
+        (frame) => Buffer.byteLength(frame, "utf8") < 16 * 1024 * 1024,
+      ),
+    ).toBe(true);
+    for (const frame of frames) child.emit("message", frame);
+
+    await expect(result).resolves.toMatchObject({
+      status: 1,
+      failure: { type: "runner.failure" },
+    });
+    expect(received.map(({ type }) => type)).toEqual(["invocation.output"]);
+    expect(diagnostics).toContainEqual(
+      expect.objectContaining({
+        message: "Runner supervisor message queue overflowed",
+      }),
+    );
+    expect(child.messages).toContain(JSON.stringify({ type: "run.cancel" }));
+  });
+
+  it("releases frame bytes after sink handling completes", async () => {
+    const child = new FakeChild();
+    const receivedSequences: number[] = [];
+    let notifyReceived: (() => void) | undefined;
+    let received = new Promise<void>((resolve) => {
+      notifyReceived = resolve;
+    });
+    const result = superviseRunner(child, request, {
+      signalSource: null,
+      onExecutionEvent: (candidate) => {
+        receivedSequences.push(candidate.metadata.sequence);
+        notifyReceived?.();
+      },
+    });
+    const largeOutput = (sequence: number): string =>
+      encodeSeqlaneExecutionEvent(
+        event(
+          {
+            type: "invocation.output",
+            workId: "work-1",
+            runId: "run-1",
+            invocationId: `invocation-${sequence}`,
+            policy: "transient",
+            channel: "task",
+            content: "x".repeat(8 * 1024 * 1024),
+          },
+          sequence,
+        ),
+      );
+
+    child.emit("message", largeOutput(1));
+    await received;
+    received = new Promise<void>((resolve) => {
+      notifyReceived = resolve;
+    });
+    child.emit("message", largeOutput(2));
+    await received;
+    child.emitEvent({
+      type: "run.succeeded",
+      workId: "work-1",
+      runId: "run-1",
+      output: null,
+    });
+
+    await expect(result).resolves.toMatchObject({ status: 0 });
+    expect(receivedSequences).toEqual([1, 2, 1]);
+  });
+
+  it("routes nonstring IPC frames to an infrastructure failure without serializing them", async () => {
+    const child = new FakeChild();
+    const diagnostics: unknown[] = [];
+    const result = superviseRunner(child, request, {
+      signalSource: null,
+      onProtocolError: (error) => diagnostics.push(error),
+    });
+
+    child.emit("message", {
+      type: "run.succeeded",
+      workId: "work-1",
+      runId: "run-1",
+      output: null,
+    });
+
+    await expect(result).resolves.toMatchObject({
+      status: 1,
+      failure: {
+        type: "runner.failure",
+        message: "Invalid runner message",
+      },
+    });
+    expect(diagnostics).toContainEqual(
+      expect.objectContaining({ message: "Invalid runner message" }),
+    );
+    expect(child.messages).toContain(JSON.stringify({ type: "run.cancel" }));
   });
 
   it("forwards a runtime session UI message without treating it as an execution event", async () => {

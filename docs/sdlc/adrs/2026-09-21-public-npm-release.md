@@ -5,10 +5,10 @@ status: superseded
 owners:
   - core
 created: 2026-09-21
-updated: 2026-09-22
+updated: 2026-10-22
 upstream:
-  - prd.seqlane-on-mastra
-  - rfc.mastra-runtime-and-operational-foundation
+  - prd.seqlane-runtime
+  - rfc.effect-v4-migration
 supersedes: []
 ---
 
@@ -70,7 +70,7 @@ published by this decision. This decision is superseded by
 
 ## Traceability
 
-- [prd.seqlane-on-mastra](../prd/2026-09-03-seqlane-on-mastra.md)
-- [rfc.mastra-runtime-and-operational-foundation](../rfcs/2026-09-03-mastra-runtime-and-operational-foundation.md)
+- [prd.seqlane-runtime](../prd/2026-10-21-seqlane-runtime.md)
+- [rfc.effect-v4-migration](../rfcs/2026-10-21-effect-v4-migration.md)
 - [spec.public-npm-distribution](../specs/2026-09-21-public-npm-distribution.md)
 - [adr.preserve-workspace-release-references](./2026-09-22-preserve-workspace-release-references.md)

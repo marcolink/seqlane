@@ -4,6 +4,7 @@
 // @test-scope ./socket-ownership.ts
 // @test-scope ./state.ts
 
+import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import type {
   DetachedProcess,
@@ -18,10 +19,9 @@ import {
   runRipwireLifecycle,
   type RipwireLifecycleDependencies,
 } from "./lifecycle.js";
-import { ListenOwnershipError } from "./socket-ownership.js";
 
 const identity: ProcessIdentity = {
-  processGroupId: 42,
+  processGroupId: 41,
   processStartTime: "start",
 };
 const service = {
@@ -40,67 +40,66 @@ function dependencies(
   overrides: Partial<RipwireLifecycleDependencies> = {},
 ): RipwireLifecycleDependencies {
   return {
-    assertDirectory: vi.fn(async () => undefined),
-    assertListenAvailable: vi.fn(async () => undefined),
-    spawnDetached: vi.fn(async () => service),
-    adoptDetachedProcess: vi.fn(async () => undefined),
-    terminateProcessGroup: vi.fn(async () => true),
-    assertListenOwnedByProcess: vi.fn(async () => undefined),
-    readProcessIdentity: vi.fn(async () => identity),
+    assertDirectory: vi.fn(() => Effect.void),
+    assertListenAvailable: vi.fn(() => Promise.resolve()),
+    spawnDetached: vi.fn(() => Effect.succeed(service)),
+    adoptDetachedProcess: vi.fn(() => Effect.void),
+    cleanupDetachedProcess: vi.fn(() => Effect.succeed(true)),
+    completeDetachedProcessHandoff: vi.fn(() => Effect.void),
+    assertListenOwnedByProcess: vi.fn(() => Promise.resolve()),
+    readProcessIdentity: vi.fn(() => Effect.succeed(identity)),
     isProcessAlive: vi.fn(() => true),
-    checkMcpInitialize: vi.fn(
-      async (
-        _url,
-        _token,
-        _remainingMilliseconds,
-        _fetchImpl,
-        assertOwnership,
-      ) => {
-        await assertOwnership?.();
-      },
-    ),
-    waitForMcpHealth: vi.fn(async (check) => check(1_000)),
+    checkMcpInitialize: vi.fn(() => Effect.void),
+    waitForMcpHealth: vi.fn((check) => check(1_000)),
     ...overrides,
   };
 }
 
+const input = {
+  config,
+  binaryDirectory: "/tmp/ripwire-install",
+  logPath: "/tmp/ripwire.log",
+  environment: { PATH: "/usr/bin" },
+  sessionToken: "session-token",
+};
+
 describe("Ripwire lifecycle", () => {
-  it("persists all identities before readiness and starts from the install directory", async () => {
+  it("saves validated process and sentinel identities before readiness handoff", async () => {
     const events: string[] = [];
     const deps = dependencies({
-      assertDirectory: vi.fn(async () => {
-        events.push("validate");
-      }),
-      assertListenAvailable: vi.fn(async () => {
-        events.push("port");
-      }),
-      spawnDetached: vi.fn(async (options) => {
+      assertDirectory: vi.fn(() =>
+        Effect.sync(() => void events.push("validate")),
+      ),
+      assertListenAvailable: vi.fn(async () => void events.push("port")),
+      spawnDetached: vi.fn((options) => {
         events.push(`spawn:${options.cwd}`);
-        return service;
+        return Effect.succeed(service);
       }),
-      adoptDetachedProcess: vi.fn(async () => {
+      adoptDetachedProcess: vi.fn(() => {
         events.push("adopt");
+        return Effect.void;
       }),
-      waitForMcpHealth: vi.fn(async (check) => {
+      waitForMcpHealth: vi.fn((check) => {
         events.push("wait");
-        await check(1_000);
+        return check(1_000);
       }),
-      checkMcpInitialize: vi.fn(async () => {
+      checkMcpInitialize: vi.fn(() => {
         events.push("ready");
+        return Effect.void;
+      }),
+      completeDetachedProcessHandoff: vi.fn(() => {
+        events.push("handoff");
+        return Effect.void;
       }),
     });
-    const saveState = vi.fn((name: string) => events.push(`state:${name}`));
-    await runRipwireLifecycle(
-      {
-        config,
-        binaryDirectory: "/tmp/ripwire-install",
-        logPath: "/tmp/ripwire.log",
-        environment: { PATH: "/usr/bin" },
-        sessionToken: "session-token",
-      },
-      { saveState, warning: vi.fn() },
-      deps,
+    const saveState = vi.fn(
+      (name: string) => void events.push(`state:${name}`),
     );
+
+    await Effect.runPromise(
+      runRipwireLifecycle(input, { saveState, warning: vi.fn() }, deps),
+    );
+
     expect(events).toEqual([
       "validate",
       "port",
@@ -109,156 +108,82 @@ describe("Ripwire lifecycle", () => {
       "adopt",
       "wait",
       "ready",
+      "handoff",
     ]);
+    expect(saveState).toHaveBeenCalledWith(
+      "service-state",
+      JSON.stringify({ pid: 41, identity, sentinel: { pid: 40, identity } }),
+    );
     expect(deps.spawnDetached).toHaveBeenCalledWith(
       expect.objectContaining({
         command: "ripwire",
         cwd: "/tmp/ripwire-install",
         anchorPath: processAnchorPath(),
-      }),
-    );
-    expect(deps.spawnDetached).toHaveBeenCalledWith(
-      expect.objectContaining({ args: expect.not.arrayContaining(["secret"]) }),
-    );
-    expect(deps.spawnDetached).toHaveBeenCalledWith(
-      expect.objectContaining({
+        args: expect.not.arrayContaining(["secret"]),
         env: expect.objectContaining({ RIPWIRE_MCP_TOKEN: "session-token" }),
       }),
-    );
-    expect(deps.checkMcpInitialize).toHaveBeenCalledWith(
-      config.mcpUrl,
-      "session-token",
-      1_000,
-      fetch,
-      expect.any(Function),
     );
     expect(packageExecutionDirectory()).toBeDefined();
   });
 
-  it("cleans up when readiness fails", async () => {
+  it("retains scoped cleanup ownership until readiness succeeds", async () => {
     const deps = dependencies({
-      waitForMcpHealth: vi.fn(async () => {
-        throw new Error("not ready");
-      }),
+      waitForMcpHealth: vi.fn(() => Effect.fail(new Error("not ready"))),
     });
     await expect(
-      runRipwireLifecycle(
-        {
-          config,
-          binaryDirectory: "/tmp/ripwire-install",
-          logPath: "/tmp/ripwire.log",
-          environment: {},
-          sessionToken: "session-token",
-        },
-        { saveState: vi.fn(), warning: vi.fn() },
-        deps,
+      Effect.runPromise(
+        runRipwireLifecycle(
+          input,
+          { saveState: vi.fn(), warning: vi.fn() },
+          deps,
+        ),
       ),
     ).rejects.toMatchObject({
       name: "RipwireStartupError",
       cleanupSucceeded: true,
     } satisfies Partial<RipwireStartupError>);
-    expect(deps.terminateProcessGroup).toHaveBeenCalledWith(
-      service.pid,
-      service.identity,
-      { pid: service.sentinelPid, identity: service.sentinelIdentity },
-    );
+    expect(deps.cleanupDetachedProcess).toHaveBeenCalledWith(service);
+    expect(deps.completeDetachedProcessHandoff).not.toHaveBeenCalled();
   });
 
-  it("does not send the bearer token to an unrelated listener", async () => {
-    const checkMcpInitialize = vi.fn(
-      async (
-        _url,
-        _token,
-        _remainingMilliseconds,
-        _fetchImpl,
-        assertOwnership,
-      ) => {
-        await assertOwnership?.();
-      },
-    );
-    const deps = dependencies({
-      assertListenOwnedByProcess: vi.fn(async () => {
-        throw new ListenOwnershipError();
-      }),
-      checkMcpInitialize,
-    });
-
+  it("does not adopt a service when validated state cannot be saved", async () => {
+    const deps = dependencies();
     await expect(
-      runRipwireLifecycle(
-        {
-          config,
-          binaryDirectory: "/tmp/ripwire-install",
-          logPath: "/tmp/ripwire.log",
-          environment: {},
-          sessionToken: "session-token",
-        },
-        { saveState: vi.fn(), warning: vi.fn() },
-        deps,
+      Effect.runPromise(
+        runRipwireLifecycle(
+          input,
+          {
+            saveState: () => {
+              throw new Error("state unavailable");
+            },
+            warning: vi.fn(),
+          },
+          deps,
+        ),
       ),
-    ).rejects.toMatchObject({
-      name: "RipwireStartupError",
-      cleanupSucceeded: true,
-    } satisfies Partial<RipwireStartupError>);
-    expect(checkMcpInitialize).toHaveBeenCalledOnce();
-    expect(deps.terminateProcessGroup).toHaveBeenCalled();
+    ).rejects.toMatchObject({ name: "RipwireStartupError" });
+    expect(deps.adoptDetachedProcess).not.toHaveBeenCalled();
+    expect(deps.cleanupDetachedProcess).toHaveBeenCalledWith(service);
   });
 
-  it("retains ownership as ambiguous when spawn rejects without state", async () => {
-    const terminateProcessGroup = vi.fn(async () => true);
-    const deps = dependencies({
-      spawnDetached: vi.fn(async () => {
-        throw new Error("process ownership ambiguous");
-      }),
-      terminateProcessGroup,
-    });
-    await expect(
-      runRipwireLifecycle(
-        {
-          config,
-          binaryDirectory: "/tmp/ripwire-install",
-          logPath: "/tmp/ripwire.log",
-          environment: {},
-          sessionToken: "session-token",
-        },
-        { saveState: vi.fn(), warning: vi.fn() },
-        deps,
-      ),
-    ).rejects.toMatchObject({
-      name: "RipwireStartupError",
-      cleanupSucceeded: false,
-      message: "process ownership ambiguous",
-    } satisfies Partial<RipwireStartupError>);
-    expect(terminateProcessGroup).not.toHaveBeenCalled();
-  });
-
-  it("persists validated ownership when spawn cleanup is unverified", async () => {
-    const ownership = {
-      pid: 41,
-      identity,
-    };
+  it("persists validated ambiguous ownership if spawn cleanup is uncertain", async () => {
+    const ownership = { pid: 41, identity };
     const saveState = vi.fn();
     const deps = dependencies({
-      spawnDetached: vi.fn(async () => {
-        throw new SpawnDetachedError(
-          "ripwire",
-          new Error("anchor failed after child creation"),
-          false,
-          ownership,
-        );
-      }),
+      spawnDetached: vi.fn(() =>
+        Effect.fail(
+          new SpawnDetachedError(
+            "ripwire",
+            new Error("anchor failed after child creation"),
+            false,
+            ownership,
+          ),
+        ),
+      ),
     });
-
     await expect(
-      runRipwireLifecycle(
-        {
-          config,
-          binaryDirectory: "/tmp/ripwire-install",
-          logPath: "/tmp/ripwire.log",
-          environment: {},
-          sessionToken: "session-token",
-        },
-        { saveState, warning: vi.fn() },
-        deps,
+      Effect.runPromise(
+        runRipwireLifecycle(input, { saveState, warning: vi.fn() }, deps),
       ),
     ).rejects.toMatchObject({
       name: "RipwireStartupError",
@@ -269,54 +194,40 @@ describe("Ripwire lifecycle", () => {
       "service-state",
       JSON.stringify(ownership),
     );
+    expect(deps.adoptDetachedProcess).not.toHaveBeenCalled();
   });
 
-  it("warns when startup cleanup cannot verify the process group", async () => {
+  it("preserves the primary readiness cause when cleanup is unverified", async () => {
     const warning = vi.fn();
     const deps = dependencies({
-      waitForMcpHealth: vi.fn(async () => {
-        throw new Error("not ready");
-      }),
-      terminateProcessGroup: vi.fn(async () => false),
+      waitForMcpHealth: vi.fn(() => Effect.fail(new Error("not ready"))),
+      cleanupDetachedProcess: vi.fn(() => Effect.succeed(false)),
     });
     await expect(
-      runRipwireLifecycle(
-        {
-          config,
-          binaryDirectory: "/tmp/ripwire-install",
-          logPath: "/tmp/ripwire.log",
-          environment: {},
-          sessionToken: "session-token",
-        },
-        { saveState: vi.fn(), warning },
-        deps,
+      Effect.runPromise(
+        runRipwireLifecycle(input, { saveState: vi.fn(), warning }, deps),
       ),
     ).rejects.toMatchObject({
       name: "RipwireStartupError",
       cleanupSucceeded: false,
-    } satisfies Partial<RipwireStartupError>);
+    });
     expect(warning).toHaveBeenCalledWith(
       expect.stringContaining("could not be verified"),
     );
   });
 
-  it("cleans up when the process identity or liveness check fails", async () => {
-    const deps = dependencies({
-      isProcessAlive: vi.fn(() => false),
-    });
+  it("does not hand off a dead service after readiness", async () => {
+    const deps = dependencies({ isProcessAlive: vi.fn(() => false) });
     await expect(
-      runRipwireLifecycle(
-        {
-          config,
-          binaryDirectory: "/tmp/ripwire-install",
-          logPath: "/tmp/ripwire.log",
-          environment: {},
-          sessionToken: "session-token",
-        },
-        { saveState: vi.fn(), warning: vi.fn() },
-        deps,
+      Effect.runPromise(
+        runRipwireLifecycle(
+          input,
+          { saveState: vi.fn(), warning: vi.fn() },
+          deps,
+        ),
       ),
     ).rejects.toThrow("exited before startup completed");
-    expect(deps.terminateProcessGroup).toHaveBeenCalled();
+    expect(deps.cleanupDetachedProcess).toHaveBeenCalled();
+    expect(deps.completeDetachedProcessHandoff).not.toHaveBeenCalled();
   });
 });

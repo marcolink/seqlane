@@ -9,6 +9,7 @@ import {
   type ModelSelection,
 } from "@seqlane/core";
 import type { SeqlaneObservation } from "@seqlane/protocol";
+import { Effect, Exit, Scope } from "effect";
 import { buildOpenCodePrompt } from "./task-prompt.js";
 import {
   buildStructuredOutputPrompt,
@@ -32,11 +33,8 @@ import type {
   OpenCodePromptResult,
   OpenCodeRun,
 } from "./protocol.js";
+import { awaitOwnedCleanup } from "./owned-cleanup.js";
 import { createOpenCodeRun } from "./session.js";
-import {
-  createOpenCodeObservability,
-  type OpenCodeObservabilityOutcome,
-} from "./observability.js";
 
 export interface OpenCodeAdapterOptions {
   /** Runtime-wide cancellation for session creation and session operations. */
@@ -102,6 +100,7 @@ function jsonValueOrUnavailable(
 function modelRequestValue(
   prompt: OpenCodePrompt,
   availability: ObservationAvailability[],
+  nativeRequest?: unknown,
 ): JsonValue {
   const value: Record<string, JsonValue> = { text: prompt.text };
   let schemaValue: unknown = prompt.schema;
@@ -137,6 +136,14 @@ function modelRequestValue(
     if (selection !== undefined) value.selection = selection;
   }
   if (prompt.variant !== undefined) value.variant = prompt.variant;
+  if (nativeRequest !== undefined) {
+    const native = jsonValueOrUnavailable(
+      nativeRequest,
+      "model.request.native",
+      availability,
+    );
+    if (native !== undefined) value.native = native;
+  }
   return value;
 }
 
@@ -144,15 +151,7 @@ function reportCanonicalObservation(
   request: AgentAdapterRequest,
   observation: SeqlaneObservation,
 ): void {
-  try {
-    request.onObservation?.(observation);
-  } catch {
-    reportAdapterDiagnostic(
-      request,
-      "observation",
-      "canonical observation consumer failed",
-    );
-  }
+  request.onObservation?.(observation);
 }
 
 function modelObservation(
@@ -163,6 +162,8 @@ function modelObservation(
     readonly state: SeqlaneObservation["state"];
     readonly response?: OpenCodePromptResult;
     readonly error?: string;
+    readonly nativeRequest?: unknown;
+    readonly nativeResponse?: unknown;
   },
 ): SeqlaneObservation {
   const response = options.response;
@@ -180,6 +181,20 @@ function modelObservation(
     if (structured !== undefined) responseValue.structured = structured;
   }
   if (response?.text !== undefined) responseValue.text = response.text;
+  const nativeResponse =
+    response?.nativeResponse !== undefined
+      ? response.nativeResponse
+      : options.nativeResponse !== undefined
+        ? options.nativeResponse
+        : native;
+  if (nativeResponse !== undefined) {
+    const source = jsonValueOrUnavailable(
+      nativeResponse,
+      "model.response.native",
+      availability,
+    );
+    if (source !== undefined) responseValue.native = source;
+  }
   const error = options.error ?? native?.error;
   return {
     observationId: `${request.invocationId}:model:${attemptIndex}`,
@@ -208,8 +223,10 @@ function modelObservation(
       ...(native?.finish === undefined
         ? {}
         : { finishReasons: [native.finish] }),
-      request: modelRequestValue(prompt, availability),
-      ...(response === undefined ? {} : { response: responseValue }),
+      request: modelRequestValue(prompt, availability, options.nativeRequest),
+      ...(response === undefined && Object.keys(responseValue).length === 0
+        ? {}
+        : { response: responseValue }),
       ...(metrics?.tokens === undefined
         ? {}
         : {
@@ -257,17 +274,42 @@ function createOpenCodeRunTracker(
   resolveRun: (signal: AbortSignal) => Promise<OpenCodeRun>,
   initialRun?: OpenCodeRun,
 ) {
-  const pendingRuns = new Map<Promise<OpenCodeRun>, Promise<OpenCodeRun>>();
+  const scope = Effect.runSync(Scope.make("sequential"));
+  const pendingRuns = new Map<
+    Promise<OpenCodeRun>,
+    {
+      readonly tracked: Promise<OpenCodeRun>;
+      readonly controller: AbortController;
+    }
+  >();
   const ownedRuns = new Set<OpenCodeRun>(
     initialRun === undefined ? [] : [initialRun],
   );
   const closingRuns = new Set<Promise<void>>();
+  const closeOperations = new WeakMap<OpenCodeRun, Promise<void>>();
   let closed = false;
   let closePromise: Promise<void> | undefined;
 
+  const closeRun = (run: OpenCodeRun): Promise<void> => {
+    const existing = closeOperations.get(run);
+    if (existing !== undefined) return existing;
+    const closing = run.close();
+    closeOperations.set(run, closing);
+    return closing;
+  };
+
+  if (initialRun !== undefined) {
+    Effect.runSync(
+      Scope.addFinalizer(
+        scope,
+        Effect.promise(() => closeRun(initialRun)),
+      ),
+    );
+  }
+
   const release = (run: OpenCodeRun): Promise<void> => {
     ownedRuns.delete(run);
-    const closing = run.close();
+    const closing = closeRun(run);
     closingRuns.add(closing);
     void closing
       .finally(() => closingRuns.delete(closing))
@@ -280,9 +322,30 @@ function createOpenCodeRunTracker(
       if (closed) {
         return Promise.reject(new OpenCodeExecutorError("adapter is closed"));
       }
-      const source = resolveRun(signal);
+      const controller = new AbortController();
+      const acquireRun = Effect.acquireRelease(
+        Effect.tryPromise({
+          try: async (scopeSignal) => {
+            const run = await resolveRun(
+              AbortSignal.any([signal, scopeSignal, controller.signal]),
+            );
+            return {
+              ...run,
+              close: () => closeRun(run),
+            };
+          },
+          catch: (cause) => cause,
+        }),
+        (run) =>
+          Effect.promise(() => closeRun(run)).pipe(
+            Effect.orElseSucceed(() => undefined),
+          ),
+      );
+      const source = Effect.runPromise(
+        Effect.provideService(acquireRun, Scope.Scope, scope),
+      );
       const existing = pendingRuns.get(source);
-      if (existing !== undefined) return existing;
+      if (existing !== undefined) return existing.tracked;
       const tracked = source.then(
         async (run) => {
           pendingRuns.delete(source);
@@ -298,7 +361,7 @@ function createOpenCodeRunTracker(
           throw cause;
         },
       );
-      pendingRuns.set(source, tracked);
+      pendingRuns.set(source, { tracked, controller });
       return tracked;
     },
     release,
@@ -306,13 +369,29 @@ function createOpenCodeRunTracker(
       if (closePromise !== undefined) return closePromise;
       closed = true;
       closePromise = (async () => {
-        await Promise.allSettled(pendingRuns.values());
-        const releases = await Promise.allSettled([...ownedRuns].map(release));
-        const concurrent = await Promise.allSettled([...closingRuns]);
-        const failed = [...releases, ...concurrent].find(
-          (result) => result.status === "rejected",
-        );
-        if (failed?.status === "rejected") throw failed.reason;
+        for (const pending of pendingRuns.values()) pending.controller.abort();
+        let cleanupFailure: unknown;
+        try {
+          await awaitOwnedCleanup(
+            Promise.allSettled(
+              [...pendingRuns.values()].map(({ tracked }) => tracked),
+            ),
+            "OpenCode run acquisition did not terminate before cleanup deadline",
+          );
+          const releases = await Promise.allSettled(
+            [...ownedRuns].map(release),
+          );
+          const concurrent = await Promise.allSettled([...closingRuns]);
+          const failed = [...releases, ...concurrent].find(
+            (result) => result.status === "rejected",
+          );
+          if (failed?.status === "rejected") cleanupFailure = failed.reason;
+        } catch (cause) {
+          cleanupFailure = cause;
+        } finally {
+          await Effect.runPromise(Scope.close(scope, Exit.void));
+        }
+        if (cleanupFailure !== undefined) throw cleanupFailure;
       })();
       return closePromise;
     },
@@ -359,173 +438,185 @@ function createAdapterForRun({
       sessionUi: hasSessionUi,
     },
 
-    async execute(request: AgentAdapterRequest): Promise<unknown> {
-      const observability = createOpenCodeObservability(
-        request.observability,
-        request.invocationId,
-        (message) =>
-          reportAdapterDiagnostic(request, "opencode-observability", message),
-      );
-      let run: OpenCodeRun | undefined;
-      const invalidation = createRunInvalidation(
-        onRunInvalidated,
-        runTracker.release,
-      );
-      let outcome: OpenCodeObservabilityOutcome | undefined;
-      try {
-        const schema = toOpenCodeJsonSchema(request.task);
-        run = await resolveRun(request.signal);
-        const selection = await run.structuredOutput?.();
-        const strategy = selection?.strategy ?? "native";
-        const retryCount = selection?.retryCount ?? 0;
-        const diagnostic =
-          selection === undefined
-            ? undefined
-            : promptStrategyDiagnostic(selection);
-        if (diagnostic !== undefined) {
-          reportAdapterDiagnostic(request, "structured-output", diagnostic);
-        }
-
-        const basePrompt = buildOpenCodePrompt(
-          request.task,
-          request.input,
-          request.agent,
-        );
-        let promptText =
-          strategy === "prompt"
-            ? buildStructuredOutputPrompt(basePrompt, schema)
-            : basePrompt;
-        let attempts = 0;
-        let lastIssues: StructuredOutputValidationError | undefined;
-
-        while (true) {
-          attempts += 1;
-          selection?.report?.({ type: "attempt", attempt: attempts });
-          const prompt: OpenCodePrompt = {
-            text: promptText,
-            schema,
-            strategy,
-            retryCount,
-            tools: { read: true },
-            ...(lastIssues === undefined
-              ? {}
-              : { tools: { "*": false, StructuredOutput: true } }),
-            selection: request.modelSelection ?? configuredSelection,
-            signal: request.signal,
-            ...(attempts === 1
-              ? { onExecutionStarted: request.onExecutionStarted }
-              : {}),
-            onActivity: (activity) =>
-              request.onActivity?.(normalizeActivity(activity)),
-            onUncertainActivity: request.onUncertainActivity,
-            onObservation: observability.observe,
-            onDiagnostic: (message) =>
-              reportAdapterDiagnostic(request, "opencode-event", message),
-            onRunInvalidated: invalidation.invalidate,
-          };
-          const attemptIndex = attempts - 1;
-          reportCanonicalObservation(
-            request,
-            modelObservation(request, prompt, attemptIndex, {
-              state: "started",
-            }),
-          );
-          let response: OpenCodePromptResult;
-          try {
-            response = await run.prompt(prompt);
-          } catch (cause) {
-            reportCanonicalObservation(
-              request,
-              modelObservation(request, prompt, attemptIndex, {
-                state: request.signal.aborted ? "cancelled" : "failed",
-                error:
-                  cause instanceof Error
-                    ? cause.message
-                    : "model exchange failed",
-              }),
-            );
-            throw cause;
-          }
-          reportCanonicalObservation(
-            request,
-            modelObservation(request, prompt, attemptIndex, {
-              state:
-                response.observation?.error === undefined
-                  ? "succeeded"
-                  : "failed",
-              response,
-            }),
-          );
-          if (response.observation !== undefined) {
-            observability.observeTerminal(response.observation);
-          }
-          if (response.metrics !== undefined) {
-            request.onMetrics?.(response.metrics);
-          }
-          if (strategy === "native") {
-            selection?.report?.({
-              type: "completed",
-              attempt: attempts,
-              success: true,
-            });
-            return response.structured;
-          }
-
-          try {
-            const parsed = parsePromptJson(response.text ?? "");
-            const output = validatePromptJson(parsed, request.task.output);
-            selection?.report?.({
-              type: "completed",
-              attempt: attempts,
-              success: true,
-            });
-            return output;
-          } catch (cause) {
-            const validationError =
-              cause instanceof StructuredOutputValidationError
-                ? cause
-                : new StructuredOutputValidationError(
-                    1,
-                    [
-                      {
-                        kind: "validation",
-                        code: "schema_validation_failed",
-                        message: "Output did not satisfy the task schema",
-                      },
-                    ],
-                    cause,
-                  );
-            lastIssues = validationError;
-            if (attempts > retryCount) {
-              selection?.report?.({
-                type: "completed",
-                attempt: attempts,
-                success: false,
-              });
-              throw new StructuredOutputValidationError(
-                attempts,
-                validationError.issues,
-                validationError,
+    execute(request: AgentAdapterRequest): Promise<unknown> {
+      return Effect.runPromise(
+        Effect.scoped(
+          Effect.tryPromise({
+            try: async () => {
+              let run: OpenCodeRun | undefined;
+              const invalidation = createRunInvalidation(
+                onRunInvalidated,
+                runTracker.release,
               );
-            }
-            promptText = buildStructuredOutputRepairPrompt(
-              summarizeStructuredOutputIssues(validationError.issues),
-            );
-          }
-        }
-      } catch (cause) {
-        outcome = request.signal.aborted
-          ? { kind: "cancelled" }
-          : { kind: "failed" };
-        throw cause;
-      } finally {
-        observability.finish(
-          outcome ??
-            (request.signal.aborted ? { kind: "cancelled" } : undefined),
-        );
-        if (request.signal.aborted) invalidation.invalidate();
-        await invalidation.release(run);
-      }
+              try {
+                const schema = toOpenCodeJsonSchema(request.task);
+                run = await resolveRun(request.signal);
+                const selection = await run.structuredOutput?.();
+                const strategy = selection?.strategy ?? "native";
+                const retryCount = selection?.retryCount ?? 0;
+                const diagnostic =
+                  selection === undefined
+                    ? undefined
+                    : promptStrategyDiagnostic(selection);
+                if (diagnostic !== undefined) {
+                  reportAdapterDiagnostic(
+                    request,
+                    "structured-output",
+                    diagnostic,
+                  );
+                }
+
+                const basePrompt = buildOpenCodePrompt(
+                  request.task,
+                  request.input,
+                  request.agent,
+                );
+                let promptText =
+                  strategy === "prompt"
+                    ? buildStructuredOutputPrompt(basePrompt, schema)
+                    : basePrompt;
+                let attempts = 0;
+                let lastIssues: StructuredOutputValidationError | undefined;
+
+                while (true) {
+                  attempts += 1;
+                  selection?.report?.({ type: "attempt", attempt: attempts });
+                  let nativeRequest: unknown;
+                  let nativeResponse: unknown;
+                  const prompt: OpenCodePrompt = {
+                    text: promptText,
+                    schema,
+                    strategy,
+                    retryCount,
+                    tools: { read: true },
+                    ...(lastIssues === undefined
+                      ? {}
+                      : { tools: { "*": false, StructuredOutput: true } }),
+                    selection: request.modelSelection ?? configuredSelection,
+                    signal: request.signal,
+                    ...(attempts === 1
+                      ? { onExecutionStarted: request.onExecutionStarted }
+                      : {}),
+                    onNativeRequest: (value) => {
+                      nativeRequest = value;
+                    },
+                    onNativeResponse: (value) => {
+                      nativeResponse = value;
+                    },
+                    onActivity: (activity) =>
+                      request.onActivity?.(normalizeActivity(activity)),
+                    onUncertainActivity: request.onUncertainActivity,
+                    onDiagnostic: (message) =>
+                      reportAdapterDiagnostic(
+                        request,
+                        "opencode-event",
+                        message,
+                      ),
+                    onRunInvalidated: invalidation.invalidate,
+                  };
+                  const attemptIndex = attempts - 1;
+                  reportCanonicalObservation(
+                    request,
+                    modelObservation(request, prompt, attemptIndex, {
+                      state: "started",
+                    }),
+                  );
+                  let response: OpenCodePromptResult;
+                  try {
+                    response = await run.prompt(prompt);
+                  } catch (cause) {
+                    reportCanonicalObservation(
+                      request,
+                      modelObservation(request, prompt, attemptIndex, {
+                        state: request.signal.aborted ? "cancelled" : "failed",
+                        error:
+                          cause instanceof Error
+                            ? cause.message
+                            : "model exchange failed",
+                        nativeRequest,
+                        nativeResponse,
+                      }),
+                    );
+                    throw cause;
+                  }
+                  reportCanonicalObservation(
+                    request,
+                    modelObservation(request, prompt, attemptIndex, {
+                      state:
+                        response.observation?.error === undefined
+                          ? "succeeded"
+                          : "failed",
+                      response,
+                      nativeRequest,
+                    }),
+                  );
+                  if (response.metrics !== undefined) {
+                    request.onMetrics?.(response.metrics);
+                  }
+                  if (strategy === "native") {
+                    selection?.report?.({
+                      type: "completed",
+                      attempt: attempts,
+                      success: true,
+                    });
+                    return response.structured;
+                  }
+
+                  try {
+                    const parsed = parsePromptJson(response.text ?? "");
+                    const output = validatePromptJson(
+                      parsed,
+                      request.task.output,
+                    );
+                    selection?.report?.({
+                      type: "completed",
+                      attempt: attempts,
+                      success: true,
+                    });
+                    return output;
+                  } catch (cause) {
+                    const validationError =
+                      cause instanceof StructuredOutputValidationError
+                        ? cause
+                        : new StructuredOutputValidationError(
+                            1,
+                            [
+                              {
+                                kind: "validation",
+                                code: "schema_validation_failed",
+                                message:
+                                  "Output did not satisfy the task schema",
+                              },
+                            ],
+                            cause,
+                          );
+                    lastIssues = validationError;
+                    if (attempts > retryCount) {
+                      selection?.report?.({
+                        type: "completed",
+                        attempt: attempts,
+                        success: false,
+                      });
+                      throw new StructuredOutputValidationError(
+                        attempts,
+                        validationError.issues,
+                        validationError,
+                      );
+                    }
+                    promptText = buildStructuredOutputRepairPrompt(
+                      summarizeStructuredOutputIssues(validationError.issues),
+                    );
+                  }
+                }
+              } finally {
+                if (request.signal.aborted) invalidation.invalidate();
+                await invalidation.release(run);
+              }
+            },
+            catch: (cause) => cause,
+          }),
+        ),
+      );
     },
 
     close: runTracker.close,

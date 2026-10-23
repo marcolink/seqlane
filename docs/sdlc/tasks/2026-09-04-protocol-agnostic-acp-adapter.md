@@ -5,7 +5,7 @@ status: completed
 owners:
   - core
 created: 2026-09-04
-updated: 2026-09-04
+updated: 2026-10-22
 upstream:
   - spec.agent-adapter-boundary-and-capabilities
 supersedes: []
@@ -13,20 +13,25 @@ supersedes: []
 
 # Implement a Protocol-Agnostic ACP Adapter
 
+> Historical task record. Scope and outcomes describe work before the current migration.
+> Current execution authority: [Effect v4 execution and operations](../specs/2026-10-21-effect-v4-execution-and-operations.md).
+> Current-owner links record the later contract transfer. They do not establish historical Effect v4 use or current delivery.
+
 ## Objective
 
 Extract ACP execution into a private adapter that contains no OpenCode-specific
 defaults, types, prompts, or session behavior.
 
-## Dependencies
+## Current replacement
 
-- [task.mastra-agent-acp](./2026-09-03-mastra-agent-acp.md)
+This later task owns replacement work. It was not an original prerequisite.
+
+- [task.effect-v4-acp-transport](./2026-10-21-effect-v4-acp-transport.md)
 
 ## Delivery
 
 - Follow-up order: 1
 - Branch: `agent-adapters-01-generic-acp`
-- Pull request base: `mastra-16-agent-adapter-boundary`
 - Implementation agent: fresh high-reasoning subagent
 - Delivery unit: one task branch and one pull request
 
@@ -97,4 +102,4 @@ contracts. Delivered in [PR #32](https://github.com/marcolink/seqlane/pull/32).
 ## Traceability
 
 - [spec.agent-adapter-boundary-and-capabilities](../specs/2026-09-04-agent-adapter-boundary-and-capabilities.md)
-- [task.mastra-agent-acp](./2026-09-03-mastra-agent-acp.md)
+- [task.effect-v4-acp-transport](./2026-10-21-effect-v4-acp-transport.md)

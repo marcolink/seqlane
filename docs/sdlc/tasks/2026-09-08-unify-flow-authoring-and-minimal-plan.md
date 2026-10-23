@@ -5,13 +5,17 @@ status: completed
 owners:
   - core
 created: 2026-09-08
-updated: 2026-09-10
+updated: 2026-10-22
 upstream:
-  - spec.mastra-backed-seqlane-workflows
+  - spec.workflow-execution-semantics
 supersedes: []
 ---
 
 # Unify Flow Authoring and the Minimal Plan
+
+> Historical task record. Scope and outcomes describe work before the current migration.
+> Current execution authority: [Effect v4 execution and operations](../specs/2026-10-21-effect-v4-execution-and-operations.md).
+> Current-owner links record the later contract transfer. They do not establish historical Effect v4 use or current delivery.
 
 ## Objective
 
@@ -22,7 +26,7 @@ Replace legacy workflow definition with `createFlow(...).task(...).output(...).d
 - `REQ-TASK-002`: Use one workflow authoring API.
 - `REQ-PLAN-001`: Keep a small Seqlane Plan boundary.
 - `REQ-PLAN-002`: Validate Plan data at runtime.
-- [spec.mastra-backed-seqlane-workflows](../specs/2026-09-08-mastra-backed-seqlane-workflows.md)
+- [spec.workflow-execution-semantics](../specs/2026-10-22-workflow-execution-semantics.md)
 
 ## Dependencies
 
@@ -42,7 +46,7 @@ Replace legacy workflow definition with `createFlow(...).task(...).output(...).d
 
 ## Out of scope
 
-- Mastra graph compilation.
+- private graph compilation.
 - Runtime admission or session policy changes.
 - New parallel, branch, choose, foreach, retry, persistence, or suspension
   nodes. Existing independent work keeps the current concurrency contract.
@@ -104,6 +108,6 @@ it rejects with `MCP workflow invocation deadline exceeded`.
 
 ## Traceability
 
-- [spec.mastra-backed-seqlane-workflows: Mastra-Backed Seqlane Workflow Contracts](../specs/2026-09-08-mastra-backed-seqlane-workflows.md)
-- [adr.mastra-backed-seqlane-workflows: Center Seqlane Workflows on a Mastra-Backed Executable DSL](../adrs/2026-09-08-mastra-backed-seqlane-workflows.md)
+- [spec.workflow-execution-semantics: Workflow Authoring and Execution Semantics](../specs/2026-10-22-workflow-execution-semantics.md)
+- [rfc.effect-v4-migration: Full Effect v4 Migration](../rfcs/2026-10-21-effect-v4-migration.md)
 - [task.unify-executable-task-contract: Unify the Executable Task Contract](./2026-09-08-unify-executable-task-contract.md)

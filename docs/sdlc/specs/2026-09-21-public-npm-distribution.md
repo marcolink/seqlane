@@ -61,8 +61,8 @@ complete Apache-2.0 license text.
 ### requirement-release-automation
 
 Nx uses fixed versioning, Conventional Commits, and a `v{version}` tag. A push
-to `main` or `next` starts `ci.yml`. The publish job requires the quality job and calls
-the reusable `publish.yml` workflow. This workflow accepts only a public
+to `main` or `next` starts `ci.yml`. The publish job requires the quality and
+hosted Action jobs. It calls the reusable `publish.yml` workflow. This workflow accepts only a public
 repository. Its read-only build job creates exact-revision package artifacts.
 The publish job consumes these artifacts. Nx then
 versions the packages, updates the changelog, creates and pushes the release

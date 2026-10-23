@@ -5,7 +5,7 @@ status: superseded
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-08
+updated: 2026-10-22
 upstream:
   - adr.seqlane-plan-ir-and-typed-dataflow
 supersedes: []
@@ -17,7 +17,7 @@ supersedes: []
 
 ## Objective
 
-Deliver Seqlane's public, Mastra-independent authoring model for a static typed DAG. Authors define typed tasks, invoke them with literal and reference bindings, and receive a serializable `Plan` whose dependency edges are inferred from those bindings.
+Deliver Seqlane's public, engine-independent authoring model for a static typed DAG. Authors define typed tasks, invoke them with literal and reference bindings, and receive a serializable `Plan` whose dependency edges are inferred from those bindings.
 
 ```text
 typed workflow source
@@ -26,13 +26,13 @@ Seqlane Plan IR
         ↓
 Seqlane validation
         ↓
-private Mastra compiler
+private runtime compiler
 ```
 
 ## Invariants
 
 - `@seqlane/core` owns all public authoring, task, binding, reference, workflow, and Plan contracts.
-- Core exports no Mastra, OpenCode, Node process, executor implementation, or runtime callback type.
+- Core exports no runtime-engine, OpenCode, Node process, executor implementation, or runtime callback type.
 - A `Plan` contains only serializable Seqlane data. Task definitions, schemas, and callbacks stay with the in-memory workflow definition and never enter the Plan.
 - The MVP Plan contains only `TaskNode`, literal bindings, reference bindings, dependency edges, and workflow output bindings.
 - Building a Plan never executes a task.
@@ -75,7 +75,7 @@ The exact helper names may follow local TypeScript conventions, but the exported
 
 ## Runtime Integration
 
-The runtime receives a serialized `Plan` plus the in-memory task schema registry supplied by the workflow definition. It continues to resolve bindings, validate each task boundary, and compile only through its private Mastra integration. No public type or serialized object gains a Mastra field.
+The runtime receives a serialized `Plan` plus the in-memory task schema registry supplied by the workflow definition. It continues to resolve bindings, validate each task boundary, and compile only through its private runtime integration. No public type or serialized object gains a runtime-library field.
 
 The runner loader accepts an authored workflow definition in addition to the existing Plan and Plan-factory compatibility forms. It builds and validates the Plan in the child process, preserving spec.dedicated-runner-process's process boundary.
 
@@ -96,7 +96,7 @@ Runtime tests prove Plan serialization, deterministic Plan-node IDs, dependency 
 
 - branches, repeats, foreach, explicit parallel policy, or dynamic scheduling;
 - parallel execution;
-- public Mastra, OpenCode, or executor APIs;
+- public runtime-engine, OpenCode, or executor APIs;
 - arbitrary callbacks stored in a Plan;
 - changing runner IPC payloads to transfer workflow definitions or Plans;
 - persistent Plans, replay, or observability features beyond existing lifecycle data.
@@ -112,4 +112,4 @@ Runtime tests prove Plan serialization, deterministic Plan-node IDs, dependency 
 ## Traceability
 
 - [adr.seqlane-plan-ir-and-typed-dataflow](../adrs/2026-09-02-seqlane-plan-ir-and-typed-dataflow.md)
-- [spec.mastra-backed-seqlane-workflows: Mastra-Backed Seqlane Workflow Contracts](./2026-09-08-mastra-backed-seqlane-workflows.md)
+- [spec.workflow-execution-semantics: Workflow Authoring and Execution Semantics](./2026-10-22-workflow-execution-semantics.md)

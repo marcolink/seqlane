@@ -5,13 +5,17 @@ status: completed
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-03
+updated: 2026-10-22
 upstream:
   - spec.seqlane-execution-output-package
 supersedes: []
 ---
 
 # Integrate Output Modes with the CLI and Verify Boundaries
+
+> Historical task record. Scope and outcomes describe work before the current migration.
+> Current execution authority: [Effect v4 execution and operations](../specs/2026-10-21-effect-v4-execution-and-operations.md).
+> Current-owner links record the later contract transfer. They do not establish historical Effect v4 use or current delivery.
 
 > Migrated from implementation story `TS-011-05`.
 
@@ -37,7 +41,7 @@ detail.
 
 ## Out of Scope
 
-- Mastra Studio or tracing.
+- runtime inspection or tracing.
 - Persistent execution history.
 - A public renderer plugin API.
 - Full-screen keyboard navigation.
@@ -59,41 +63,48 @@ Run the complete workspace verification gate after integration.
 ## Acceptance Criteria
 
 **Scenario:** Auto mode selects human output locally
+
 - **Given:** An interactive non-CI TTY
 - **When:** The user runs seqlane with output auto
 - **Then:** The CLI selects the human renderer
 
 **Scenario:** Auto mode selects CI output
+
 - **Given:** CI or a non-TTY environment
 - **When:** The user runs seqlane with output auto
 - **Then:** The CLI selects append-only CI output
 
 **Scenario:** Unsupported terminal capabilities degrade safely
+
 - **Given:** A terminal without ANSI or Unicode support, or a resize event
 - **When:** The CLI runs human output
 - **Then:** The selected renderer updates capabilities and emits safe output
 
 **Scenario:** Explicit JSON mode is clean
+
 - **Given:** The user selects output json
 - **When:** Runner events arrive
 - **Then:** Stdout contains only the JSON event stream
 
 **Scenario:** Execution status is authoritative
+
 - **Given:** A successful or failed runner result and a renderer write failure
 - **When:** The CLI finishes
 - **Then:** The runner result determines the process exit status
 
 **Scenario:** Package boundaries remain enforced
+
 - **Given:** All changed package manifests and imports
 - **When:** Boundary checks run
 - **Then:** Core and runtime contain no terminal renderer dependency, and cross-package imports use declared exports
 
 **Scenario:** Workspace gates pass
+
 - **Given:** The completed spec.seqlane-execution-output-package implementation
 - **When:** The standard workspace gate runs
 - **Then:** install, typecheck, tests, lint, build, formatting, Nx sync, and diff checks pass
 
-## Source
+## Source and current owners
 
 - [adr.dedicated-seqlane-output-package — Isolate Seqlane Execution Output](../adrs/2026-09-02-dedicated-seqlane-output-package.md)
 - [spec.seqlane-execution-output-package — Seqlane Execution Output Package](../specs/2026-09-02-seqlane-execution-output-package.md)

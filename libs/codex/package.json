@@ -31,12 +31,18 @@
   "dependencies": {
     "@seqlane/agent-adapter": "workspace:*",
     "@seqlane/core": "workspace:*",
-    "zod": "4.5.4"
+    "effect": "4.0.5",
+    "zod": "4.6.6"
   },
   "files": [
     "dist",
     "!dist/**/*.tsbuildinfo",
-    "tested-versions.json"
+    "tested-versions.json",
+    "!dist/**/*.spec.*",
+    "!dist/**/*.test.*",
+    "!dist/**/*test-support*",
+    "!dist/test-fixtures/**",
+    "!dist/**/*-fixture.*"
   ],
   "publishConfig": {
     "access": "public",

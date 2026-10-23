@@ -1,8 +1,15 @@
 import type { PreparedPlanExecution } from "../compile/compile-plan.js";
 import { invocationIdForNode } from "../execution/context.js";
 import type { AgentAdapterCapabilities } from "@seqlane/agent-adapter";
-import type { ModelSelection, PlanNode, TaskNode } from "@seqlane/core";
+import type {
+  InvocationId,
+  ModelSelection,
+  PlanNode,
+  TaskNode,
+} from "@seqlane/core";
+import type { ExecutionContext } from "../execution/context.js";
 import {
+  materializeDeferredSessionConsumer,
   resolveTaskSession,
   type SessionConsumer,
 } from "./session-resolution.js";
@@ -103,6 +110,49 @@ export function preflightSelectedChoiceSessionCapabilities(
   );
 }
 
+/** Resolves a fresh session for one dynamic repeat attempt after input parsing. */
+export async function resolveRepeatAttemptSession(
+  context: ExecutionContext,
+  node: TaskNode,
+  invocationId: InvocationId,
+): Promise<void> {
+  const policy = node.session;
+  if (policy === undefined) return;
+  const effectiveSelection = context.effectiveModelSelectionsByNode.get(
+    node.nodeId,
+  );
+  if (effectiveSelection !== undefined) {
+    context.effectiveModelSelections.set(invocationId, effectiveSelection);
+  }
+  const task = context.taskDefinitions?.get(node.taskId);
+  if (task === undefined) {
+    throw new Error(`No task definition registered for "${node.taskId}"`);
+  }
+  if (policy.type === "isolated") {
+    await resolveTaskSession(
+      context.resolvedSessions,
+      context.sessionResolver,
+      context.taskDefinitions,
+      invocationId,
+      node.taskId,
+      effectiveSelection,
+    );
+    return;
+  }
+  const consumer: SessionConsumer = {
+    invocationId,
+    task,
+    type: policy.type,
+    ...(effectiveSelection === undefined ? {} : { effectiveSelection }),
+  };
+  await materializeDeferredSessionConsumer({
+    sourceNodeId: policy.from,
+    source: context.deferredSessionSources.get(policy.from),
+    consumer,
+    resolvedSessions: context.resolvedSessions,
+  });
+}
+
 export function preflightCompiledWorkflowSessionCapabilities(
   compiled: PreparedPlanExecution,
 ): void {
@@ -135,6 +185,38 @@ export async function resolveCompiledWorkflowSessions(
     readonly taskId: string;
   }> = [];
   for (const node of compiled.orderedNodes) {
+    if (node.type === "repeat" && node.attempt.type === "task") {
+      const policy = node.attempt.session;
+      if (policy !== undefined && policy.type !== "isolated") {
+        const task = context.taskDefinitions?.get(node.attempt.taskId);
+        if (task === undefined) {
+          throw new Error(
+            `No task definition registered for "${node.attempt.taskId}"`,
+          );
+        }
+        const consumers = context.sessionConsumers.get(policy.from) ?? [];
+        context.sessionConsumers.set(policy.from, [
+          ...consumers,
+          {
+            invocationId: `${context.runId}:${node.nodeId}:repeat-session-template`,
+            task,
+            type: policy.type,
+            deferred: true,
+            ...(context.effectiveModelSelectionsByNode.get(
+              node.attempt.nodeId,
+            ) === undefined
+              ? {}
+              : {
+                  effectiveSelection:
+                    context.effectiveModelSelectionsByNode.get(
+                      node.attempt.nodeId,
+                    ),
+                }),
+          } satisfies SessionConsumer,
+        ]);
+      }
+      continue;
+    }
     if (node.type === "choice") {
       for (const arm of [node.then, node.else]) {
         if (

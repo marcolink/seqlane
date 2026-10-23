@@ -1,3 +1,8 @@
+// @test-scope ./lifecycle.ts
+// @test-scope ./commands.ts
+// @test-scope ./readiness.ts
+
+import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import type {
   DetachedProcess,
@@ -11,7 +16,7 @@ import {
 } from "./lifecycle.js";
 
 const identity: ProcessIdentity = {
-  processGroupId: 42,
+  processGroupId: 41,
   processStartTime: "start",
 };
 
@@ -41,46 +46,65 @@ function dependencies(
   overrides: Partial<ZvecGrepLifecycleDependencies> = {},
 ): ZvecGrepLifecycleDependencies {
   return {
-    assertDirectory: vi.fn(async () => undefined),
-    runCommand: vi.fn(async () => undefined),
-    runReadinessCommand: vi.fn(async () => undefined),
-    waitForCommandHealth: vi.fn(async (check) => check()),
-    spawnDetached: vi.fn(async () => service),
-    adoptDetachedProcess: vi.fn(async () => undefined),
-    terminateProcessGroup: vi.fn(async () => true),
+    assertDirectory: vi.fn(() => Effect.void),
+    runCommand: vi.fn(() => Effect.void),
+    runReadinessCommand: vi.fn(() => Effect.void),
+    waitForCommandHealth: vi.fn((check) => check()),
+    spawnDetached: vi.fn(() => Effect.succeed(service)),
+    adoptDetachedProcess: vi.fn(() => Effect.void),
+    completeDetachedProcessHandoff: vi.fn(() => Effect.void),
     ...overrides,
   };
 }
 
 describe("zvec-grep lifecycle", () => {
-  it("runs the complete lifecycle from the shipped action directory", async () => {
+  it("runs setup, saves ownership, adopts, and passes readiness before handoff", async () => {
     const events: string[] = [];
     const deps = dependencies({
-      assertDirectory: vi.fn(async () => {
-        events.push("validate");
-      }),
-      runCommand: vi.fn(async ({ args }) => {
-        events.push(args[2] === "version" ? "resolve" : "index");
-      }),
-      spawnDetached: vi.fn(async ({ cwd }) => {
-        events.push(`spawn:${cwd}`);
-        return service;
-      }),
-      adoptDetachedProcess: vi.fn(async () => {
-        events.push("adopt");
-      }),
-      waitForCommandHealth: vi.fn(async (check) => {
-        events.push("wait");
-        await check();
-      }),
-      runReadinessCommand: vi.fn(async () => {
-        events.push("readiness");
-      }),
+      assertDirectory: vi.fn(() =>
+        Effect.sync(() => {
+          events.push("validate");
+        }),
+      ),
+      runCommand: vi.fn(({ args }) =>
+        Effect.sync(() => {
+          events.push(args[2] === "version" ? "resolve" : "index");
+        }),
+      ),
+      spawnDetached: vi.fn(({ cwd }) =>
+        Effect.sync(() => {
+          events.push(`spawn:${cwd}`);
+          return service;
+        }),
+      ),
+      adoptDetachedProcess: vi.fn(() =>
+        Effect.sync(() => {
+          events.push("adopt");
+        }),
+      ),
+      waitForCommandHealth: vi.fn((check: () => Effect.Effect<void, Error>) =>
+        Effect.gen(function* () {
+          events.push("wait");
+          yield* check();
+        }),
+      ),
+      runReadinessCommand: vi.fn(() =>
+        Effect.sync(() => {
+          events.push("readiness");
+        }),
+      ),
+      completeDetachedProcessHandoff: vi.fn(() =>
+        Effect.sync(() => {
+          events.push("handoff");
+        }),
+      ),
     });
 
     const saveState = vi.fn((name: string) => events.push(`state:${name}`));
 
-    await runZvecGrepLifecycle(input, { saveState, warning: vi.fn() }, deps);
+    await Effect.runPromise(
+      runZvecGrepLifecycle(input, { saveState, warning: vi.fn() }, deps),
+    );
 
     expect(events).toEqual([
       "validate",
@@ -96,6 +120,7 @@ describe("zvec-grep lifecycle", () => {
       "adopt",
       "wait",
       "readiness",
+      "handoff",
     ]);
     expect(deps.spawnDetached).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -106,24 +131,43 @@ describe("zvec-grep lifecycle", () => {
     );
   });
 
-  it("cleans up the service when readiness fails", async () => {
+  it("keeps scoped cleanup ownership when readiness fails", async () => {
+    const complete = vi.fn(() => Effect.void);
     const deps = dependencies({
-      waitForCommandHealth: vi.fn(async () => {
-        throw new Error("not ready");
-      }),
+      waitForCommandHealth: vi.fn(() => Effect.fail(new Error("not ready"))),
+      completeDetachedProcessHandoff: complete,
     });
 
     await expect(
-      runZvecGrepLifecycle(
-        input,
-        { saveState: vi.fn(), warning: vi.fn() },
-        deps,
+      Effect.runPromise(
+        runZvecGrepLifecycle(
+          input,
+          { saveState: vi.fn(), warning: vi.fn() },
+          deps,
+        ),
       ),
     ).rejects.toThrow("not ready");
-    expect(deps.terminateProcessGroup).toHaveBeenCalledWith(
-      service.pid,
-      service.identity,
-      { pid: service.sentinelPid, identity: service.sentinelIdentity },
-    );
+    expect(complete).not.toHaveBeenCalled();
+  });
+
+  it("does not adopt when saving validated ownership fails", async () => {
+    const adopt = vi.fn(() => Effect.void);
+    const deps = dependencies({ adoptDetachedProcess: adopt });
+
+    await expect(
+      Effect.runPromise(
+        runZvecGrepLifecycle(
+          input,
+          {
+            saveState: () => {
+              throw new Error("state write failed");
+            },
+            warning: vi.fn(),
+          },
+          deps,
+        ),
+      ),
+    ).rejects.toThrow("process ownership could not be saved");
+    expect(adopt).not.toHaveBeenCalled();
   });
 });

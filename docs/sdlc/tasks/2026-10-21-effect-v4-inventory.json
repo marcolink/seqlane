@@ -1,0 +1,533 @@
+{
+  "sourceCommit": "51249b721a340959702e550fb84e7a3bd51ed59f",
+  "kind": "migration verification measurements; no default-branch delivery claim",
+  "workspacePackageCount": 23,
+  "baseline": {
+    "trackedCodeFiles": 630,
+    "trackedCodeLines": 119934,
+    "trackedCodeBytes": 3669263,
+    "lockPackageCount": 1326,
+    "lockBytes": 562604,
+    "retiredIntegrationTrackedPathCount": 255,
+    "performance": {
+      "runtime": "Node v24.16.0",
+      "packageManager": "pnpm10.33.0",
+      "workload": "compiled CLI runs one deterministic Node process that prints baseline; empty Zod input and shell result output",
+      "command": "node apps/cli/bin/run.js run <temporary-workflow.mjs> --workspace <checkout> --json",
+      "trials": [
+        {
+          "trial": 1,
+          "exit": 0,
+          "wallMs": 2133.04,
+          "stdoutBytes": 511,
+          "stderrBytes": 0
+        },
+        {
+          "trial": 2,
+          "exit": 0,
+          "wallMs": 2314.78,
+          "stdoutBytes": 511,
+          "stderrBytes": 0
+        },
+        {
+          "trial": 3,
+          "exit": 0,
+          "wallMs": 1544.91,
+          "stdoutBytes": 511,
+          "stderrBytes": 0
+        }
+      ],
+      "medianWallMs": 2133.04,
+      "measurementLimits": "Local three-run wall time, not a regression threshold; no model/adapter needed. Peak memory and concurrent graph throughput require later measurements."
+    },
+    "productionDependencyNodes": 662
+  },
+  "bundleBaseline": {
+    "sourceCommit": "7eb36b6",
+    "assets": {
+      "actions/resolve-merge-conflicts/dist/main.js": 13229146,
+      "actions/opencode-server/dist/post.js": 426084,
+      "actions/opencode-server/dist/tsconfig.tsbuildinfo": 55798,
+      "actions/opencode-server/dist/main.js": 432135,
+      "actions/setup-opencode/dist/tsconfig.tsbuildinfo": 77034,
+      "actions/setup-opencode/dist/main.js": 1630776,
+      "actions/zvec-grep-server/dist/post.js": 426085,
+      "actions/zvec-grep-server/dist/tsconfig.tsbuildinfo": 56522,
+      "actions/zvec-grep-server/dist/main.js": 436126,
+      "actions/code-review/dist/post.js": 546906,
+      "actions/code-review/dist/tsconfig.tsbuildinfo": 321403,
+      "actions/code-review/dist/main.js": 13527266,
+      "actions/ripwire-server/dist/post.js": 861638,
+      "actions/ripwire-server/dist/tsconfig.tsbuildinfo": 77309,
+      "actions/ripwire-server/dist/main.js": 887434,
+      "actions/opencode-server/process-anchor.js": 2460,
+      "actions/zvec-grep-server/process-anchor.js": 2460,
+      "actions/ripwire-server/process-anchor.js": 2655
+    },
+    "definition": "All Action dist files plus service resident entrypoints at their original package paths; compare runnable JavaScript separately from sourcemaps."
+  },
+  "finalVerification": "All final local gates and hosted implementation gates pass after the process handoff repair. The final S12 task commit reconciles documentation and status only. Its reachable branch head and exact-head CI establish delivery.",
+  "dependencyAudit": {
+    "productionVulnerabilities": {
+      "info": 0,
+      "low": 0,
+      "moderate": 0,
+      "high": 0,
+      "critical": 0
+    },
+    "allWorkspaceVulnerabilities": {
+      "info": 0,
+      "low": 3,
+      "moderate": 41,
+      "high": 33,
+      "critical": 0
+    },
+    "baselineAllWorkspaceVulnerabilities": {
+      "info": 0,
+      "low": 3,
+      "moderate": 52,
+      "high": 45,
+      "critical": 0
+    },
+    "newAdvisoryIds": [],
+    "scope": "Production audit is clean. Existing development-tool findings remain outside the runtime migration; no new advisory IDs were introduced.",
+    "productionLicenseGroups": {
+      "MIT": 129,
+      "Apache-2.0": 4,
+      "(Apache-2.0 AND BSD-3-Clause)": 1,
+      "ISC": 7,
+      "BlueOak-1.0.0": 1,
+      "0BSD": 1,
+      "(MIT OR CC0-1.0)": 1
+    },
+    "compatiblePatchUpdates": {
+      "brace-expansion@1": "1.1.21",
+      "brace-expansion@5": "5.0.12"
+    },
+    "securitySources": [
+      "https://security.snyk.io/package/npm/brace-expansion/1.1.21",
+      "https://security.snyk.io/package/npm/brace-expansion/5.0.12"
+    ]
+  },
+  "final": {
+    "trackedCodeFiles": 727,
+    "trackedCodeLines": 147303,
+    "trackedCodeBytes": 4589380,
+    "lockPackageCount": 946,
+    "lockBytes": 416472,
+    "productionDependencyNodes": 199
+  },
+  "bundleFinal": {
+    "assets": {
+      "actions/code-review/dist/main.js": 1624733,
+      "actions/code-review/dist/post.js": 1092513,
+      "actions/code-review/dist/tsconfig.tsbuildinfo": 151338,
+      "actions/opencode-server/dist/bundle-runtime.spec.d.ts": 60,
+      "actions/opencode-server/dist/bundle-runtime.spec.d.ts.map": 132,
+      "actions/opencode-server/dist/filesystem.d.ts": 115,
+      "actions/opencode-server/dist/filesystem.d.ts.map": 181,
+      "actions/opencode-server/dist/lifecycle.d.ts": 645,
+      "actions/opencode-server/dist/lifecycle.d.ts.map": 710,
+      "actions/opencode-server/dist/main.d.ts": 133,
+      "actions/opencode-server/dist/main.d.ts.map": 186,
+      "actions/opencode-server/dist/main.js": 1001613,
+      "actions/opencode-server/dist/main.spec.d.ts": 50,
+      "actions/opencode-server/dist/main.spec.d.ts.map": 112,
+      "actions/opencode-server/dist/post.d.ts": 80,
+      "actions/opencode-server/dist/post.d.ts.map": 151,
+      "actions/opencode-server/dist/post.js": 973035,
+      "actions/opencode-server/dist/post.spec.d.ts": 50,
+      "actions/opencode-server/dist/post.spec.d.ts.map": 112,
+      "actions/opencode-server/dist/process-anchor.d.ts": 106,
+      "actions/opencode-server/dist/process-anchor.d.ts.map": 143,
+      "actions/opencode-server/dist/process-anchor.js": 547409,
+      "actions/opencode-server/dist/readiness.d.ts": 213,
+      "actions/opencode-server/dist/readiness.d.ts.map": 297,
+      "actions/opencode-server/dist/readiness.spec.d.ts": 55,
+      "actions/opencode-server/dist/readiness.spec.d.ts.map": 122,
+      "actions/opencode-server/dist/tsconfig.tsbuildinfo": 113793,
+      "actions/resolve-merge-conflicts/dist/main.js": 1627245,
+      "actions/resolve-merge-conflicts/dist/tsconfig.tsbuildinfo": 152273,
+      "actions/ripwire-server/dist/bundle-runtime.spec.d.ts": 60,
+      "actions/ripwire-server/dist/bundle-runtime.spec.d.ts.map": 132,
+      "actions/ripwire-server/dist/commands.d.ts": 567,
+      "actions/ripwire-server/dist/commands.d.ts.map": 411,
+      "actions/ripwire-server/dist/commands.spec.d.ts": 54,
+      "actions/ripwire-server/dist/commands.spec.d.ts.map": 120,
+      "actions/ripwire-server/dist/config.d.ts": 1319,
+      "actions/ripwire-server/dist/config.d.ts.map": 1272,
+      "actions/ripwire-server/dist/config.spec.d.ts": 52,
+      "actions/ripwire-server/dist/config.spec.d.ts.map": 116,
+      "actions/ripwire-server/dist/filesystem.d.ts": 115,
+      "actions/ripwire-server/dist/filesystem.d.ts.map": 181,
+      "actions/ripwire-server/dist/lifecycle.d.ts": 2278,
+      "actions/ripwire-server/dist/lifecycle.d.ts.map": 1853,
+      "actions/ripwire-server/dist/lifecycle.spec.d.ts": 55,
+      "actions/ripwire-server/dist/lifecycle.spec.d.ts.map": 122,
+      "actions/ripwire-server/dist/main.d.ts": 441,
+      "actions/ripwire-server/dist/main.d.ts.map": 490,
+      "actions/ripwire-server/dist/main.js": 1026630,
+      "actions/ripwire-server/dist/main.spec.d.ts": 50,
+      "actions/ripwire-server/dist/main.spec.d.ts.map": 112,
+      "actions/ripwire-server/dist/port.d.ts": 112,
+      "actions/ripwire-server/dist/port.d.ts.map": 172,
+      "actions/ripwire-server/dist/port.spec.d.ts": 50,
+      "actions/ripwire-server/dist/port.spec.d.ts.map": 112,
+      "actions/ripwire-server/dist/post.d.ts": 80,
+      "actions/ripwire-server/dist/post.d.ts.map": 150,
+      "actions/ripwire-server/dist/post.js": 973838,
+      "actions/ripwire-server/dist/post.spec.d.ts": 50,
+      "actions/ripwire-server/dist/post.spec.d.ts.map": 112,
+      "actions/ripwire-server/dist/process-anchor.d.ts": 106,
+      "actions/ripwire-server/dist/process-anchor.d.ts.map": 143,
+      "actions/ripwire-server/dist/process-anchor.js": 547409,
+      "actions/ripwire-server/dist/readiness.d.ts": 1896,
+      "actions/ripwire-server/dist/readiness.d.ts.map": 1539,
+      "actions/ripwire-server/dist/readiness.spec.d.ts": 55,
+      "actions/ripwire-server/dist/readiness.spec.d.ts.map": 122,
+      "actions/ripwire-server/dist/release.d.ts": 3777,
+      "actions/ripwire-server/dist/release.d.ts.map": 3099,
+      "actions/ripwire-server/dist/release.spec.d.ts": 53,
+      "actions/ripwire-server/dist/release.spec.d.ts.map": 118,
+      "actions/ripwire-server/dist/socket-ownership.d.ts": 1384,
+      "actions/ripwire-server/dist/socket-ownership.d.ts.map": 1377,
+      "actions/ripwire-server/dist/socket-ownership.spec.d.ts": 62,
+      "actions/ripwire-server/dist/socket-ownership.spec.d.ts.map": 136,
+      "actions/ripwire-server/dist/state.d.ts": 1375,
+      "actions/ripwire-server/dist/state.d.ts.map": 526,
+      "actions/ripwire-server/dist/state.spec.d.ts": 51,
+      "actions/ripwire-server/dist/state.spec.d.ts.map": 114,
+      "actions/ripwire-server/dist/token.d.ts": 162,
+      "actions/ripwire-server/dist/token.d.ts.map": 176,
+      "actions/ripwire-server/dist/token.spec.d.ts": 51,
+      "actions/ripwire-server/dist/token.spec.d.ts.map": 114,
+      "actions/ripwire-server/dist/tsconfig.tsbuildinfo": 117518,
+      "actions/setup-opencode/dist/archive.d.ts": 879,
+      "actions/setup-opencode/dist/archive.d.ts.map": 923,
+      "actions/setup-opencode/dist/archive.spec.d.ts": 53,
+      "actions/setup-opencode/dist/archive.spec.d.ts.map": 118,
+      "actions/setup-opencode/dist/bundle-runtime.spec.d.ts": 60,
+      "actions/setup-opencode/dist/bundle-runtime.spec.d.ts.map": 132,
+      "actions/setup-opencode/dist/cache.d.ts": 558,
+      "actions/setup-opencode/dist/cache.d.ts.map": 730,
+      "actions/setup-opencode/dist/cache.spec.d.ts": 51,
+      "actions/setup-opencode/dist/cache.spec.d.ts.map": 114,
+      "actions/setup-opencode/dist/entrypoint.d.ts": 51,
+      "actions/setup-opencode/dist/entrypoint.d.ts.map": 114,
+      "actions/setup-opencode/dist/filesystem.d.ts": 184,
+      "actions/setup-opencode/dist/filesystem.d.ts.map": 253,
+      "actions/setup-opencode/dist/filesystem.spec.d.ts": 56,
+      "actions/setup-opencode/dist/filesystem.spec.d.ts.map": 124,
+      "actions/setup-opencode/dist/io.d.ts": 694,
+      "actions/setup-opencode/dist/io.d.ts.map": 742,
+      "actions/setup-opencode/dist/io.spec.d.ts": 48,
+      "actions/setup-opencode/dist/io.spec.d.ts.map": 108,
+      "actions/setup-opencode/dist/main.d.ts": 80,
+      "actions/setup-opencode/dist/main.d.ts.map": 151,
+      "actions/setup-opencode/dist/main.js": 1742194,
+      "actions/setup-opencode/dist/main.spec.d.ts": 50,
+      "actions/setup-opencode/dist/main.spec.d.ts.map": 112,
+      "actions/setup-opencode/dist/platform.d.ts": 448,
+      "actions/setup-opencode/dist/platform.d.ts.map": 475,
+      "actions/setup-opencode/dist/platform.spec.d.ts": 54,
+      "actions/setup-opencode/dist/platform.spec.d.ts.map": 120,
+      "actions/setup-opencode/dist/release.d.ts": 442,
+      "actions/setup-opencode/dist/release.d.ts.map": 493,
+      "actions/setup-opencode/dist/release.spec.d.ts": 53,
+      "actions/setup-opencode/dist/release.spec.d.ts.map": 118,
+      "actions/setup-opencode/dist/setup.d.ts": 1013,
+      "actions/setup-opencode/dist/setup.d.ts.map": 1048,
+      "actions/setup-opencode/dist/setup.spec.d.ts": 51,
+      "actions/setup-opencode/dist/setup.spec.d.ts.map": 114,
+      "actions/setup-opencode/dist/tsconfig.tsbuildinfo": 115834,
+      "actions/setup-opencode/dist/version.d.ts": 98,
+      "actions/setup-opencode/dist/version.d.ts.map": 160,
+      "actions/setup-opencode/dist/version.spec.d.ts": 53,
+      "actions/setup-opencode/dist/version.spec.d.ts.map": 118,
+      "actions/zvec-grep-server/dist/bundle-runtime.spec.d.ts": 60,
+      "actions/zvec-grep-server/dist/bundle-runtime.spec.d.ts.map": 132,
+      "actions/zvec-grep-server/dist/commands.d.ts": 1457,
+      "actions/zvec-grep-server/dist/commands.d.ts.map": 1275,
+      "actions/zvec-grep-server/dist/commands.spec.d.ts": 54,
+      "actions/zvec-grep-server/dist/commands.spec.d.ts.map": 120,
+      "actions/zvec-grep-server/dist/filesystem.d.ts": 115,
+      "actions/zvec-grep-server/dist/filesystem.d.ts.map": 181,
+      "actions/zvec-grep-server/dist/lifecycle.d.ts": 1727,
+      "actions/zvec-grep-server/dist/lifecycle.d.ts.map": 1524,
+      "actions/zvec-grep-server/dist/lifecycle.spec.d.ts": 55,
+      "actions/zvec-grep-server/dist/lifecycle.spec.d.ts.map": 122,
+      "actions/zvec-grep-server/dist/main.d.ts": 159,
+      "actions/zvec-grep-server/dist/main.d.ts.map": 208,
+      "actions/zvec-grep-server/dist/main.js": 1006396,
+      "actions/zvec-grep-server/dist/main.spec.d.ts": 50,
+      "actions/zvec-grep-server/dist/main.spec.d.ts.map": 112,
+      "actions/zvec-grep-server/dist/post.d.ts": 80,
+      "actions/zvec-grep-server/dist/post.d.ts.map": 151,
+      "actions/zvec-grep-server/dist/post.js": 973039,
+      "actions/zvec-grep-server/dist/post.spec.d.ts": 50,
+      "actions/zvec-grep-server/dist/post.spec.d.ts.map": 112,
+      "actions/zvec-grep-server/dist/process-anchor.d.ts": 106,
+      "actions/zvec-grep-server/dist/process-anchor.d.ts.map": 143,
+      "actions/zvec-grep-server/dist/process-anchor.js": 547409,
+      "actions/zvec-grep-server/dist/readiness.d.ts": 1059,
+      "actions/zvec-grep-server/dist/readiness.d.ts.map": 1203,
+      "actions/zvec-grep-server/dist/readiness.spec.d.ts": 55,
+      "actions/zvec-grep-server/dist/readiness.spec.d.ts.map": 122,
+      "actions/zvec-grep-server/dist/tsconfig.tsbuildinfo": 114535
+    }
+  },
+  "deltas": {
+    "trackedCodeFiles": 97,
+    "trackedCodeLines": 27369,
+    "trackedCodeBytes": 920117,
+    "lockPackageCount": -380,
+    "lockBytes": -146132,
+    "productionDependencyNodes": -463,
+    "actionRunnableJavaScriptBytes": {
+      "baseline": 32411171,
+      "final": 13683463,
+      "change": -18727708
+    }
+  },
+  "matchedPerformance": {
+    "baseline": {
+      "node": "v24.16.0",
+      "trials": [
+        {
+          "trial": 1,
+          "cliWallMs": 1685.4810830000001,
+          "stdoutBytes": 587
+        },
+        {
+          "trial": 2,
+          "cliWallMs": 1209.2607500000004,
+          "stdoutBytes": 587
+        },
+        {
+          "trial": 3,
+          "cliWallMs": 1208.449083,
+          "stdoutBytes": 586
+        }
+      ],
+      "limits": "Local sequential measurements; three trials. Peak RSS from Darwin time -l is not aggregate process-tree RSS. No model or remote exporter.",
+      "peakRssBytes": 305168384,
+      "graphTrials": [
+        {
+          "wallMs": 578.527083,
+          "peakActiveBodies": 24,
+          "events": 242
+        },
+        {
+          "wallMs": 207.00695799999994,
+          "peakActiveBodies": 24,
+          "events": 242
+        },
+        {
+          "wallMs": 202.859375,
+          "peakActiveBodies": 24,
+          "events": 242
+        }
+      ],
+      "readyTrials": [
+        {
+          "latencyMs": 110.67050000000017
+        },
+        {
+          "latencyMs": 111.33016700000007
+        },
+        {
+          "latencyMs": 112.22749999999996
+        }
+      ],
+      "serialization": {
+        "events": 1000,
+        "payloadBytes": 65536,
+        "encodedBytes": 65738000,
+        "wallMs": 142.29120799999964
+      },
+      "shutdownTrials": [
+        30.86633299999994, 30.978541999998924, 30.34808400000111
+      ],
+      "shutdownMs": 30.86633299999994,
+      "medians": {
+        "cliWallMs": 1209.2607500000004,
+        "graphWallMs": 207.00695799999994,
+        "readyLatencyMs": 111.33016700000007
+      }
+    },
+    "final": {
+      "node": "v24.16.0",
+      "trials": [
+        {
+          "trial": 1,
+          "cliWallMs": 831.5724169999999,
+          "stdoutBytes": 587
+        },
+        {
+          "trial": 2,
+          "cliWallMs": 791.2692910000001,
+          "stdoutBytes": 587
+        },
+        {
+          "trial": 3,
+          "cliWallMs": 767.5003750000001,
+          "stdoutBytes": 587
+        }
+      ],
+      "limits": "Local sequential measurements; three trials. Peak RSS from Darwin time -l is not aggregate process-tree RSS. No model or remote exporter.",
+      "peakRssBytes": 145276928,
+      "graphTrials": [
+        {
+          "wallMs": 32.06966700000021,
+          "peakActiveBodies": 8,
+          "events": 242
+        },
+        {
+          "wallMs": 23.373499999999694,
+          "peakActiveBodies": 8,
+          "events": 242
+        },
+        {
+          "wallMs": 25.74737499999992,
+          "peakActiveBodies": 8,
+          "events": 242
+        }
+      ],
+      "readyTrials": [
+        {
+          "latencyMs": 0.41116699999975026
+        },
+        {
+          "latencyMs": 0.4930420000000595
+        },
+        {
+          "latencyMs": 0.7013329999999769
+        }
+      ],
+      "serialization": {
+        "events": 1000,
+        "payloadBytes": 65536,
+        "encodedBytes": 65738000,
+        "wallMs": 147.1842499999998
+      },
+      "shutdownTrials": [
+        145.46679099999983, 133.2530829999996, 132.91525000000001
+      ],
+      "shutdownMs": 133.2530829999996,
+      "medians": {
+        "cliWallMs": 791.2692910000001,
+        "graphWallMs": 25.74737499999992,
+        "readyLatencyMs": 0.4930420000000595
+      }
+    }
+  },
+  "releaseDryRun": {
+    "version": "0.3.0",
+    "packages": [
+      "seqlane",
+      "@seqlane/core",
+      "@seqlane/tui",
+      "@seqlane/codex-adapter",
+      "@seqlane/runtime",
+      "@seqlane/agent-adapter",
+      "@seqlane/protocol",
+      "@seqlane/opencode-adapter"
+    ],
+    "results": [
+      {
+        "check": "packages",
+        "exit": 0,
+        "seconds": 17.63
+      },
+      {
+        "check": "publish-dry-run",
+        "exit": 0,
+        "seconds": 11.75
+      }
+    ],
+    "scope": "Isolated snapshot of current sources and clean outputs; no repository versions, tags, remote Git state, or registry data changed."
+  },
+  "localVerification": {
+    "fullGate": [
+      {
+        "check": "install",
+        "exit": 0,
+        "seconds": 0.57
+      },
+      {
+        "check": "docs",
+        "exit": 0,
+        "seconds": 0.9
+      },
+      {
+        "check": "mapping",
+        "exit": 0,
+        "seconds": 0.7
+      },
+      {
+        "check": "typecheck",
+        "exit": 0,
+        "seconds": 21.73
+      },
+      {
+        "check": "test",
+        "exit": 0,
+        "seconds": 219.21
+      },
+      {
+        "check": "lint",
+        "exit": 0,
+        "seconds": 10.25
+      },
+      {
+        "check": "build",
+        "exit": 0,
+        "seconds": 14.44
+      },
+      {
+        "check": "format",
+        "exit": 0,
+        "seconds": 6.34
+      },
+      {
+        "check": "nx-sync",
+        "exit": 0,
+        "seconds": 1.24
+      },
+      {
+        "check": "diff",
+        "exit": 0,
+        "seconds": 0.08
+      }
+    ],
+    "documentationDocuments": 350,
+    "compiledCli": {
+      "files": 9,
+      "passed": 116,
+      "optionalLiveProviderSkipped": 1
+    },
+    "installedPackages": 8,
+    "generatedFiles": 1365,
+    "auditedArchives": 8,
+    "workspacePackages": 23,
+    "retiredEvidence": 0,
+    "hostedCI": {
+      "implementationSourceCheckpoint": "4ae36416120bbe3e81405b06903b1f7a93681c21",
+      "run": "https://github.com/marcolink/seqlane/actions/runs/39751001939",
+      "quality": "success",
+      "hostedActions": "success",
+      "publish": "skipped",
+      "finalBranchHistory": "https://github.com/marcolink/seqlane/actions/workflows/ci.yml?query=branch%3Afeat%2Feffect-v4-migration",
+      "scope": "The checkpoint verifies executable code before documentation-only reconciliation. Final delivery is the reachable S12 task commit plus successful CI for its exact published head; the earlier checkpoint is not the final reachability identity."
+    },
+    "sourceFiles": 1281
+  },
+  "performanceInterpretation": {
+    "measurementScope": "Same workload definitions and Node24.16.0 on verified S0 snapshot7eb36b6 and migrated compiled code. Three CLI, graph, ready-node, and process shutdown trials; one serialization and RSS sample per build. No remote export or model call.",
+    "graph": "24 independent 5ms callbacks with shared workspace; baseline peak24 active bodies, target peak8. Both emit242 events. Separate 120ms/10ms graph proves ready dependent starts without a whole-level barrier.",
+    "shutdown": "Median30.87ms to133.25ms. Target adds acknowledged ownership handoff, native identity and process-group confirmation, and finite50ms termination polling. This explicit cleanup cost is retained; both versions prove the owned process is absent before measurement ends.",
+    "serialization": "1000 validated events carrying64KiB JSON; identical65738000 encoded bytes. Single samples142.29ms and147.18ms are diagnostic, not a regression threshold.",
+    "limits": "Local measurements, no throughput SLO or memory target. Darwin time -l peakRSS is not aggregate process-tree RSS. Tracked code counts include tests; code grew while dependencies and bundled JavaScript shrank."
+  },
+  "codeCountDefinition": "Recomputed from the original source commit and final tree using .ts, .tsx, .mts, .cts, .js, .mjs, .cjs. Includes tests, tooling, and declaration sources; excludes generated/ignored outputs."
+}

@@ -5,9 +5,9 @@ status: active
 owners:
   - core
 created: 2026-09-15
-updated: 2026-10-04
+updated: 2026-10-22
 upstream:
-  - prd.seqlane-on-mastra
+  - prd.seqlane-runtime
   - rfc.execution-observability-and-debugging
   - adr.passive-run-output
 supersedes:
@@ -38,7 +38,7 @@ retain no event recordings under
 ## Non-goals
 
 - A persistent run inspector, alternate-screen dashboard, or replacement for
-  Mastra Studio.
+  a hosted inspection application.
 - Runtime scheduling, event persistence, machine output, or result storage.
 - A public renderer plugin API.
 - Token-level executor transcripts or unrestricted task output.
@@ -61,7 +61,7 @@ The private package path is `libs/tui`, and its package name is
 `@seqlane/tui`. It can depend on `@seqlane/protocol` and stable primitives from
 `@seqlane/core`.
 
-It must not depend on runtime implementations, Mastra, OpenCode, runner
+It must not depend on runtime implementations, OpenCode, runner
 transport, or workflow-authoring implementation details. Core, protocol, and
 runtime must not depend on Ink, React, or terminal formatting libraries.
 
@@ -482,7 +482,7 @@ Tests must prove:
 - CI output contains no input reads, cursor movement, or carriage returns
 - CI heartbeats and final root elapsed time use an injected clock
 - renderer errors do not replace the run outcome or exit status
-- no Mastra, OpenCode, Ink, or React types cross prohibited boundaries
+- no runtime-engine, OpenCode, Ink, or React types cross prohibited boundaries
 - the compiled CLI passes representative human, CI, and cancellation smoke
   tests.
 
@@ -514,7 +514,7 @@ The integration task tracks the final cross-mode CLI verification.
 
 ## Traceability
 
-- [prd.seqlane-on-mastra requirement-run-output-quality](../prd/2026-09-03-seqlane-on-mastra.md#requirement-run-output-quality)
+- [prd.seqlane-runtime requirement-run-output-quality](../prd/2026-10-21-seqlane-runtime.md)
 - [rfc.execution-observability-and-debugging: Seqlane Execution Observability and Debugging](../rfcs/2026-09-02-execution-observability-and-debugging.md)
 - [adr.passive-run-output: Use Passive Run Output](../adrs/2026-09-16-passive-run-output.md)
 - [spec.run-machine-output: Run Machine Output and Command Errors](./2026-09-15-run-machine-output.md)

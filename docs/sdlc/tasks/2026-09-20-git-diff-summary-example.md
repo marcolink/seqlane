@@ -5,9 +5,9 @@ status: completed
 owners:
   - core
 created: 2026-09-20
-updated: 2026-09-20
+updated: 2026-10-22
 upstream:
-  - spec.mastra-backed-seqlane-workflows
+  - spec.workflow-execution-semantics
   - spec.local-mechanical-tasks
 supersedes: []
 ---
@@ -100,5 +100,5 @@ establish delivery on the target branch.
 
 ## Traceability
 
-- [spec.mastra-backed-seqlane-workflows](../specs/2026-09-08-mastra-backed-seqlane-workflows.md)
+- [spec.workflow-execution-semantics](../specs/2026-10-22-workflow-execution-semantics.md)
 - [spec.local-mechanical-tasks](../specs/2026-09-03-local-mechanical-tasks.md)

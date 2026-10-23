@@ -1,5 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
+import { Clock, Deferred, Effect, Exit, Scope } from "effect";
+import { codexEffect } from "./effect-boundary.js";
 import { CodexAdapterError, CodexProtocolError } from "./errors.js";
 import {
   MAX_JSONL_OUTBOUND_MESSAGE_BYTES,
@@ -15,11 +17,18 @@ import {
 } from "./protocol.js";
 import { CODEX_PREFLIGHT_TIMEOUT_MS, withDeadline } from "./deadline.js";
 import { readCodexVersion, versionDiagnostic } from "./version.js";
+import {
+  captureOwnedProcessIdentity,
+  terminateOwnedProcess,
+  type OwnedProcessIdentity,
+} from "@seqlane/agent-adapter/private/owned-process";
 
 const MAX_IGNORED_RESPONSE_IDS = 1_024;
 const IGNORED_RESPONSE_TTL_MS = 60_000;
 const SHUTDOWN_GRACE_MS = 1_000;
-const SHUTDOWN_FORCE_SETTLEMENT_MS = 1_000;
+const SHUTDOWN_CONFIRM_TIMEOUT_MS = 5_000;
+
+const currentTimeMillis = (): number => Effect.runSync(Clock.currentTimeMillis);
 
 export interface CodexTransport {
   readonly termination: Promise<void>;
@@ -43,6 +52,9 @@ export interface CodexTransportOptions {
     readonly code: string;
     readonly message: string;
   }) => void;
+  readonly onOwnedProcessAcquired?: (pid: number) => Promise<void>;
+  /** Set only when the transport itself created a detached POSIX group. */
+  readonly terminateOwnedProcessGroup?: boolean;
   readonly spawnProcess?: (
     executable: string,
     args: readonly string[],
@@ -52,14 +64,7 @@ export interface CodexTransportOptions {
 
 interface PendingRequest {
   readonly method: string;
-  readonly resolve: (value: unknown) => void;
-  readonly reject: (cause: unknown) => void;
-  readonly signal?: AbortSignal;
-  readonly onAbort?: () => void;
-}
-
-function toError(cause: unknown): Error {
-  return cause instanceof Error ? cause : new Error(String(cause));
+  readonly result: Deferred.Deferred<unknown, unknown>;
 }
 
 function rejectedRequestMessage(method: string, code: number): string {
@@ -84,6 +89,10 @@ function defaultSpawn(
 ): ChildProcessWithoutNullStreams {
   return spawn(executable, args, {
     cwd,
+    // The CLI owns adapter processes by verifying and terminating their
+    // process group. Give the app-server its own group on POSIX. Windows
+    // ownership is tracked by PID and creation time instead.
+    detached: process.platform !== "win32",
     stdio: ["pipe", "pipe", "pipe"],
   }) as ChildProcessWithoutNullStreams;
 }
@@ -165,7 +174,11 @@ export async function createCodexStdioTransport(
     ["app-server", "--stdio"],
     configuration.workspace,
   );
-  return createCodexTransportForProcess(child, options);
+  return createCodexTransportForProcess(child, {
+    ...options,
+    terminateOwnedProcessGroup:
+      options.spawnProcess === undefined && process.platform !== "win32",
+  });
 }
 
 export async function withCodexTransportDeadline(
@@ -206,7 +219,13 @@ export async function withCodexTransportDeadline(
 
 export async function createCodexTransportForProcess(
   child: ChildProcessWithoutNullStreams,
-  options: Pick<CodexTransportOptions, "signal" | "initializeTimeoutMs"> = {},
+  options: Pick<
+    CodexTransportOptions,
+    | "signal"
+    | "initializeTimeoutMs"
+    | "onOwnedProcessAcquired"
+    | "terminateOwnedProcessGroup"
+  > = {},
 ): Promise<CodexTransport> {
   let nextId = 1;
   let state: "open" | "closing" | "closed" = "open";
@@ -215,25 +234,41 @@ export async function createCodexTransportForProcess(
   const pending = new Map<CodexRequestId, PendingRequest>();
   const ignoredResponses = new Map<CodexRequestId, number>();
   const listeners = new Set<(message: CodexInboundMessage) => void>();
-  let terminationSettled = false;
-  let terminationRequested = false;
-  let shutdownGraceTimer: ReturnType<typeof setTimeout> | undefined;
-  let shutdownForceTimer: ReturnType<typeof setTimeout> | undefined;
-  let resolveTermination!: () => void;
-  const termination = new Promise<void>((resolve) => {
-    resolveTermination = resolve;
-  });
+  const terminated = Deferred.makeUnsafe<void, unknown>();
+  let terminationFailure: { readonly cause: unknown } | undefined;
+  let cleanupFailure: { readonly cause: unknown } | undefined;
+  let shutdown: Promise<void> | undefined;
+  const identityCapture: Promise<
+    { readonly identity: OwnedProcessIdentity } | { readonly error: unknown }
+  > =
+    options.terminateOwnedProcessGroup && child.pid !== undefined
+      ? captureOwnedProcessIdentity(child.pid).then(
+          (identity) => ({ identity }),
+          (error: unknown) => ({ error }),
+        )
+      : Promise.resolve({
+          error: new Error("Process group ownership is unavailable"),
+        });
+  const processScope = Effect.runSync(Scope.make());
+  const termination = Effect.runPromise(Deferred.await(terminated));
+  void termination.catch(() => undefined);
 
   const settleTermination = (): void => {
-    if (terminationSettled) return;
-    terminationSettled = true;
-    if (shutdownGraceTimer !== undefined) clearTimeout(shutdownGraceTimer);
-    if (shutdownForceTimer !== undefined) clearTimeout(shutdownForceTimer);
-    resolveTermination();
+    Deferred.doneUnsafe(
+      terminated,
+      terminationFailure === undefined
+        ? Effect.void
+        : Effect.fail(terminationFailure.cause),
+    );
+  };
+
+  const recordCleanupFailure = (cause: unknown): void => {
+    cleanupFailure = { cause };
+    terminationFailure ??= { cause };
   };
 
   const pruneIgnoredResponses = (): void => {
-    const now = Date.now();
+    const now = currentTimeMillis();
     for (const [id, expiresAt] of ignoredResponses) {
       if (expiresAt <= now) ignoredResponses.delete(id);
     }
@@ -246,7 +281,7 @@ export async function createCodexTransportForProcess(
 
   const ignoreResponse = (id: CodexRequestId): void => {
     pruneIgnoredResponses();
-    ignoredResponses.set(id, Date.now() + IGNORED_RESPONSE_TTL_MS);
+    ignoredResponses.set(id, currentTimeMillis() + IGNORED_RESPONSE_TTL_MS);
   };
 
   const wasIgnoredResponse = (id: CodexRequestId): boolean => {
@@ -255,46 +290,96 @@ export async function createCodexTransportForProcess(
   };
 
   const rejectPending = (cause: unknown): void => {
-    const error = toError(cause);
     for (const [id, request] of pending) {
-      if (request.onAbort !== undefined && request.signal !== undefined) {
-        request.signal.removeEventListener("abort", request.onAbort);
-      }
       pending.delete(id);
-      request.reject(error);
+      Deferred.doneUnsafe(request.result, Effect.fail(cause));
     }
   };
 
-  const requestChildTermination = (): void => {
-    if (terminationRequested) return;
-    terminationRequested = true;
+  const awaitGracefulClose = (): Promise<boolean> =>
+    Effect.runPromise(
+      Deferred.await(terminated).pipe(
+        Effect.as(true),
+        Effect.timeoutOrElse({
+          duration: SHUTDOWN_GRACE_MS,
+          orElse: () => Effect.succeed(false),
+        }),
+      ),
+    );
+
+  const requestChildTermination = (): Promise<void> => {
+    if (shutdown !== undefined) return shutdown;
     try {
       child.stdin.destroy();
     } catch {
       // Best-effort process cleanup.
     }
-    try {
-      child.kill("SIGTERM");
-    } catch {
-      // Best-effort process cleanup.
-    }
-    shutdownGraceTimer = setTimeout(() => {
-      try {
-        child.kill("SIGKILL");
-      } catch {
-        // Best-effort process cleanup.
+    shutdown = (async () => {
+      if (options.terminateOwnedProcessGroup) {
+        const captured = await identityCapture;
+        if ("error" in captured) {
+          // The child handle is safe for its own leader. Without a validated
+          // identity, retain uncertainty and never signal a process group.
+          try {
+            child.kill("SIGTERM");
+          } catch {
+            // Best-effort leader cleanup after identity capture failed.
+          }
+          const exited = await awaitGracefulClose();
+          if (!exited) child.kill("SIGKILL");
+          await withDeadline(
+            termination,
+            SHUTDOWN_CONFIRM_TIMEOUT_MS,
+            "process termination",
+          );
+          throw captured.error;
+        }
+        const graceful = await terminateOwnedProcess(
+          captured.identity,
+          "SIGTERM",
+        );
+        if (graceful.confirmed) return;
+        const forced = await terminateOwnedProcess(
+          captured.identity,
+          "SIGKILL",
+        );
+        if (!forced.confirmed) {
+          throw new Error(
+            "Could not confirm Codex app-server process group stopped",
+          );
+        }
+        return;
       }
-      shutdownForceTimer = setTimeout(
-        settleTermination,
-        SHUTDOWN_FORCE_SETTLEMENT_MS,
+
+      try {
+        child.kill("SIGTERM");
+      } catch {
+        // Best-effort process cleanup for an injected child process.
+      }
+      const exited = await awaitGracefulClose();
+      if (!exited) {
+        try {
+          child.kill("SIGKILL");
+        } catch {
+          // Best-effort process cleanup for an injected child process.
+        }
+      }
+      await withDeadline(
+        termination,
+        SHUTDOWN_CONFIRM_TIMEOUT_MS,
+        "process termination",
       );
-      shutdownForceTimer.unref?.();
-    }, SHUTDOWN_GRACE_MS);
-    shutdownGraceTimer.unref?.();
+    })().catch((cause: unknown) => {
+      recordCleanupFailure(cause);
+      throw cause;
+    });
+    void shutdown.catch(() => undefined);
+    return shutdown;
   };
 
   const fail = (cause: unknown): void => {
     if (state !== "open") return;
+    terminationFailure = { cause };
     state = "closing";
     rejectPending(cause);
     ignoredResponses.clear();
@@ -337,19 +422,19 @@ export async function createCodexTransportForProcess(
         return;
       }
       pending.delete(message.id);
-      if (request.onAbort !== undefined && request.signal !== undefined) {
-        request.signal.removeEventListener("abort", request.onAbort);
-      }
       if (message.error !== undefined) {
-        request.reject(
-          new CodexAdapterError(
-            "execution",
-            rejectedRequestMessage(request.method, message.error.code),
-            message.error,
+        Deferred.doneUnsafe(
+          request.result,
+          Effect.fail(
+            new CodexAdapterError(
+              "execution",
+              rejectedRequestMessage(request.method, message.error.code),
+              message.error,
+            ),
           ),
         );
       } else {
-        request.resolve(message.result);
+        Deferred.doneUnsafe(request.result, Effect.succeed(message.result));
       }
       return;
     }
@@ -410,12 +495,12 @@ export async function createCodexTransportForProcess(
   );
   child.on("close", (code, signal) => {
     if (state === "open") {
-      rejectPending(
-        new CodexAdapterError(
-          "execution",
-          `Codex app-server disconnected (${code ?? signal ?? "unknown"})`,
-        ),
+      const cause = new CodexAdapterError(
+        "execution",
+        `Codex app-server disconnected (${code ?? signal ?? "unknown"})`,
       );
+      terminationFailure = { cause };
+      rejectPending(cause);
     }
     state = "closed";
     ignoredResponses.clear();
@@ -427,6 +512,40 @@ export async function createCodexTransportForProcess(
   // the child cannot fill the pipe and stall stdout or process shutdown.
   child.stderr.resume();
 
+  const closeProcess = async (): Promise<void> => {
+    try {
+      if (state === "open") {
+        state = "closing";
+        rejectPending(
+          new CodexAdapterError(
+            "execution",
+            "Codex app-server transport closed",
+          ),
+        );
+      }
+      if (shutdown === undefined) {
+        try {
+          child.stdin.end();
+        } catch {
+          // Best-effort process cleanup.
+        }
+      }
+      const stopped = requestChildTermination();
+      await withDeadline(
+        stopped,
+        SHUTDOWN_CONFIRM_TIMEOUT_MS,
+        "process group shutdown",
+      );
+      await withDeadline(
+        termination,
+        SHUTDOWN_CONFIRM_TIMEOUT_MS,
+        "process termination",
+      );
+    } catch (cause) {
+      recordCleanupFailure(cause);
+      throw cause;
+    }
+  };
   const transport: CodexTransport = {
     termination,
     request(method, params, signal) {
@@ -438,32 +557,41 @@ export async function createCodexTransportForProcess(
           ),
         );
       const id = nextId++;
-      return new Promise((resolve, reject) => {
-        const onAbort = (): void => {
-          pending.delete(id);
-          ignoreResponse(id);
-          reject(
-            signal?.reason ??
-              new CodexAdapterError(
-                "cancellation",
-                "Codex request was cancelled",
-              ),
-          );
-        };
-        if (signal?.aborted) {
-          onAbort();
-          return;
-        }
-        pending.set(id, { method, resolve, reject, signal, onAbort });
-        try {
-          writeMessage(child, { jsonrpc: "2.0", id, method, params });
-        } catch (cause) {
-          pending.delete(id);
-          reject(cause);
-          return;
-        }
-        signal?.addEventListener("abort", onAbort, { once: true });
-      });
+      if (signal?.aborted) return Promise.reject(signal.reason);
+      const result = Deferred.makeUnsafe<unknown, unknown>();
+      const onAbort = (): void => {
+        if (pending.delete(id)) ignoreResponse(id);
+        Deferred.doneUnsafe(result, Effect.fail(signal?.reason));
+      };
+      return Effect.runPromise(
+        Effect.acquireUseRelease(
+          Effect.sync(() =>
+            signal?.addEventListener("abort", onAbort, { once: true }),
+          ),
+          () =>
+            Effect.gen(function* () {
+              if (signal?.aborted) return yield* Effect.fail(signal.reason);
+              yield* Effect.try({
+                try: () => {
+                  pending.set(id, { method, result });
+                  try {
+                    writeMessage(child, { jsonrpc: "2.0", id, method, params });
+                  } catch (cause) {
+                    pending.delete(id);
+                    throw cause;
+                  }
+                },
+                catch: (cause) => cause,
+              });
+              return yield* Deferred.await(result);
+            }),
+          () =>
+            Effect.sync(() => {
+              signal?.removeEventListener("abort", onAbort);
+              if (pending.delete(id)) ignoreResponse(id);
+            }),
+        ),
+      );
     },
     respond(requestId, response) {
       if (state !== "open") {
@@ -483,26 +611,52 @@ export async function createCodexTransportForProcess(
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
-    async close() {
-      if (state === "closed") return termination;
-      if (state === "open") {
-        state = "closing";
-        rejectPending(
-          new CodexAdapterError(
-            "execution",
-            "Codex app-server transport closed",
-          ),
+    close: async () => {
+      await Effect.runPromise(Scope.close(processScope, Exit.void));
+      if (cleanupFailure !== undefined) {
+        throw new CodexAdapterError(
+          "cancellation",
+          "Codex app-server process termination was not confirmed",
+          cleanupFailure.cause,
         );
       }
-      try {
-        child.stdin.end();
-      } catch {
-        // Best-effort process cleanup.
+      if (!Deferred.isDoneUnsafe(terminated)) {
+        throw new CodexAdapterError(
+          "cancellation",
+          "Codex app-server process termination was not confirmed",
+          terminationFailure?.cause,
+        );
       }
-      requestChildTermination();
-      await termination;
     },
   };
+
+  // Register process shutdown at acquisition, before the initialize request.
+  // If initialization fails, closing this scope still owns partial startup.
+  Effect.runSync(
+    Scope.addFinalizer(
+      processScope,
+      codexEffect(closeProcess).pipe(Effect.catch(() => Effect.void)),
+    ),
+  );
+
+  // Ownership must be acknowledged only after transport cleanup is installed,
+  // and before any protocol message is written to the child.
+  if (options.onOwnedProcessAcquired !== undefined) {
+    try {
+      if (child.pid === undefined) throw new Error("Codex process has no PID");
+      await options.onOwnedProcessAcquired(child.pid);
+    } catch (cause) {
+      try {
+        await transport.close();
+      } catch (cleanupCause) {
+        throw new AggregateError(
+          [cause, cleanupCause],
+          "Codex registration and process cleanup failed",
+        );
+      }
+      throw cause;
+    }
+  }
 
   // The handshake is part of transport creation. Nothing else can use this
   // connection until the server has accepted the integration identity.
@@ -528,7 +682,14 @@ export async function createCodexTransportForProcess(
     writeMessage(child, { jsonrpc: "2.0", method: "initialized", params: {} });
     return transport;
   } catch (cause) {
-    await transport.close();
+    try {
+      await transport.close();
+    } catch (cleanupCause) {
+      throw new AggregateError(
+        [cause, cleanupCause],
+        "Codex initialization and process cleanup failed",
+      );
+    }
     throw cause;
   }
 }

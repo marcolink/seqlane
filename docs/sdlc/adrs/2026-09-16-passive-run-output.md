@@ -5,9 +5,9 @@ status: accepted
 owners:
   - core
 created: 2026-09-16
-updated: 2026-09-16
+updated: 2026-10-22
 upstream:
-  - prd.seqlane-on-mastra
+  - prd.seqlane-runtime
   - rfc.execution-observability-and-debugging
 supersedes:
   - adr.run-terminal-presentation-boundary
@@ -62,5 +62,5 @@ Delivered to the default branch through [pull request
 
 - [Previous terminal boundary decision](./2026-09-15-run-terminal-presentation-boundary.md)
 - [Run terminal rendering](../specs/2026-09-15-run-terminal-rendering.md)
-- [prd.seqlane-on-mastra](../prd/2026-09-03-seqlane-on-mastra.md)
+- [prd.seqlane-runtime](../prd/2026-10-21-seqlane-runtime.md)
 - [rfc.execution-observability-and-debugging](../rfcs/2026-09-02-execution-observability-and-debugging.md)

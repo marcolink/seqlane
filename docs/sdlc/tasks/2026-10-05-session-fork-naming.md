@@ -5,15 +5,19 @@ status: in-progress
 owners:
   - core
 created: 2026-10-05
-updated: 2026-10-06
+updated: 2026-10-22
 upstream:
   - spec.session-checkpoint-reuse-and-branching
   - spec.model-selection-and-session-model-semantics
-  - spec.mastra-backed-seqlane-workflows
+  - spec.workflow-execution-semantics
 supersedes: []
 ---
 
 # Use Session Fork Naming
+
+> Historical task record. Scope and outcomes describe work before the current migration.
+> Current execution authority: [Effect v4 execution and operations](../specs/2026-10-21-effect-v4-execution-and-operations.md).
+> Current-owner links record the later contract transfer. They do not establish historical Effect v4 use or current delivery.
 
 ## Objective
 
@@ -29,7 +33,7 @@ Plan types. Authoring and execution use one Plan contract.
 
 - [spec.session-checkpoint-reuse-and-branching](../specs/2026-09-02-session-checkpoint-reuse-and-branching.md): session checkpoint, reuse, fork, and ordering contracts.
 - [spec.model-selection-and-session-model-semantics](../specs/2026-09-03-model-selection-and-session-model-semantics.md): model inheritance and fork overrides.
-- [spec.mastra-backed-seqlane-workflows](../specs/2026-09-08-mastra-backed-seqlane-workflows.md): private runtime ownership and session failure behavior.
+- [spec.workflow-execution-semantics](../specs/2026-10-22-workflow-execution-semantics.md): private runtime ownership and session failure behavior.
 
 ## Scope
 
@@ -41,7 +45,7 @@ IDs and paths.
 ## Out of scope
 
 Choice correctness fixes, performance work, unrelated type refactors, Git terminology,
-Mastra control-flow APIs, accepted ADRs, and stable document IDs.
+private control-flow APIs, accepted ADRs, and stable document IDs.
 
 ## Implementation plan
 
@@ -89,7 +93,7 @@ Production compilation passed. Three spec typecheck errors in unchanged
 code-review tests at lines 1467 and 1532 remain. The source diff audit confirms
 all 14 changed production files contain only session-name substitutions.
 
-## Delivery state
+## Historical delivery state
 
 PR #174 is based on `origin/main`, which includes merged #170. This PR's changes
 are not yet delivered on main. The conditional-choice documentation example from
@@ -101,4 +105,4 @@ are not yet delivered on main. The conditional-choice documentation example from
 - [Issue #173](https://github.com/marcolink/seqlane/issues/173)
 - [spec.session-checkpoint-reuse-and-branching](../specs/2026-09-02-session-checkpoint-reuse-and-branching.md)
 - [spec.model-selection-and-session-model-semantics](../specs/2026-09-03-model-selection-and-session-model-semantics.md)
-- [spec.mastra-backed-seqlane-workflows](../specs/2026-09-08-mastra-backed-seqlane-workflows.md)
+- [spec.workflow-execution-semantics](../specs/2026-10-22-workflow-execution-semantics.md)

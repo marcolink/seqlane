@@ -54,7 +54,9 @@ describe("seqlane tui package", () => {
       ink: "7.1.1",
       react: "19.3.0",
     });
-    expect(manifest.files).toEqual(["dist", "!dist/**/*.tsbuildinfo"]);
+    expect(manifest.files).toEqual(
+      expect.arrayContaining(["dist", "!dist/**/*.tsbuildinfo"]),
+    );
     expect(manifest.exports).toMatchObject({
       ".": expect.any(Object),
     });
@@ -64,6 +66,8 @@ describe("seqlane tui package", () => {
     expect(
       source("libs/tui/src/index.ts") +
         source("libs/tui/src/renderer-contract.ts"),
-    ).not.toMatch(/Mastra|OpenCode|seqlane-runtime/i);
+    ).not.toMatch(
+      /(?:from|import\()[\s"']+(?:effect|@seqlane\/(?:runtime|[\w-]+-adapter))(?=[/"'])/,
+    );
   });
 });

@@ -5,7 +5,7 @@ status: completed
 owners:
   - core
 created: 2026-09-16
-updated: 2026-09-18
+updated: 2026-10-22
 upstream:
   - spec.agent-adapter-boundary-and-capabilities
   - adr.engine-opaque-agent-adapter-contracts
@@ -14,6 +14,10 @@ supersedes: []
 ---
 
 # Decouple Runtime from Concrete Adapter Implementations
+
+> Historical task record. Scope and outcomes describe work before the current migration.
+> Current execution authority: [Effect v4 execution and operations](../specs/2026-10-21-effect-v4-execution-and-operations.md).
+> Current-owner links record the later contract transfer. They do not establish historical Effect v4 use or current delivery.
 
 ## Objective
 
@@ -79,7 +83,7 @@ install, typecheck, test, lint, build, format, Nx sync, and whitespace gates.
 Runtime construction now belongs to adapter packages and CLI or Action
 composition. The runtime accepts only an already selected generic agent
 runtime. Its package imports and depends on no concrete adapter package or
-Mastra-typed generic adapter contract.
+engine-typed generic adapter contract.
 
 The direct workflow API accepts a bootstrapped agent runtime. The code-review
 Action bootstraps its selected OpenCode runtime after review admission, then
@@ -97,7 +101,7 @@ passed. The full test run still has the pre-existing Node 24.11 standalone
 TypeScript loader failure; lifecycle subprocess tests passed outside the
 sandbox.
 
-## Delivery state
+## Historical delivery state
 
 Implementation completed on a working branch. No target-branch delivery is
 claimed.

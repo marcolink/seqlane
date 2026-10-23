@@ -5,7 +5,7 @@ status: superseded
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-08
+updated: 2026-10-22
 upstream:
   - adr.consumer-agnostic-seqlane-execution-events
 supersedes: []
@@ -70,8 +70,8 @@ Package boundaries:
 
 | Package | Owns | Must not own |
 | --- | --- | --- |
-| `seqlane-core` | Workflow authoring, Plan IR, shared IDs/primitives, runner commands | Mastra, Studio, terminal rendering, canonical execution-event projections |
-| `seqlane-events` | Canonical serializable events, metadata, validation, event encoding, consumer contract | Runtime execution, Mastra, OpenCode, Studio, terminal rendering, OTel SDKs |
+| `seqlane-core` | Workflow authoring, Plan IR, shared IDs/primitives, runner commands | Runtime libraries, Studio, terminal rendering, canonical execution-event projections |
+| `seqlane-events` | Canonical serializable events, metadata, validation, event encoding, consumer contract | Runtime execution, runtime libraries, OpenCode, Studio, terminal rendering, OTel SDKs |
 | `seqlane-runtime` | Private execution, internal runtime events, projection to canonical events | Public executor-specific event fields |
 | `seqlane-output` | Human, CI, and JSON event projections/renderers | Generic fanout, runner transport, Studio, recording, process lifecycle |
 | `seqlane-studio` | Studio protocol, registry, browser-facing projection | Runtime execution, canonical event ownership |
@@ -213,7 +213,7 @@ The event must not include:
 - serialized bindings beyond the topology needed for graph edges;
 - task schemas or callbacks;
 - validator callbacks;
-- executor, Mastra, OpenCode, session, prompt, tool, or credential data.
+- executor, runtime-library, OpenCode, session, prompt, tool, or credential data.
 
 ## 6. Runtime Projection
 
@@ -227,7 +227,7 @@ The runtime remains the source of canonical event meaning. It will:
 6. send only canonical execution events across IPC.
 
 The internal runtime event contract may move from public `seqlane-core` types
-to a private runtime module. It must not leak Mastra or executor details into
+to a private runtime module. It must not leak runtime-library or executor details into
 `seqlane-events`.
 
 Current top-level `invocation.created` events remain. They represent actual
@@ -366,7 +366,7 @@ Standards references:
 - metadata rejects invalid sequence, timestamp, event ID, and trace context;
 - `run.plan` rejects malformed node IDs, duplicate nodes, invalid dependencies,
   and unbounded/raw fields;
-- canonical events contain no Mastra or executor types;
+- canonical events contain no runtime-engine or executor types;
 - package boundaries use declared dependencies and exports.
 
 ### Runtime
@@ -406,7 +406,7 @@ spec.consumer-agnostic-seqlane-execution-events is complete when:
 - Studio can render the complete static graph before actual invocation state;
 - Plan-node and Invocation identities remain separate throughout projection;
 - recording/replay preserves the Plan snapshot and all execution events; and
-- no Mastra, OpenCode, executor, credential, or raw prompt data crosses the
+- no runtime-engine, OpenCode, executor, credential, or raw prompt data crosses the
   canonical consumer boundary.
 
 ## 14. Explicitly Deferred
@@ -442,4 +442,4 @@ spec.consumer-agnostic-seqlane-execution-events is complete when:
 ## Traceability
 
 - [adr.consumer-agnostic-seqlane-execution-events](../adrs/2026-09-02-consumer-agnostic-seqlane-execution-events.md)
-- [spec.mastra-backed-seqlane-workflows: Mastra-Backed Seqlane Workflow Contracts](./2026-09-08-mastra-backed-seqlane-workflows.md)
+- [spec.workflow-execution-semantics: Workflow Authoring and Execution Semantics](./2026-10-22-workflow-execution-semantics.md)

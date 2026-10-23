@@ -13,6 +13,19 @@ export class BindingResolutionError extends Error {
   }
 }
 
+class PlanNodeResult {
+  constructor(readonly value: unknown) {}
+}
+
+/** Mark a native invocation's domain output without an engine-specific envelope. */
+export function planNodeResult(value: unknown): PlanNodeResult {
+  return new PlanNodeResult(value);
+}
+
+export function unwrapPlanNodeResult(value: unknown): unknown {
+  return value instanceof PlanNodeResult ? value.value : value;
+}
+
 function collectReferenceNodeIds(
   binding: ValueBinding,
   nodeIds: Set<string>,
@@ -57,6 +70,13 @@ function resolveReference(
   }
 
   const result = results.get(reference.nodeId);
+  if (result instanceof PlanNodeResult) {
+    return traversePath(
+      result.value,
+      reference.path[0] === "output" ? reference.path.slice(1) : reference.path,
+      reference.nodeId,
+    );
+  }
   if (
     reference.path[0] === "output" &&
     (typeof result !== "object" ||

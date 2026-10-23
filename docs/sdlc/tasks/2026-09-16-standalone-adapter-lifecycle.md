@@ -5,7 +5,7 @@ status: completed
 owners:
   - core
 created: 2026-09-16
-updated: 2026-09-16
+updated: 2026-10-22
 upstream:
   - spec.standalone-cli-runs
   - task.standalone-workflow-loading
@@ -13,6 +13,10 @@ supersedes: []
 ---
 
 # Manage Standalone Adapter Lifecycle
+
+> Historical task record. Scope and outcomes describe work before the current migration.
+> Current execution authority: [Effect v4 execution and operations](../specs/2026-10-21-effect-v4-execution-and-operations.md).
+> Current-owner links record the later contract transfer. They do not establish historical Effect v4 use or current delivery.
 
 ## Objective
 
@@ -91,7 +95,7 @@ not wired into the CLI until the next delivery steps.
 Verification: 48 focused lifecycle, model, and registry tests passed, followed
 by all eight repository gates. Two real OpenCode services used distinct ports,
 passed health checks, and closed while an unrelated listener survived. This
-smoke test made zero model calls. Core declarations contain no Mastra imports;
+smoke test made zero model calls. Core declarations contain no runtime-engine imports;
 no production enterprise imports were introduced. SDLC validation passed.
 
 An initial full-suite run hit existing CLI startup timeouts. A fresh review
@@ -106,7 +110,7 @@ the model capability closure and process lifecycle remain cohesive concerns.
 Full removal of existing concrete runtime imports is tracked separately in
 [task.decouple-runtime-adapter-composition](./2026-09-16-decouple-runtime-adapter-composition.md).
 
-## Delivery state
+## Historical delivery state
 
 Verified on `feat/standalone-cli-runs` in the commit containing this outcome.
 The public command cutover remains pending. No target-branch delivery is claimed.

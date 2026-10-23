@@ -1,5 +1,6 @@
 import type { ClassifierRequestInput, ClassifierResult } from "@seqlane/core";
 import type { SeqlaneObservation } from "@seqlane/protocol";
+import type { Effect } from "effect";
 import { z } from "zod";
 
 export type { PrivateClassifierConnection } from "./connection.js";
@@ -12,7 +13,7 @@ export type ClassifierTaskRunner = (
   request: ClassifierRequestInput,
   signal: AbortSignal,
   onObservation: ClassifierObservationSink,
-) => Promise<ClassifierResult>;
+) => Effect.Effect<ClassifierResult, unknown>;
 
 export const classifierFailureCodeSchema = z.enum([
   "configuration",

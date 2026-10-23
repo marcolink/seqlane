@@ -5,7 +5,7 @@ status: completed
 owners:
   - core
 created: 2026-09-23
-updated: 2026-09-24
+updated: 2026-10-22
 upstream:
   - spec.classifier-tasks
   - task.classifier-dynamic-questions
@@ -13,6 +13,10 @@ supersedes: []
 ---
 
 # Bound Classifier Retries and Retain Full Observations
+
+> Historical task record. Scope and outcomes describe work before the current migration.
+> Current execution authority: [Effect v4 execution and operations](../specs/2026-10-21-effect-v4-execution-and-operations.md).
+> Current-owner links record the later contract transfer. They do not establish historical Effect v4 use or current delivery.
 
 ## Objective
 
@@ -53,7 +57,7 @@ Implement [spec.classifier-tasks, deadline and retries](../specs/2026-09-23-clas
 - **Outcome:** a fixture returns 429 once, then a valid full result; the task
   succeeds within its original transport budget and records both attempts under
   one invocation.
-- **Path:** Mastra task abort signal → classifier client deadline/backoff →
+- **Path:** invocation abort signal → classifier client deadline/backoff →
   local HTTP fixture → validated result → existing invocation observation.
 - **Risk:** a retry can outlive cancellation or create a second task identity,
   while raw state or credential handling can leak through progress or errors.
@@ -77,7 +81,7 @@ Implement [spec.classifier-tasks, deadline and retries](../specs/2026-09-23-clas
 ## Affected areas
 
 Private runtime classifier client, runtime task execution context,
-`libs/runtime/src/runtime/mastra/mastra-execution.ts` or its established
+the private runtime or its established
 observation bridge, and colocated tests. Touch `libs/protocol` only if the
 existing observation contract cannot carry the complete JSON detail; any
 protocol change then requires round-trip and malformed-input compatibility
@@ -85,8 +89,7 @@ tests.
 
 ## Verification
 
-- Run test mapping, scoped tests, typecheck, lint, build, and forbidden `/ee/`
-  import check.
+- Run test mapping, scoped tests, typecheck, lint, build, and public-boundary checks.
 - Test 429/529/5xx/network retries; 400/401/403/404/422 and malformed output
   no-retry; `Retry-After` inside and beyond the budget; abort during fetch and
   backoff; deadline during response read; exact maximum of four attempts.
@@ -128,7 +131,7 @@ failures because the sandbox rejects spawning `ps` with `EPERM`. Ripwire
 reports short-horizon churn on the recently extended classifier client; no
 complexity regression remains.
 
-## Delivery state
+## Historical delivery state
 
 Implemented and locally verified on branch
 `codex/classifier-reliability-and-observation`, based on `main` at `1e3b915`.

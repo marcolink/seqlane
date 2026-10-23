@@ -5,13 +5,17 @@ status: completed
 owners:
   - core
 created: 2026-09-18
-updated: 2026-09-18
+updated: 2026-10-22
 upstream:
-  - prd.seqlane-on-mastra
+  - prd.seqlane-runtime
 supersedes: []
 ---
 
 # Support npm pnpm and Yarn Installation
+
+> Historical task record. Scope and outcomes describe work before the current migration.
+> Current execution authority: [Effect v4 execution and operations](../specs/2026-10-21-effect-v4-execution-and-operations.md).
+> Current-owner links record the later contract transfer. They do not establish historical Effect v4 use or current delivery.
 
 ## Objective
 
@@ -22,7 +26,7 @@ or Yarn. Show each installation path as a tab in public documentation.
 
 This task changes installation metadata and public documentation only. It does
 not change workflow, runtime, or CLI behavior from
-[prd.seqlane-on-mastra](../prd/2026-09-03-seqlane-on-mastra.md).
+[prd.seqlane-runtime](../prd/2026-10-21-seqlane-runtime.md).
 
 ## Scope
 
@@ -80,12 +84,12 @@ Checks passed:
 - `pnpm docs:validate`
 - `pnpm exec prettier --check` for changed files
 
-## Delivery state
+## Historical delivery state
 
 Implemented in the current worktree. The change is uncommitted and is not
 reachable from the target branch, so it does not establish delivery.
 
 ## Traceability
 
-- [prd.seqlane-on-mastra: Seqlane on Mastra](../prd/2026-09-03-seqlane-on-mastra.md)
+- [prd.seqlane-runtime: Seqlane Runtime Product Requirements](../prd/2026-10-21-seqlane-runtime.md)
 - [task.expand-public-documentation-navigation: Expand Public Documentation Navigation](./2026-09-18-expand-public-documentation-navigation.md)

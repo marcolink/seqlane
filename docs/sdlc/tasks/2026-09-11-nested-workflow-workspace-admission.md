@@ -5,15 +5,19 @@ status: planned
 owners:
   - core
 created: 2026-09-11
-updated: 2026-09-11
+updated: 2026-10-22
 upstream:
   - task.compose-workflows-as-runnables
-  - spec.mastra-backed-seqlane-workflows
+  - spec.workflow-execution-semantics
   - spec.invocation-admission-and-workspace-coordination
 supersedes: []
 ---
 
 # Make Nested Workflow Workspace Admission Safe
+
+> Historical task record. Scope and outcomes describe work before the current migration.
+> Current execution authority: [Effect v4 execution and operations](../specs/2026-10-21-effect-v4-execution-and-operations.md).
+> Current-owner links record the later contract transfer. They do not establish historical Effect v4 use or current delivery.
 
 ## Objective
 
@@ -28,7 +32,7 @@ compatibility, and cancellation must use one consistent admission model.
 - `SEQ-PR99-011`: Prevent shared-parent and exclusive-descendant deadlocks.
 - `SEQ-PR99-012`: Observe cancellation while admission is queued.
 - [spec.invocation-admission-and-workspace-coordination](../specs/2026-09-02-invocation-admission-and-workspace-coordination.md)
-- [spec.mastra-backed-seqlane-workflows](../specs/2026-09-08-mastra-backed-seqlane-workflows.md)
+- [spec.workflow-execution-semantics](../specs/2026-10-22-workflow-execution-semantics.md)
 
 ## Scope
 
@@ -84,7 +88,7 @@ workflow tests, typechecks, builds, and cancellation checks.
 Not delivered. This task records follow-ups for `SEQ-PR99-007` and
 `SEQ-PR99-010` through `SEQ-PR99-012`.
 
-## Delivery state
+## Historical delivery state
 
 Planned; no implementation or delivery evidence claimed.
 
@@ -92,4 +96,4 @@ Planned; no implementation or delivery evidence claimed.
 
 - [task.compose-workflows-as-runnables: Compose Workflows as Runnables](./2026-09-08-compose-workflows-as-runnables.md)
 - [spec.invocation-admission-and-workspace-coordination: Invocation Admission and Workspace Coordination](../specs/2026-09-02-invocation-admission-and-workspace-coordination.md)
-- [spec.mastra-backed-seqlane-workflows: Mastra-Backed Seqlane Workflow Contracts](../specs/2026-09-08-mastra-backed-seqlane-workflows.md)
+- [spec.workflow-execution-semantics: Workflow Authoring and Execution Semantics](../specs/2026-10-22-workflow-execution-semantics.md)

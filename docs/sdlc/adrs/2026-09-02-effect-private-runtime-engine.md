@@ -5,154 +5,59 @@ status: superseded
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-08
+updated: 2026-10-22
 upstream:
   - rfc.seqlane-technical-architecture
-supersedes:
-  - adr.mastra-internal-workflow-engine
+supersedes: []
 ---
 
 # Use Effect as Seqlane's Private Runtime Engine
 
-> Superseded by [rfc.mastra-runtime-and-operational-foundation](../rfcs/2026-09-03-mastra-runtime-and-operational-foundation.md).
+> Superseded by [the full Effect v4 runtime decision](../rfcs/2026-10-21-effect-v4-migration.md).
+> This earlier decision proposed a bounded sequential replacement. It is not
+> evidence that the current Effect v4 contract was delivered at that time.
 
 ## Context
 
-adr.mastra-internal-workflow-engine selected Mastra as Seqlane's private workflow engine. The current
-runtime uses a small part of that engine. It creates one internal step for
-each ordered Plan node, chains the steps in sequence, starts one run, and
-forwards cancellation.
+Seqlane owned Plan meaning, binding resolution, schemas, identity, execution
+policy, errors, and events. A separate workflow model added translation and
+lifecycle work without owning those domain contracts.
 
-Seqlane owns the workflow meaning. Seqlane also owns Plan validation,
-dependency ordering, input binding, task execution, validation gates, repeats,
-identities, errors, and execution events. Mastra does not own these contracts.
+The proposal sought a private foundation for cancellation and resource lifetime
+while preserving public contracts. It deliberately limited the first change
+to sequential execution parity.
 
-This leaves a narrow engine adapter, but the adapter adds a second workflow
-model and engine-specific result and cancellation handling. The current
-dependency is also an alpha release. The runtime needs a private execution
-foundation that fits Seqlane's existing contracts and can support later
-controlled concurrency without changing public authoring.
+## Historical decision
 
-The following constraints remain in force:
+Use Effect primitives behind the private runtime boundary. Keep public
+contracts Zod-owned and retain existing task callbacks, cancellation signals,
+and Seqlane outcomes. Do not add durable replay or automatic action retries.
 
-- `seqlane-core` remains independent of runtime libraries.
-- Plans, runner IPC, events, and workflow authoring remain engine-neutral.
-- Each run remains in its dedicated child process.
-- V1 remains autonomous and non-interactive.
-- Automatic retries remain disabled until Seqlane defines retry policy.
-- Seqlane's existing Zod-based schema contracts remain unchanged.
+The current replacement expands that bounded proposal into one scoped Effect v4
+program across CLI, direct, HTTP, and MCP callers. It owns concurrency,
+admission, processes, native SDK bridges, hosted SQL history, and telemetry.
+The earlier implementation seams and package-version advice are retired.
 
-## Options Considered
+## Alternatives considered
 
-### Keep Mastra
+- Keep a separate workflow model: retained unnecessary translation and lifecycle work.
+- Build a Promise scheduler: required custom interruption and resource ownership.
+- Add durable workflow machinery: introduced replay and persistence decisions
+  beyond the original foreground-run requirement.
 
-This keeps the current implementation stable. It also keeps the workflow
-adapter, engine-specific lifecycle, and alpha dependency. It does not reduce
-the boundary that Seqlane must maintain. Rejected.
+## Retained rationale
 
-### Use Effect core as the private runtime foundation
+Effect supplies execution mechanisms. Seqlane retains domain policy and public
+meaning. Engine types stay out of core, Plans, IPC, and workflow authoring.
+Persistence and replay require explicit behavior and side-effect policy.
 
-Effect provides lazy effect descriptions, typed errors and requirements,
-fiber interruption, concurrency control, resource scopes, and schedules. The
-runtime can use these primitives while Seqlane keeps ownership of Plan and
-event semantics. Chosen.
+## Delivery state
 
-### Use `@effect/workflow` as the runtime engine
-
-`@effect/workflow` provides durable workflow features, activities, deferred
-signals, polling, resumption, and persistence-oriented execution. These
-features exceed the current local, foreground, single-run model. The package
-also introduces a 0.x API, Effect Schema workflow contracts, idempotency and
-replay semantics, and peer dependencies beyond `effect`. These changes would
-make the first migration larger and add behavior that Seqlane has not
-defined. Deferred until durable and resumable execution becomes a requirement.
-
-### Build a Promise-based Seqlane scheduler
-
-This can remove Mastra with little dependency cost. It does not provide the
-Effect runtime model for interruption, resource scopes, typed errors, or later
-bounded concurrency. Rejected.
-
-## Decision
-
-Seqlane will use the `effect` core package as the private runtime foundation
-in `@seqlane/runtime`. `@effect/workflow` is not part of the first
-migration.
-
-The first implementation will preserve current observable behavior. It will
-execute the ordered Plan serially, emit the same Seqlane events, preserve the
-same run outcomes, and use the existing executor and `AbortSignal` contracts.
-
-The migration will replace the private Mastra workflow surface with an
-Effect-backed sequential runner. It will keep the current compiler and run
-seams where this reduces migration risk. These seams are private and must not
-expose Effect types, Mastra types, or engine-specific objects.
-
-Effect will not become part of `seqlane-core`, serialized Plans, workflow
-authoring, runner IPC, or the public event contract.
-
-Parallel scheduling, automatic retries, durable execution, persistence,
-resume, and human interaction are separate decisions. They are not part of
-the first migration.
-
-## Consequences
-
-### Positive
-
-- The runtime removes its direct Mastra dependency.
-- Seqlane keeps one authoritative execution model.
-- Cancellation can use Effect interruption while preserving executor signals.
-- Resource cleanup can use Effect scopes.
-- Future bounded concurrency can use Effect fibers without changing Plans.
-- Public Seqlane contracts remain stable during the migration.
-
-### Negative
-
-- Seqlane owns the scheduler behavior that Mastra provided.
-- The runtime must map Effect failures and interruption to Seqlane errors and
-  outcomes.
-- Effect types and Seqlane types must not cross the private runtime boundary.
-- A later durable workflow design will need separate persistence and
-  idempotency decisions.
-- Initial execution remains serial and does not gain a performance benefit.
-- Durable execution remains unavailable until Seqlane defines persistence,
-  replay, idempotency, and recovery semantics.
-
-## Follow-up Constraints
-
-- Keep the first migration serial. Do not add concurrency as an incidental
-  change.
-- Keep retries at zero. Do not apply Effect schedules to task execution.
-- Preserve Seqlane event order and event payloads during parity testing.
-- Preserve `AbortSignal` support for executor and OpenCode cancellation.
-- Do not migrate Zod schemas to Effect Schema in this work.
-- Do not add `@effect/workflow`, `@effect/cluster`, or persistence services.
-- Reconsider `@effect/workflow` only through a separate durable-execution
-  decision.
-- Do not change Plan, runner IPC, CLI, Studio, or OpenCode contracts.
-- Add a separate decision before enabling parallel or durable execution.
-
-## Revisit Conditions
-
-Revisit this decision if Effect core cannot preserve required cancellation or
-resource behavior, if runtime maintenance becomes greater than the current
-adapter cost, or if Seqlane needs durable execution that requires a different
-workflow engine boundary.
-
-## Sources
-
-- [Effect type](https://effect.website/docs/v4/getting-started/the-effect-type)
-- [Effect concurrency](https://effect.website/docs/v4/concurrency/basic-concurrency)
-- [Effect resource scopes](https://effect.website/docs/v4/resource-management/scope)
-- [Effect retrying](https://effect.website/docs/v4/error-management/retrying)
-- [Effect package](https://www.npmjs.com/package/effect)
-- [Effect workflow package](https://www.npmjs.com/package/@effect/workflow)
-- [Effect workflow source](https://github.com/Effect-TS/effect/tree/main/packages/effect/src/unstable/workflow)
-- [Snyk package page](https://security.snyk.io/package/npm/effect)
-- [Snyk workflow package page](https://security.snyk.io/package/npm/%40effect%2Fworkflow)
+Superseded decision. Neither its date nor its status proves implementation of
+this proposal or the current migration on the target branch.
 
 ## Traceability
 
-- [rfc.seqlane-technical-architecture: Seqlane Technical Architecture](../rfcs/2026-09-02-seqlane-technical-architecture.md)
-- Replaced by [rfc.mastra-runtime-and-operational-foundation: Mastra as Seqlane's Runtime and Operational Foundation](../rfcs/2026-09-03-mastra-runtime-and-operational-foundation.md).
-- [adr.mastra-backed-seqlane-workflows: Center Seqlane Workflows on a Mastra-Backed Executable DSL](./2026-09-08-mastra-backed-seqlane-workflows.md)
+- [rfc.seqlane-technical-architecture — Original technical architecture](../rfcs/2026-09-02-seqlane-technical-architecture.md)
+- [Replacement runtime decision](../rfcs/2026-10-21-effect-v4-migration.md)
+- [Current execution and operations contract](../specs/2026-10-21-effect-v4-execution-and-operations.md)

@@ -1,3 +1,4 @@
+import { Deferred, Effect } from "effect";
 import { InteractionRequiredError } from "@seqlane/core";
 import type {
   AgentActivity,
@@ -17,6 +18,7 @@ import {
 } from "./session-events.js";
 import {
   parseTurnStartResult,
+  type CodexTurn,
   type CodexTokenUsage,
 } from "./index-internal.js";
 import { unsupportedCodexServerRequest } from "./protocol.js";
@@ -29,10 +31,33 @@ export interface CompletedTurn {
   readonly agentMessageText?: string;
 }
 
+export interface TurnObservationSnapshot {
+  readonly responseId: string;
+  readonly response: unknown;
+  readonly usage?: unknown;
+}
+
+export interface TurnTrackerOptions {
+  readonly startedTurn: CodexTurn;
+  readonly onSnapshot?: (snapshot: TurnObservationSnapshot) => void;
+}
+
 export interface TurnTracker {
-  readonly completion: Promise<CompletedTurn>;
-  readonly interaction: Promise<never>;
-  readonly failure: Promise<never>;
+  readonly completion: Effect.Effect<CompletedTurn, unknown>;
+  readonly interaction: Effect.Effect<never, unknown>;
+  readonly failure: Effect.Effect<never, unknown>;
+  readonly stopped: Effect.Effect<void>;
+  stopFailure(): { readonly cause: unknown } | undefined;
+  sinkFailure(): { readonly failed: boolean; readonly cause: unknown };
+  isStopped(): boolean;
+  confirmStopped(
+    endedAt: number,
+    message: string,
+    ...failure: [] | [unknown]
+  ): void;
+  fail(cause: unknown, endedAt: number): void;
+  terminateActivities(endedAt: number, message: string): void;
+  snapshot(): TurnObservationSnapshot;
   dispose(): void;
 }
 
@@ -89,33 +114,31 @@ export function createTurnTracker(
   turnId: string,
   onActivity: AgentAdapterRequest["onActivity"],
   respond: CodexTransport["respond"],
+  options: TurnTrackerOptions,
 ): TurnTracker {
   const items: Record<string, unknown>[] = [];
+  const observedItems = [...options.startedTurn.items];
+  const messageDeltas: Record<string, unknown>[] = [];
+  let currentTurn = options.startedTurn;
   let itemBytes = 0;
   let agentMessageBytes = 0;
   let usage: CodexTokenUsage | undefined;
-  let resolveCompletion!: (value: CompletedTurn) => void;
-  let rejectCompletion!: (cause: unknown) => void;
-  let rejectInteraction!: (cause: unknown) => void;
-  let rejectFailure!: (cause: unknown) => void;
-  let settled = false;
+  const completion = Deferred.makeUnsafe<CompletedTurn, unknown>();
+  const interaction = Deferred.makeUnsafe<never, unknown>();
+  const failure = Deferred.makeUnsafe<never, unknown>();
+  const stopped = Deferred.makeUnsafe<void>();
+  let terminationFailure: { readonly cause: unknown } | undefined;
+  let activitySinkFailed = false;
+  let activitySinkCause: unknown;
   const agentMessages = new Map<string, AgentMessageState>();
   const completedAgentMessageIds: string[] = [];
-  const completion = new Promise<CompletedTurn>((resolve, reject) => {
-    resolveCompletion = resolve;
-    rejectCompletion = reject;
-  });
-  const interaction = new Promise<never>((_, reject) => {
-    rejectInteraction = reject;
-  });
-  const failure = new Promise<never>((_, reject) => {
-    rejectFailure = reject;
-  });
   const reducer = new CodexActivityReducer((activity: AgentActivity) => {
     try {
       onActivity?.(activity);
-    } catch {
-      // Activity callbacks are observational and must not stop the turn.
+    } catch (cause) {
+      activitySinkFailed = true;
+      activitySinkCause = cause;
+      throw cause;
     }
   });
   const addItem = (item: Record<string, unknown>): void => {
@@ -183,8 +206,35 @@ export function createTurnTracker(
     }
     return undefined;
   };
+  const recordObservedItem = (item: Record<string, unknown>): void => {
+    const id = item.id;
+    const index =
+      typeof id === "string"
+        ? observedItems.findIndex((existing) => existing.id === id)
+        : -1;
+    if (index < 0) observedItems.push(item);
+    else observedItems[index] = item;
+  };
+  const snapshot = (): TurnObservationSnapshot => ({
+    responseId: currentTurn.id,
+    response: {
+      ...currentTurn,
+      items: observedItems,
+      ...(messageDeltas.length === 0 ? {} : { messageDeltas }),
+    },
+    ...(usage === undefined ? {} : { usage }),
+  });
+  const reportSnapshot = (): void => {
+    try {
+      options.onSnapshot?.(snapshot());
+    } catch (cause) {
+      activitySinkFailed = true;
+      activitySinkCause = cause;
+      throw cause;
+    }
+  };
   const onMessage = (message: SessionEvent): void => {
-    if (settled) return;
+    if (Deferred.isDoneUnsafe(completion)) return;
     try {
       if (message.kind === "server-request") {
         respond(
@@ -192,12 +242,18 @@ export function createTurnTracker(
           unsupportedCodexServerRequest(message.request),
         );
         if (isInteraction(message.request.method)) {
-          rejectInteraction(new InteractionRequiredError("user-input"));
+          Deferred.doneUnsafe(
+            interaction,
+            Effect.fail(new InteractionRequiredError("user-input")),
+          );
         } else {
-          rejectFailure(
-            new CodexAdapterError(
-              "protocol",
-              `unsupported Codex server request "${message.request.method}"`,
+          Deferred.doneUnsafe(
+            failure,
+            Effect.fail(
+              new CodexAdapterError(
+                "protocol",
+                `unsupported Codex server request "${message.request.method}"`,
+              ),
             ),
           );
         }
@@ -206,17 +262,19 @@ export function createTurnTracker(
       const notification = message.notification;
       const params = notification.params as Record<string, unknown>;
       if (notification.method === "item/started") {
-        reducer.started(
-          params.item as Record<string, unknown>,
-          params.startedAtMs as number | undefined,
-        );
+        const item = params.item as Record<string, unknown>;
+        reducer.started(item, params.startedAtMs as number | undefined);
+        recordObservedItem(item);
+        reportSnapshot();
         return;
       }
       if (notification.method === "item/completed") {
         const item = params.item as Record<string, unknown>;
         addItem(item);
+        recordObservedItem(item);
         reducer.completed(item, params.completedAtMs as number | undefined);
         completeAgentMessage(item);
+        reportSnapshot();
         return;
       }
       if (notification.method === "item/agentMessage/delta") {
@@ -224,38 +282,49 @@ export function createTurnTracker(
         const delta = params.delta as string;
         addMessageDelta(itemId, delta);
         reducer.delta(itemId, delta);
+        messageDeltas.push(params);
+        reportSnapshot();
         return;
       }
       if (notification.method === "thread/tokenUsage/updated") {
         usage = params.tokenUsage as CodexTokenUsage;
+        reportSnapshot();
         return;
       }
       if (isInteraction(notification.method)) {
-        rejectInteraction(new InteractionRequiredError("user-input"));
+        Deferred.doneUnsafe(
+          interaction,
+          Effect.fail(new InteractionRequiredError("user-input")),
+        );
         return;
       }
       if (notification.method === "turn/completed") {
-        settled = true;
         const completedTurn = params.turn as ReturnType<
           typeof parseTurnStartResult
         >;
+        currentTurn = completedTurn;
         for (const item of completedTurn.items) {
+          recordObservedItem(item);
           if (!items.some((existing) => existing.id === item.id)) addItem(item);
         }
         const completedAgentMessageText = selectAgentMessage(
           completedTurn.items,
         );
-        resolveCompletion({
-          turn: completedTurn,
-          items,
-          usage,
-          ...(completedAgentMessageText === undefined
-            ? {}
-            : { agentMessageText: completedAgentMessageText }),
-        });
+        reportSnapshot();
+        Deferred.doneUnsafe(
+          completion,
+          Effect.succeed({
+            turn: completedTurn,
+            items,
+            usage,
+            ...(completedAgentMessageText === undefined
+              ? {}
+              : { agentMessageText: completedAgentMessageText }),
+          }),
+        );
       }
     } catch (cause) {
-      rejectFailure(cause);
+      Deferred.doneUnsafe(failure, Effect.fail(cause));
     }
   };
   const subscription: TurnEventSubscription = registration.bind(
@@ -263,15 +332,51 @@ export function createTurnTracker(
     onMessage,
   );
   return {
-    completion,
-    interaction,
-    failure,
+    completion: Deferred.await(completion),
+    interaction: Deferred.await(interaction),
+    failure: Deferred.await(failure),
+    stopped: Deferred.await(stopped),
+    stopFailure: () => terminationFailure,
+    sinkFailure: () => ({
+      failed: activitySinkFailed,
+      cause: activitySinkCause,
+    }),
+    isStopped: () => Deferred.isDoneUnsafe(stopped),
+    confirmStopped(endedAt, message, ...failure) {
+      if (Deferred.isDoneUnsafe(stopped)) return;
+      reducer.terminateOpenActivities(endedAt, message);
+      terminationFailure =
+        failure.length === 0 ? undefined : { cause: failure[0] };
+      Deferred.doneUnsafe(stopped, Effect.void);
+    },
+    fail(cause, endedAt) {
+      if (Deferred.isDoneUnsafe(completion)) return;
+      let failureCause = cause;
+      try {
+        if (!Deferred.isDoneUnsafe(stopped))
+          this.confirmStopped(
+            endedAt,
+            "Codex app-server stopped before the turn completed",
+            cause,
+          );
+      } catch (activityCause) {
+        failureCause = activityCause;
+      }
+      Deferred.doneUnsafe(completion, Effect.fail(failureCause));
+      Deferred.doneUnsafe(failure, Effect.fail(failureCause));
+    },
+    terminateActivities(endedAt, message) {
+      reducer.terminateOpenActivities(endedAt, message);
+    },
+    snapshot,
     dispose() {
       subscription.dispose();
-      if (!settled) {
-        settled = true;
-        rejectCompletion(
-          new CodexAdapterError("protocol", "turn ended without completion"),
+      if (!Deferred.isDoneUnsafe(completion)) {
+        Deferred.doneUnsafe(
+          completion,
+          Effect.fail(
+            new CodexAdapterError("protocol", "turn ended without completion"),
+          ),
         );
       }
     },

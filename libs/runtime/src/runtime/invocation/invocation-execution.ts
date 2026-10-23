@@ -1,14 +1,19 @@
 import { PreparedInvocationInput } from "./prepared-input.js";
+import { Context, Effect } from "effect";
 import type {
   AgentTaskRequest,
   SeqlaneInvocationMetrics,
   ModelSelection,
   TaskNode,
-  WorkflowNode,
   ValidationCheckNode,
   ValidationGateNode,
+  SeqlaneSchema,
 } from "@seqlane/core";
-import { resolveBinding } from "../plan/binding-resolution.js";
+import {
+  planNodeResult,
+  resolveBinding,
+  unwrapPlanNodeResult,
+} from "../plan/binding-resolution.js";
 import {
   invocationCreationOrdinal,
   type ExecutionContext,
@@ -22,7 +27,10 @@ import {
   UnconfirmedInvocationTerminationError,
   UntrackedMutatingBackgroundProcessError,
 } from "../execution/executor.js";
-import { InvocationEffects } from "./invocation-effects.js";
+import {
+  InvocationEffects,
+  InvocationTerminationTimeoutError,
+} from "./invocation-effects.js";
 import {
   publishSessionCheckpoint,
   sessionForInvocation,
@@ -32,7 +40,6 @@ import { summarizeSeqlaneOutput } from "../execution/output-summary.js";
 import { getTaskSchema } from "../plan/task-schema.js";
 import { toSeqlaneDisplayValue } from "../execution/display-value.js";
 import type { WorkspaceLockLease } from "../workspace/workspace-lock.js";
-import { workspaceResourcesForPlanNode } from "../workspace/workspace-ordering.js";
 import {
   parseValidationResult,
   validationFailure,
@@ -46,12 +53,27 @@ import {
   taskIdCompatibility,
   throwInvocationFailure,
   throwTaskPhaseError,
-  type LegacyTaskNode,
   type TaskExecutionOptions,
   type ValidationEnvelope,
   type ValidationExecutionOptions,
 } from "./invocation-support.js";
 import { executeTask } from "../local/task-execution.js";
+
+function runNativeClientCall<A>(
+  options: TaskExecutionOptions,
+  name: string,
+  attributes: Readonly<Record<string, string | number | boolean>>,
+  call: (nativeContext: Context.Context<never>) => Effect.Effect<A, unknown>,
+): Promise<A> {
+  const effect = Effect.gen(function* () {
+    return yield* call(yield* Effect.context<never>());
+  });
+  return Effect.runPromiseWith(options.nativeContext ?? Context.empty())(
+    options.nativeContext === undefined
+      ? effect
+      : Effect.withSpan(effect, name, { kind: "client", attributes }),
+  );
+}
 
 function effectiveModelSelection(
   context: ExecutionContext,
@@ -73,6 +95,58 @@ function metricsWithModelSelection(
     ...(metrics ?? {}),
     ...(selection === undefined ? {} : { modelSelection: selection }),
   };
+}
+
+async function publishTaskCompletion(
+  context: ExecutionContext,
+  node: TaskNode,
+  output: unknown,
+  options: Pick<
+    TaskExecutionOptions,
+    "invocationId" | "results" | "remainingConsumers" | "iteration"
+  >,
+  metrics: SeqlaneInvocationMetrics | undefined,
+  session: ReturnType<typeof sessionForInvocation> | undefined,
+): Promise<void> {
+  const { invocationId, results, remainingConsumers } = options;
+  context.events.emit({
+    type: "invocation.result",
+    workId: context.workId,
+    runId: context.runId,
+    invocationId,
+    result: toSeqlaneDisplayValue(output),
+    ...optionalIteration(options.iteration),
+  });
+  results.set(node.nodeId, planNodeResult(output));
+  if (session !== undefined) {
+    await publishSessionCheckpoint({
+      sourceNodeId: node.nodeId,
+      sourceSession: session,
+      consumers: context.sessionConsumers.get(node.nodeId),
+      resolvedSessions: context.resolvedSessions,
+      deferredSources: context.deferredSessionSources,
+    });
+  }
+  context.events.emit({
+    type: "invocation.succeeded",
+    workId: context.workId,
+    runId: context.runId,
+    invocationId,
+    ...optionalIteration(options.iteration),
+  });
+  context.events.emit({
+    type: "invocation.output",
+    workId: context.workId,
+    runId: context.runId,
+    invocationId,
+    policy: "persistent",
+    channel: "task",
+    content: "Task completed",
+    ...(metrics === undefined ? {} : { metrics }),
+    summary: summarizeSeqlaneOutput(output),
+    ...optionalIteration(options.iteration),
+  });
+  releaseIfUnused(results, remainingConsumers, node.nodeId);
 }
 
 export async function executeTaskNode(
@@ -140,13 +214,31 @@ export async function executeTaskNode(
   };
 
   try {
+    const taskSchema = getTaskSchema(
+      context.taskSchemas,
+      node.taskId,
+      context.taskDefinitions,
+    );
+    const preparedInput = prepareTaskInput(
+      context,
+      node,
+      options,
+      abortSignal,
+      taskSchema.input,
+    );
+
     const resource = context.workspaceResources.get(node.taskId) ?? {
       key: "seqlane:runtime-workspace",
     };
     const session = context.resolvedSessions.get(invocationId);
-    if (options.workspaceAdmission === "graph") {
+    if (options.admission !== undefined) {
+      workspaceLease = options.admission.workspaceLease;
+      sessionLease = options.admission.sessionLease;
+    } else if (options.workspaceAdmission === "graph") {
       if (abortSignal.aborted) {
-        throw abortSignal.reason ?? new Error("Task execution cancelled");
+        throw abortSignal.aborted
+          ? abortSignal.reason
+          : new Error("Task execution cancelled");
       }
       sessionLease =
         session === undefined
@@ -183,7 +275,7 @@ export async function executeTaskNode(
       workspace: node.workspace,
       ...optionalIteration(options.iteration),
     });
-    context.events.emit({
+    const startedEvent = {
       type: "invocation.started",
       workId: context.workId,
       runId: context.runId,
@@ -191,7 +283,10 @@ export async function executeTaskNode(
       subject: options.subject,
       ...taskIdCompatibility(options.subject),
       ...optionalIteration(options.iteration),
-    });
+    } as const;
+    if (context.events.emitAsync === undefined)
+      context.events.emit(startedEvent);
+    else await context.events.emitAsync(startedEvent);
     context.events.emit({
       type: "invocation.progress",
       workId: context.workId,
@@ -214,24 +309,8 @@ export async function executeTaskNode(
     });
 
     try {
-      const taskSchema = getTaskSchema(
-        context.taskSchemas,
-        node.taskId,
-        context.taskDefinitions,
-      );
-      let input: unknown;
-      try {
-        const preparedInput =
-          options.preparedInput ??
-          PreparedInvocationInput.parse(
-            taskSchema.input,
-            resolveBinding(node.input, context.workflowInput, results),
-          );
-        consumeBindingReferences(results, remainingConsumers, node.input);
-        input = preparedInput.value;
-      } catch (cause) {
-        throwTaskPhaseError(cause, "input", node.taskId, abortSignal);
-      }
+      consumeBindingReferences(results, remainingConsumers, node.input);
+      const input: unknown = preparedInput.value;
       context.events.emit({
         type: "invocation.input",
         workId: context.workId,
@@ -243,7 +322,7 @@ export async function executeTaskNode(
 
       let rawOutput: unknown;
       let metrics: SeqlaneInvocationMetrics | undefined;
-      const effects = new InvocationEffects();
+      const effects = new InvocationEffects(options.terminationTimeoutMs);
       const reportUncertainActivity = (
         activity: SeqlaneUncertainActivity,
       ): void => {
@@ -252,9 +331,14 @@ export async function executeTaskNode(
           unconfirmedTermination ??= new UnconfirmedInvocationTerminationError(
             activity.reason,
           );
+          if (options.admissionOwnership !== undefined)
+            options.admissionOwnership.uncertainty ??= unconfirmedTermination;
           if (session !== undefined) {
             context.sessionLocks.quarantine(session, unconfirmedTermination);
           }
+          context.workspaceLocks.quarantine(resource, unconfirmedTermination);
+          if (options.admissionOwnership !== undefined)
+            options.admissionOwnership.retain = true;
           return;
         }
         effects.trackTermination(activity.termination);
@@ -332,47 +416,61 @@ export async function executeTaskNode(
           const executor =
             session?.executor ??
             getExecutor(context.executors, node, definition);
-          return executor.execute({
-            taskDefinition: definition,
-            modelSelection:
-              effectiveModelSelection(context, invocationId, session) ??
-              context.workflowModel,
-            invocationId,
-            observability: options.observability,
-            taskId: node.taskId,
-            executor: (node as LegacyTaskNode).executor ?? node.taskId,
-            input,
-            agent: agentRequest,
-            signal: abortSignal,
-            onMetrics: (value) => {
-              metrics = value;
+          return runNativeClientCall(
+            options,
+            "seqlane.adapter.execute",
+            {
+              "seqlane.invocation.id": invocationId,
+              "seqlane.adapter.kind": "agent",
             },
-            onDiagnostic: (message) => {
-              context.events.emit({
-                type: "invocation.output",
-                workId: context.workId,
-                runId: context.runId,
-                invocationId,
-                policy: "persistent",
-                channel: "task",
-                content: message,
-                ...optionalIteration(options.iteration),
-              });
-            },
-            onActivity: emitActivity,
-            onObservation: (observation) =>
-              context.onObservation?.(
-                invocationId,
-                observation,
-                options.iteration,
-              ),
-            onEffect: (termination) => effects.track(termination),
-            onUncertainActivity: reportUncertainActivity,
-            onChildSession: reportChildSession,
-            onBackgroundProcess: reportBackgroundProcess,
-          });
+            (nativeContext) =>
+              Effect.tryPromise({
+                try: () =>
+                  executor.execute({
+                    nativeContext,
+                    taskDefinition: definition,
+                    modelSelection:
+                      effectiveModelSelection(context, invocationId, session) ??
+                      context.workflowModel,
+                    invocationId,
+                    taskId: node.taskId,
+                    executor: node.taskId,
+                    input,
+                    agent: agentRequest,
+                    signal: abortSignal,
+                    onMetrics: (value) => {
+                      metrics = value;
+                    },
+                    onDiagnostic: (message) => {
+                      context.events.emit({
+                        type: "invocation.output",
+                        workId: context.workId,
+                        runId: context.runId,
+                        invocationId,
+                        policy: "persistent",
+                        channel: "task",
+                        content: message,
+                        ...optionalIteration(options.iteration),
+                      });
+                    },
+                    onActivity: emitActivity,
+                    onObservation: (observation) =>
+                      context.onObservation?.(
+                        invocationId,
+                        observation,
+                        options.iteration,
+                      ),
+                    onEffect: (termination) => effects.track(termination),
+                    onUncertainActivity: reportUncertainActivity,
+                    onChildSession: reportChildSession,
+                    onBackgroundProcess: reportBackgroundProcess,
+                  }),
+                catch: (cause) => cause,
+              }),
+          );
         };
         rawOutput = await executeTask({
+          nativeContext: options.nativeContext,
           definition,
           input,
           taskId: node.taskId,
@@ -383,20 +481,32 @@ export async function executeTaskNode(
               : resource.key,
           signal: abortSignal,
           runAgent,
+          onOwnedProcessAcquired: context.onOwnedProcessAcquired,
           ...(classifier === undefined
             ? {}
             : {
                 classify: (request) =>
-                  classifier(request, abortSignal, (observation) =>
-                    context.onObservation?.(
-                      invocationId,
-                      observation,
-                      options.iteration,
-                    ),
+                  runNativeClientCall(
+                    options,
+                    "seqlane.classifier.execute",
+                    {
+                      "seqlane.invocation.id": invocationId,
+                    },
+                    () =>
+                      classifier(request, abortSignal, (observation) =>
+                        context.onObservation?.(
+                          invocationId,
+                          observation,
+                          options.iteration,
+                        ),
+                      ),
                   ),
               }),
           onUncertainActivity: reportUncertainActivity,
         });
+        if (options.admissionOwnership?.retain === true) {
+          throw options.admissionOwnership.uncertainty;
+        }
       } catch (cause) {
         executorFailure = { cause };
       }
@@ -404,9 +514,14 @@ export async function executeTaskNode(
         await effects.waitForTermination();
       } catch (cause) {
         executorFailure ??= { cause };
+        if (cause instanceof InvocationTerminationTimeoutError) {
+          reportUncertainActivity({ reason: "timeout" });
+        }
       }
       if (unconfirmedActivity !== undefined) {
-        executorFailure ??= {
+        if (executorFailure !== undefined)
+          unconfirmedTermination?.attachCause(executorFailure.cause);
+        executorFailure = {
           cause:
             unconfirmedTermination ??
             new UnconfirmedInvocationTerminationError(
@@ -440,50 +555,24 @@ export async function executeTaskNode(
         metrics,
         effectiveModelSelection(context, invocationId, session),
       );
-
-      context.events.emit({
-        type: "invocation.result",
-        workId: context.workId,
-        runId: context.runId,
-        invocationId,
-        result: toSeqlaneDisplayValue(output),
-        ...optionalIteration(options.iteration),
-      });
-      results.set(node.nodeId, output);
-      if (session !== undefined) {
-        await publishSessionCheckpoint({
-          sourceNodeId: node.nodeId,
-          sourceSession: session,
-          consumers: context.sessionConsumers.get(node.nodeId),
-          resolvedSessions: context.resolvedSessions,
-          deferredSources: context.deferredSessionSources,
-        });
+      if (options.deferCompletion) {
+        context.deferredTaskMetrics.set(invocationId, observableMetrics);
+        results.set(node.nodeId, planNodeResult(output));
+        return output;
       }
-      context.events.emit({
-        type: "invocation.succeeded",
-        workId: context.workId,
-        runId: context.runId,
-        invocationId,
-        ...optionalIteration(options.iteration),
-      });
-      context.events.emit({
-        type: "invocation.output",
-        workId: context.workId,
-        runId: context.runId,
-        invocationId,
-        policy: "persistent",
-        channel: "task",
-        content: "Task completed",
-        ...(observableMetrics === undefined
-          ? {}
-          : { metrics: observableMetrics }),
-        summary: summarizeSeqlaneOutput(output),
-        ...optionalIteration(options.iteration),
-      });
-      releaseIfUnused(results, remainingConsumers, node.nodeId);
+
+      await publishTaskCompletion(
+        context,
+        node,
+        output,
+        options,
+        observableMetrics,
+        session,
+      );
 
       return output;
     } catch (cause) {
+      if (options.admissionOwnership?.retain === true) throw cause;
       return throwInvocationFailure(cause, {
         context,
         abortSignal,
@@ -493,149 +582,83 @@ export async function executeTaskNode(
       });
     }
   } finally {
-    if (unconfirmedActivity === undefined) {
-      sessionLease?.release();
+    if (
+      unconfirmedActivity === undefined &&
+      options.admissionOwnership?.retain !== true
+    ) {
+      if (!options.deferCompletion) sessionLease?.release();
       releaseWorkspace();
     }
   }
 }
 
-export async function executeWorkflowNode(
+/** Publish a native choice/repeat task only after its output validation passes. */
+export async function completeDeferredTaskNode(
   context: ExecutionContext,
-  node: WorkflowNode,
-  abortSignal: AbortSignal,
+  node: TaskNode,
+  output: unknown,
   options: Pick<
     TaskExecutionOptions,
-    | "invocationId"
-    | "observability"
-    | "results"
-    | "remainingConsumers"
-    | "validateOutput"
-  > & {
-    readonly execute: () => Promise<unknown>;
-    readonly workspaceAdmission?: "dynamic" | "graph";
-  },
-): Promise<unknown> {
-  const { invocationId, results, remainingConsumers } = options;
-  const creationOrdinal = invocationCreationOrdinal(context, invocationId);
-  const workspaceLeases: WorkspaceLockLease[] = [];
-  let workspaceAdmitted = false;
-  let waitingReported = false;
-  const releaseWorkspace = (): void => {
-    for (const lease of workspaceLeases.splice(0)) lease.release();
-    if (!workspaceAdmitted) return;
-    workspaceAdmitted = false;
-    context.events.emit({
-      type: "invocation.progress",
-      workId: context.workId,
-      runId: context.runId,
-      invocationId,
-      state: "active",
-      phase: "workspace_released",
-      workspace: node.workspace,
-    });
-  };
-  const reportWaiting = (blockingInvocationId: string | undefined): void => {
-    if (waitingReported) return;
-    waitingReported = true;
-    context.events.emit({
-      type: "invocation.progress",
-      workId: context.workId,
-      runId: context.runId,
-      invocationId,
-      state: "waiting",
-      phase: "admission",
-      waitingReason: "workspace_unavailable",
-      workspace: node.workspace,
-      ...(blockingInvocationId === undefined ? {} : { blockingInvocationId }),
-    });
-  };
+    "invocationId" | "results" | "remainingConsumers" | "iteration"
+  >,
+): Promise<void> {
+  const { invocationId } = options;
+  const session = context.resolvedSessions.get(invocationId);
+  const metrics = context.deferredTaskMetrics.get(invocationId);
+  context.deferredTaskMetrics.delete(invocationId);
+  await publishTaskCompletion(context, node, output, options, metrics, session);
+}
 
+export function failDeferredTaskNode(
+  cause: unknown,
+  context: ExecutionContext,
+  node: TaskNode,
+  abortSignal: AbortSignal,
+  output: unknown,
+  options: Pick<TaskExecutionOptions, "invocationId" | "iteration">,
+): never {
+  const metrics = context.deferredTaskMetrics.get(options.invocationId);
+  context.deferredTaskMetrics.delete(options.invocationId);
+  if (metrics !== undefined) {
+    context.events.emit({
+      type: "invocation.output",
+      workId: context.workId,
+      runId: context.runId,
+      invocationId: options.invocationId,
+      policy: "persistent",
+      channel: "task",
+      content: "Task completed",
+      metrics,
+      summary: summarizeSeqlaneOutput(output),
+      ...optionalIteration(options.iteration),
+    });
+  }
+  return throwInvocationFailure(cause, {
+    context,
+    abortSignal,
+    invocationId: options.invocationId,
+    taskId: node.taskId,
+    iteration: options.iteration,
+  });
+}
+
+export function prepareTaskInput(
+  context: ExecutionContext,
+  node: TaskNode,
+  options: TaskExecutionOptions,
+  abortSignal: AbortSignal,
+  inputSchema: SeqlaneSchema,
+): PreparedInvocationInput {
   try {
-    const resources = [
-      ...workspaceResourcesForPlanNode(node, context.workspaceResources),
-    ].sort((left, right) => left.key.localeCompare(right.key));
-    if (options.workspaceAdmission === "graph") {
-      try {
-        for (const resource of resources) {
-          workspaceLeases.push(
-            await context.workspaceLocks.acquire(
-              resource,
-              node.workspace,
-              reportWaiting,
-              creationOrdinal,
-              invocationId,
-              context.workspaceOwnerId ?? invocationId,
-            ),
-          );
-        }
-      } catch (cause) {
-        for (const lease of workspaceLeases.splice(0)) lease.release();
-        throw cause;
-      }
-    } else {
-      if (resources.length === 0) throw new Error("No workspace resource");
-      // Child workflows may span several resources. Acquire every resource
-      // in stable key order so concurrent multi-resource requests cannot
-      // deadlock, and use JointAdmission for abort-aware waiting. Leases are
-      // released together in finally below when execution ends or aborts.
-      for (const resource of resources) {
-        const admission = await context.jointAdmissions.acquire({
-          signal: abortSignal,
-          session: undefined,
-          workspace: resource,
-          workspacePolicy: node.workspace,
-          invocationId,
-          ownerId: context.workspaceOwnerId ?? invocationId,
-          creationOrdinal,
-          onWorkspaceWaiting: reportWaiting,
-          onSessionWaiting: () => undefined,
-        });
-        workspaceLeases.push(admission.workspaceLease);
-      }
-    }
-    workspaceAdmitted = true;
-    context.events.emit({
-      type: "invocation.started",
-      workId: context.workId,
-      runId: context.runId,
-      invocationId,
-      subject: { type: "workflow", workflowId: node.workflowId },
-    });
-    context.events.emit({
-      type: "invocation.progress",
-      workId: context.workId,
-      runId: context.runId,
-      invocationId,
-      state: "active",
-      phase: "execute",
-      message: "Executing workflow",
-      workspace: node.workspace,
-    });
-
-    let output = await options.execute();
-    if (options.validateOutput !== undefined) {
-      releaseWorkspace();
-      output = await options.validateOutput(output);
-    }
-    results.set(node.nodeId, output);
-    context.events.emit({
-      type: "invocation.succeeded",
-      workId: context.workId,
-      runId: context.runId,
-      invocationId,
-    });
-    releaseIfUnused(results, remainingConsumers, node.nodeId);
-    return output;
+    return (
+      options.preparedInput ??
+      PreparedInvocationInput.parse(
+        inputSchema,
+        resolveBinding(node.input, context.workflowInput, options.results),
+      )
+    );
   } catch (cause) {
-    return throwInvocationFailure(cause, {
-      context,
-      abortSignal,
-      invocationId,
-      taskId: node.workflowId,
-    });
-  } finally {
-    releaseWorkspace();
+    return throwTaskPhaseError(cause, "input", node.taskId, abortSignal);
   }
 }
 
@@ -802,7 +825,7 @@ export async function executeValidationGateNode(
 
   try {
     if (abortSignal.aborted) throw new Error("Validation gate cancelled");
-    const validation = results.get(node.checkNodeId);
+    const validation = unwrapPlanNodeResult(results.get(node.checkNodeId));
     const parsedValidation = parseValidationResult(validation);
     const value = resolveBinding(node.input, context.workflowInput, results);
     consumeBindingReferences(results, remainingConsumers, node.input);

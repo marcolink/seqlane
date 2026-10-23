@@ -5,7 +5,7 @@ status: superseded
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-08
+updated: 2026-10-22
 upstream:
   - adr.builtin-workflow-distribution
 supersedes: []
@@ -52,7 +52,7 @@ private runtime binding
   explicit exports map. Consumers do not import source or `dist` paths.
 - Built-in workflow modules use only generic Seqlane authoring contracts and
   declared authoring dependencies.
-- Built-in source and Plans contain no OpenCode, Mastra, provider, model,
+- Built-in source and Plans contain no OpenCode, runtime-library, provider, model,
   session, tool, permission, credential, endpoint, or executor selector.
 - Built-in discovery has explicit `builtin` provenance and cannot silently
   shadow repository- or user-scoped workflows.

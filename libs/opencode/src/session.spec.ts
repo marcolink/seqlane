@@ -749,6 +749,12 @@ describe("OpenCode run session", () => {
       expect(results).toEqual([
         {
           structured: { session: "session-1" },
+          nativeResponse: expect.objectContaining({
+            info: expect.objectContaining({
+              structured: { session: "session-1" },
+            }),
+            parts: [],
+          }),
           observation: expect.objectContaining({
             sessionID: "session-1",
             messageID: "message-session-1",
@@ -770,6 +776,12 @@ describe("OpenCode run session", () => {
         },
         {
           structured: { session: "session-1" },
+          nativeResponse: expect.objectContaining({
+            info: expect.objectContaining({
+              structured: { session: "session-1" },
+            }),
+            parts: [],
+          }),
           observation: expect.objectContaining({
             sessionID: "session-1",
             messageID: "message-session-1",
@@ -1041,6 +1053,7 @@ describe("OpenCode run session", () => {
           kind: "tool",
           name: "filesystem.read",
           state: "succeeded",
+          input: { path: "/repo/package.json" },
           output: "12 bytes",
         },
       ]);
@@ -1247,6 +1260,12 @@ describe("OpenCode run session", () => {
         first.prompt({ text: "first", schema: {} }),
       ).resolves.toEqual({
         structured: { session: "session-1" },
+        nativeResponse: expect.objectContaining({
+          info: expect.objectContaining({
+            structured: { session: "session-1" },
+          }),
+          parts: [],
+        }),
         observation: expect.objectContaining({
           sessionID: "session-1",
           messageID: "message-session-1",
@@ -1270,6 +1289,12 @@ describe("OpenCode run session", () => {
         second.prompt({ text: "second", schema: {} }),
       ).resolves.toEqual({
         structured: { session: "session-2" },
+        nativeResponse: expect.objectContaining({
+          info: expect.objectContaining({
+            structured: { session: "session-2" },
+          }),
+          parts: [],
+        }),
         observation: expect.objectContaining({
           sessionID: "session-2",
           messageID: "message-session-2",
@@ -1616,6 +1641,62 @@ describe("OpenCode run session", () => {
       });
     } finally {
       releaseCleanup();
+      vi.doUnmock("./transport.js");
+      vi.resetModules();
+    }
+  });
+
+  it("bounds an unresolved monitor close and observes its late rejection", async () => {
+    let rejectMonitor!: (cause: unknown) => void;
+    let reportMonitorStarted!: () => void;
+    const monitorStarted = new Promise<void>((resolve) => {
+      reportMonitorStarted = resolve;
+    });
+    vi.resetModules();
+    vi.doMock("./transport.js", () => ({
+      createOpenCodeTransport: () => ({
+        createSession: async () => ({
+          sessionId: "session-1",
+          directory: "/repo",
+        }),
+        getRuntimeVersion: async () => "1.18.27",
+        monitorSession: async () => ({
+          [Symbol.asyncIterator]() {
+            return {
+              next: () => {
+                reportMonitorStarted();
+                return new Promise<never>((_resolve, reject) => {
+                  rejectMonitor = reject;
+                });
+              },
+            };
+          },
+        }),
+        prompt: async () => textPromptResponse("session-1", '{"ok":true}'),
+        abort: async () => undefined,
+      }),
+    }));
+
+    try {
+      const { createOpenCodeRun: createMockedRun } =
+        await import("./session.js");
+      const run = await createMockedRun({ url: "http://opencode.test" });
+      const uncertain: unknown[] = [];
+      const pending = run.prompt({
+        text: "inspect",
+        schema: {},
+        onUncertainActivity: (activity) => uncertain.push(activity),
+      });
+      await monitorStarted;
+
+      await expect(pending).rejects.toThrow(
+        "OpenCode executor: external interaction monitor termination was not confirmed",
+      );
+      expect(uncertain).toMatchObject([{ reason: "timeout" }]);
+
+      rejectMonitor(new Error("late monitor failure"));
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    } finally {
       vi.doUnmock("./transport.js");
       vi.resetModules();
     }

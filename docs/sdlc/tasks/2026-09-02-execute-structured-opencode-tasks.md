@@ -5,13 +5,17 @@ status: completed
 owners:
   - core
 created: 2026-09-02
-updated: 2026-09-03
+updated: 2026-10-22
 upstream:
   - spec.opencode-executor-integration
 supersedes: []
 ---
 
 # Execute structured OpenCode tasks
+
+> Historical task record. Scope and outcomes describe work before the current migration.
+> Current execution authority: [Effect v4 execution and operations](../specs/2026-10-21-effect-v4-execution-and-operations.md).
+> Current-owner links record the later contract transfer. They do not establish historical Effect v4 use or current delivery.
 
 > Migrated from implementation story `TS-004-03`.
 
@@ -26,7 +30,7 @@ supersedes: []
 - Add task instructions and textual references without replacing the repository harness.
 - Send one schema-backed structured request through the Run session.
 - Extract only the structured value from the OpenCode response.
-- Return the raw value to the existing spec.mastra-runtime-integration Seqlane output-validation boundary.
+- Return the raw value to the Seqlane output-validation boundary.
 
 ## Out of Scope
 
@@ -41,22 +45,25 @@ The runtime has already resolved and validated task input before `execute()`. Th
 
 ## Acceptance Criteria
 
-**Scenario:** *A task sends additive context through one session*
+**Scenario:** _A task sends additive context through one session_
+
 - **Given:** A validated OpenCode task input, objective, instructions, references, and an active Run session
 - **When:** The executor runs the task
 - **Then:** It sends one schema-backed task request to that session without parsing or replacing repository harness configuration
 
-**Scenario:** *Only structured output enters Seqlane dataflow*
+**Scenario:** _Only structured output enters Seqlane dataflow_
+
 - **Given:** OpenCode returns a structured result with assistant text, tool data, or shell output
 - **When:** The executor completes
-- **Then:** It returns only the structured result and the spec.mastra-runtime-integration output schema independently validates it
+- **Then:** It returns only the structured result and the task output schema independently validates it
 
-**Scenario:** *Bad structured output stops the invocation*
+**Scenario:** _Bad structured output stops the invocation_
+
 - **Given:** OpenCode returns no structured result or a value that fails the task output schema
 - **When:** The runtime processes the result
 - **Then:** It emits the existing invocation failure path and no downstream task starts
 
-## Source
+## Source and current owners
 
 - [rfc.seqlane-technical-architecture — Seqlane Technical Architecture](../rfcs/2026-09-02-seqlane-technical-architecture.md)
 - [adr.opencode-executor-integration — Integrate OpenCode Through a Seqlane-Owned Executor Boundary](../adrs/2026-09-02-opencode-executor-integration.md)

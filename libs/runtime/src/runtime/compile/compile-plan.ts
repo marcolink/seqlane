@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { Effect } from "effect";
 import type {
   InvocationId,
   Plan,
@@ -6,7 +7,6 @@ import type {
   PlanNode,
   RunId,
   TaskDefinitionRegistry,
-  SeqlaneEventSink,
   ValidationCheckNode,
   ValidatorDefinitionRegistry,
   WorkflowDefinitionRegistry,
@@ -19,25 +19,20 @@ import {
 } from "@seqlane/core";
 import {
   createExecutionContext,
-  invocationIdForNode,
   invocationCreationOrdinal,
   type ExecutionContext,
+  type ExecutionEventSink,
+  type ExecutionRunState,
 } from "../execution/context.js";
 import { type ExecutorRegistry } from "../execution/executor.js";
-import { resolveBinding } from "../plan/binding-resolution.js";
-import { orderParsedPlanNodes } from "../plan/plan-ordering.js";
-import { type TaskSchemaRegistry } from "../plan/task-schema.js";
 import { toSeqlaneInvocationError } from "../execution/errors.js";
+import { resolveBinding } from "../plan/binding-resolution.js";
+import { type TaskSchemaRegistry } from "../plan/task-schema.js";
 import {
   createSequentialProgram,
   type SequentialProgram,
   type SequentialProgramStep,
 } from "../execution/program.js";
-import {
-  executeTaskNode,
-  executeValidationCheckNode,
-  executeValidationGateNode,
-} from "../invocation/invocation-execution.js";
 import {
   addBindingConsumers,
   consumeBindingReferences,
@@ -46,17 +41,13 @@ import type { SessionResolver } from "../session/session-resolution.js";
 import type { WorkspaceResourceRegistry } from "../workspace/workspace-resource.js";
 import type { WorkspaceLockRegistry } from "../workspace/workspace-lock.js";
 import type { ClassifierTaskRunner } from "../../classifier/types.js";
-import { validatePlan } from "../validation/plan-validation.js";
 import {
   lowerReuseSessionOrdering,
   withLoweredPlanNodes,
 } from "../session/session-ordering.js";
-import { lowerWorkspaceOrdering } from "../workspace/workspace-ordering.js";
-
-export interface PreparedPlan {
-  readonly plan: Plan;
-  readonly orderedNodes: readonly PlanNode[];
-}
+import { createCompiledNodeStep } from "./compile-node-step.js";
+import { preflightSelectedChoiceModel } from "../execution/model-preflight.js";
+import { preparePlan, type PreparedPlan } from "./prepare-plan.js";
 
 export interface PreparedPlanExecution {
   readonly plan: Plan;
@@ -78,17 +69,30 @@ export interface CompileWorkflowOptions {
   readonly workspaceResources?: WorkspaceResourceRegistry;
   readonly workspaceLocks?: WorkspaceLockRegistry;
   readonly workspaceOwnerId?: string;
+  readonly workspaceOwnerAncestors?: readonly string[];
+  readonly parentInvocationId?: string;
   readonly taskDefinitions?: TaskDefinitionRegistry;
   readonly validatorDefinitions?: ValidatorDefinitionRegistry;
   readonly workflowDefinitions?: WorkflowDefinitionRegistry;
   readonly taskSchemas?: TaskSchemaRegistry;
-  readonly events?: SeqlaneEventSink;
+  readonly events?: ExecutionEventSink;
   readonly onObservation?: (
     invocationId: InvocationId,
     observation: SeqlaneObservation,
     iteration?: number,
   ) => void;
   readonly classifier?: ClassifierTaskRunner;
+  readonly onOwnedProcessAcquired?: (pid: number) => Promise<void>;
+  /** Private graph-body limit; dependency waits do not use a permit. */
+  readonly concurrency?: number;
+  readonly executeWorkflow?: (
+    context: ExecutionContext,
+    node: Extract<PlanNode, { type: "workflow" }>,
+    abortSignal: AbortSignal,
+    withBodyPermit: <A, E>(effect: Effect.Effect<A, E>) => Effect.Effect<A, E>,
+    deferCompletion?: boolean,
+  ) => Effect.Effect<unknown, unknown>;
+  readonly runState?: ExecutionRunState;
 }
 
 /** Validate definition registries before any runtime lookup can use them. */
@@ -154,26 +158,10 @@ export class PlanCompiler {
     taskDefinitions?: TaskDefinitionRegistry,
     workflowDefinitions?: WorkflowDefinitionRegistry,
   ): PreparedPlan {
-    assertDefinitionRegistries(taskDefinitions, undefined);
-    const parsedPlan = validatePlan(
-      plan,
-      taskDefinitions,
-      taskDefinitions !== undefined || workflowDefinitions !== undefined,
-      workflowDefinitions,
-    );
-    return {
-      plan: parsedPlan,
-      // Standalone Plan ordering is useful before definitions are loaded.
-      // Workflow compilation performs the full definition validation above.
-      orderedNodes: orderParsedPlanNodes(parsedPlan),
-    };
+    return preparePlan(plan, taskDefinitions, workflowDefinitions);
   }
 
-  prepare(plan: Plan): PreparedPlan {
-    return this.compile(plan);
-  }
-
-  prepareWorkflow(
+  private prepareExecution(
     plan: Plan,
     options: CompileWorkflowOptions,
   ): PreparedPlanExecution {
@@ -187,10 +175,7 @@ export class PlanCompiler {
       options.workflowDefinitions,
     );
     const parsedPlan = prepared.plan;
-    const orderedNodes = lowerWorkspaceOrdering(
-      lowerReuseSessionOrdering(prepared.orderedNodes),
-      options.workspaceResources,
-    );
+    const orderedNodes = lowerReuseSessionOrdering(prepared.orderedNodes);
     const loweredPlan = withLoweredPlanNodes(parsedPlan, orderedNodes);
     assertValidationRegistries(
       parsedPlan,
@@ -208,13 +193,18 @@ export class PlanCompiler {
       workspaceResources: options.workspaceResources,
       workspaceLocks: options.workspaceLocks,
       workspaceOwnerId: options.workspaceOwnerId,
+      workspaceOwnerAncestors: options.workspaceOwnerAncestors,
+      parentInvocationId: options.parentInvocationId,
       remainingConsumers: computeRemainingConsumers(parsedPlan),
       taskDefinitions: options.taskDefinitions,
+      workflowDefinitions: options.workflowDefinitions,
+      runState: options.runState,
       validatorDefinitions: options.validatorDefinitions,
       taskSchemas: options.taskSchemas,
       events: options.events,
       onObservation: options.onObservation,
       classifier: options.classifier,
+      onOwnedProcessAcquired: options.onOwnedProcessAcquired,
     });
 
     for (const node of orderedNodes) {
@@ -242,7 +232,7 @@ export class PlanCompiler {
       plan: loweredPlan,
       orderedNodes,
       context,
-    } = this.prepareWorkflow(plan, options);
+    } = this.prepareExecution(plan, options);
     const checkNodes = new Map(
       loweredPlan.nodes
         .filter(
@@ -252,66 +242,37 @@ export class PlanCompiler {
         .map((node) => [node.nodeId, node]),
     );
     const steps: SequentialProgramStep[] = [];
+    const preflightView: PreparedPlanExecution = {
+      plan: loweredPlan,
+      orderedNodes,
+      context,
+    };
+    const terminalInvocationIds = new Set<string>();
+    const emitEvent = context.events.emit.bind(context.events);
+    context.events.emit = (event) => {
+      emitEvent(event);
+      if (
+        event.type === "invocation.succeeded" ||
+        (event.type === "invocation.failed" &&
+          event.disposition !== "retry_scheduled") ||
+        event.type === "invocation.cancelled" ||
+        event.type === "invocation.skipped"
+      ) {
+        terminalInvocationIds.add(event.invocationId);
+      }
+    };
 
     for (const node of orderedNodes) {
-      steps.push({
-        id: node.nodeId,
-        dependsOn: node.dependsOn,
-        execute: async ({ abortSignal }) => {
-          if (node.type === "repeat") {
-            throw new Error(
-              `Sequential Plan compiler does not support repeat node "${node.nodeId}"`,
-            );
-          }
-          if (node.type === "choice") {
-            throw new Error(
-              `Sequential Plan compiler does not support choice node "${node.nodeId}"`,
-            );
-          }
-          if (node.type === "task") {
-            await executeTaskNode(context, node, abortSignal, {
-              invocationId: invocationIdForNode(context, node),
-              observability: {},
-              results: context.results,
-              remainingConsumers: context.remainingConsumers,
-              subject: { type: "task", taskId: node.taskId },
-              workspaceAdmission: "graph",
-            });
-          } else if (node.type === "workflow") {
-            throw new Error(
-              `Sequential Plan compiler does not support workflow node "${node.nodeId}"`,
-            );
-          } else if (node.type === "validation.check") {
-            await executeValidationCheckNode(context, node, abortSignal, {
-              invocationId: invocationIdForNode(context, node),
-              observability: {},
-              results: context.results,
-              remainingConsumers: context.remainingConsumers,
-              workspaceAdmission: "graph",
-            });
-          } else {
-            const checkNode = checkNodes.get(node.checkNodeId);
-            if (!checkNode) {
-              throw new Error(
-                `Validation gate "${node.nodeId}" has no check node`,
-              );
-            }
-            await executeValidationGateNode(
-              context,
-              node,
-              checkNode,
-              abortSignal,
-              {
-                invocationId: invocationIdForNode(context, node),
-                observability: {},
-                results: context.results,
-                remainingConsumers: context.remainingConsumers,
-              },
-            );
-          }
-          return { nodeId: node.nodeId };
-        },
-      });
+      steps.push(
+        createCompiledNodeStep(
+          context,
+          node,
+          checkNodes,
+          terminalInvocationIds,
+          options.executeWorkflow,
+          (node) => preflightSelectedChoiceModel(preflightView, node),
+        ),
+      );
     }
 
     steps.push({
@@ -346,11 +307,12 @@ export class PlanCompiler {
       plan: loweredPlan,
       orderedNodes,
       context,
-      program: createSequentialProgram({ steps }),
+      program: createSequentialProgram({
+        steps,
+        ...(options.concurrency === undefined
+          ? {}
+          : { concurrency: options.concurrency }),
+      }),
     };
   }
-}
-
-export function compilePlan(plan: Plan): PreparedPlan {
-  return new PlanCompiler().compile(plan);
 }

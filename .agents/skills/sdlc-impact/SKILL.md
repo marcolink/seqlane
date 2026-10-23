@@ -41,7 +41,7 @@ Use these triggers for mandatory analysis:
 - executor contracts;
 - Work identity or provenance;
 - CLI behavior;
-- Mastra integration boundaries;
+- Effect runtime integration boundaries;
 - OpenCode or ACP integration.
 
 For each affected document, decide `no change`, `update`, or `create`. Check

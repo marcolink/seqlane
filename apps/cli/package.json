@@ -31,7 +31,6 @@
     ]
   },
   "dependencies": {
-    "mastra": "1.27.3",
     "@seqlane/core": "workspace:*",
     "@seqlane/agent-adapter": "workspace:*",
     "@seqlane/codex-adapter": "workspace:*",
@@ -40,18 +39,25 @@
     "@seqlane/tui": "workspace:*",
     "@seqlane/runtime": "workspace:*",
     "@oclif/core": "4.13.5",
+    "effect": "4.0.5",
     "get-tsconfig": "4.14.3",
     "tsx": "4.23.13",
-    "zod": "4.5.4"
+    "zod": "4.6.6"
   },
   "devDependencies": {
+    "@seqlane/acp-adapter": "workspace:*",
     "@seqlane/fixtures": "workspace:*"
   },
   "files": [
-    "bin",
+    "bin/run.js",
     "dist",
     "!dist/**/*.tsbuildinfo",
-    "oclif.config.mjs"
+    "oclif.config.mjs",
+    "!dist/**/*.spec.*",
+    "!dist/**/*.test.*",
+    "!dist/**/*test-support*",
+    "!dist/test-fixtures/**",
+    "!dist/**/*-fixture.*"
   ],
   "publishConfig": {
     "access": "public",

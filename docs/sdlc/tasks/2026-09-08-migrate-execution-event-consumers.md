@@ -5,13 +5,17 @@ status: completed
 owners:
   - core
 created: 2026-09-08
-updated: 2026-09-16
+updated: 2026-10-22
 upstream:
-  - spec.mastra-backed-seqlane-workflows
+  - spec.workflow-execution-semantics
 supersedes: []
 ---
 
 # Migrate Execution Event Consumers
+
+> Historical task record. Scope and outcomes describe work before the current migration.
+> Current execution authority: [Effect v4 execution and operations](../specs/2026-10-21-effect-v4-execution-and-operations.md).
+> Current-owner links record the later contract transfer. They do not establish historical Effect v4 use or current delivery.
 
 ## Objective
 
@@ -26,13 +30,15 @@ task does not add a generic event bus or a second canonical schema.
 
 ## Upstream requirements
 
-- `REQ-OBS-002`: Migrate runner and event consumers.
+- [REQ-RUNNER-001: Canonical protocol ownership](../specs/2026-10-22-workflow-execution-semantics.md#req-runner-001-own-serialized-contracts-in-protocol)
 - `REQ-COMPAT-001`: Preserve current user-visible behavior.
-- [spec.mastra-backed-seqlane-workflows](../specs/2026-09-08-mastra-backed-seqlane-workflows.md)
+- [spec.workflow-execution-semantics](../specs/2026-10-22-workflow-execution-semantics.md)
 
-## Dependencies
+## Current replacement
 
-- Depends on [task.add-mastra-observability](./2026-09-08-add-mastra-observability.md).
+This later task owns replacement work. It was not an original prerequisite.
+
+Current successor owner: [task.effect-v4-telemetry-and-event-pressure](./2026-10-21-effect-v4-telemetry-and-event-pressure.md).
 
 ## Scope
 
@@ -58,7 +64,7 @@ task does not add a generic event bus or a second canonical schema.
 
 - Deleting the `@seqlane/events` package.
 - Redesigning CLI or Studio behavior.
-- Changing Mastra compiler or admission policy.
+- Changing private compiler or admission policy.
 - Adding persistent event storage.
 
 ## Implementation plan
@@ -114,7 +120,7 @@ Runner, CLI, terminal output, recording, and replay consumers use
 `@seqlane/protocol`. Strict protocol and consumer tests cover malformed data,
 sequence ordering, Plan snapshots, recording, and replay behavior.
 
-## Delivery state
+## Historical delivery state
 
 Delivered to the default branch through [pull request
 #107](https://github.com/marcolink/seqlane/pull/107). This pull request
@@ -122,7 +128,7 @@ superseded the closed pull request #104.
 
 ## Traceability
 
-- [spec.mastra-backed-seqlane-workflows: Mastra-Backed Seqlane Workflow Contracts](../specs/2026-09-08-mastra-backed-seqlane-workflows.md)
-- [adr.mastra-backed-seqlane-workflows: Center Seqlane Workflows on a Mastra-Backed Executable DSL](../adrs/2026-09-08-mastra-backed-seqlane-workflows.md)
+- [spec.workflow-execution-semantics: Workflow Authoring and Execution Semantics](../specs/2026-10-22-workflow-execution-semantics.md)
+- [rfc.effect-v4-migration: Full Effect v4 Migration](../rfcs/2026-10-21-effect-v4-migration.md)
 - [adr.separate-seqlane-protocol-package: Separate Seqlane Protocol Contracts from Core Authoring](../adrs/2026-09-13-separate-seqlane-protocol-package.md)
-- [task.add-mastra-observability: Add Mastra Observability](./2026-09-08-add-mastra-observability.md)
+- [task.effect-v4-telemetry-and-event-pressure: Telemetry sinks and event pressure](./2026-10-21-effect-v4-telemetry-and-event-pressure.md)

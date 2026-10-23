@@ -1,7 +1,7 @@
 {
   "name": "@seqlane/runtime",
   "version": "0.0.0",
-  "description": "Mastra runtime integration for Seqlane workflows.",
+  "description": "Effect runtime and hosted operations for Seqlane workflows.",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -27,6 +27,16 @@
       "types": "./dist/operational-host.d.ts",
       "import": "./dist/operational-host.js",
       "default": "./dist/operational-host.js"
+    },
+    "./private/telemetry": {
+      "types": "./dist/private/telemetry/index.d.ts",
+      "import": "./dist/private/telemetry/index.js",
+      "default": "./dist/private/telemetry/index.js"
+    },
+    "./private/owned-process": {
+      "types": "./dist/private/owned-process/index.d.ts",
+      "import": "./dist/private/owned-process/index.js",
+      "default": "./dist/private/owned-process/index.js"
     }
   },
   "nx": {
@@ -39,25 +49,25 @@
     ]
   },
   "dependencies": {
+    "@effect/platform-node": "4.0.5",
+    "@effect/sql-sqlite-node": "4.0.5",
     "@seqlane/agent-adapter": "workspace:*",
-    "@mastra/core": "1.64.0",
-    "@mastra/hono": "1.7.6",
-    "@mastra/libsql": "1.22.3",
-    "@mastra/mcp": "1.15.0",
-    "@mastra/observability": "1.17.4",
-    "@mastra/server": "1.64.0",
-    "@hono/node-server": "2.1.1",
     "@seqlane/core": "workspace:*",
     "@seqlane/protocol": "workspace:*",
-    "hono": "4.13.5",
-    "zod": "4.5.4"
+    "effect": "4.0.5",
+    "zod": "4.6.6"
   },
   "devDependencies": {
     "@seqlane/fixtures": "workspace:*"
   },
   "files": [
     "dist",
-    "!dist/**/*.tsbuildinfo"
+    "!dist/**/*.tsbuildinfo",
+    "!dist/**/*.spec.*",
+    "!dist/**/*.test.*",
+    "!dist/**/*test-support*",
+    "!dist/test-fixtures/**",
+    "!dist/**/*-fixture.*"
   ],
   "publishConfig": {
     "access": "public",

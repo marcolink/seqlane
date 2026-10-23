@@ -82,6 +82,7 @@ export interface GitHubPullRequestRequest {
   readonly owner: string;
   readonly repository: string;
   readonly pullRequestNumber: number;
+  readonly signal?: AbortSignal;
 }
 
 export interface GitHubBranchRefRequest {
@@ -89,6 +90,7 @@ export interface GitHubBranchRefRequest {
   readonly repository: string;
   /** The GitHub API ref, without the `refs/` prefix. */
   readonly ref: string;
+  readonly signal?: AbortSignal;
 }
 
 /**
@@ -108,6 +110,7 @@ export interface GitHubMetadataAdapterOptions {
   readonly client: GitHubMetadataClient;
   readonly repository: RepositoryIdentity;
   readonly workflow?: WorkflowDefinitionMetadata;
+  readonly signal?: AbortSignal;
 }
 
 export function repositoryIdentityFromGitHubResponse(

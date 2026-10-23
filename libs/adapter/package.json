@@ -12,6 +12,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./private/owned-process": {
+      "types": "./dist/private/owned-process/index.d.ts",
+      "import": "./dist/private/owned-process/index.js",
+      "default": "./dist/private/owned-process/index.js"
     }
   },
   "nx": {
@@ -25,12 +30,17 @@
   "dependencies": {
     "@seqlane/core": "workspace:*",
     "@seqlane/protocol": "workspace:*",
-    "zod": "4.5.4"
+    "effect": "4.0.5",
+    "zod": "4.6.6"
   },
   "files": [
     "dist",
     "!dist/**/*.spec.*",
-    "!dist/**/*.tsbuildinfo"
+    "!dist/**/*.tsbuildinfo",
+    "!dist/**/*.test.*",
+    "!dist/**/*test-support*",
+    "!dist/test-fixtures/**",
+    "!dist/**/*-fixture.*"
   ],
   "publishConfig": {
     "access": "public",
