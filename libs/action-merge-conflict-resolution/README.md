@@ -7,9 +7,12 @@ This package owns the resolver's plain contracts, policy, and state model. It
 is not a public Seqlane application package or a generic GitHub Action support
 library. GitHub Actions, Git, filesystem, lockfile, agent, and summary
 integrations enter through resolver-specific ports.
-The Action composition evaluates a native Effect program and owns its temporary
-agent workspace with a scope. Git runs in an isolated process group. Shutdown
-stops and verifies that group before the command settles. If ownership or
+`actions/resolve-merge-conflicts/src/composition.ts` constructs those ports and
+returns the scoped native Effect program. The Action entrypoint adapts Toolkit
+inputs, GitHub context, and Octokit, then evaluates that program. The
+composition owns its temporary agent workspace with a scope. Git runs in an
+isolated process group. Shutdown stops and verifies that group before the
+command settles. If ownership or
 termination is uncertain, the Action reports the failure and retains its
 temporary agent workspace. Filesystem and SDK calls without cancellation
 support settle before cleanup begins; the scope then stops and joins the agent.
