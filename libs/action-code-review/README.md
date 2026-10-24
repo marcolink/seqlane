@@ -14,6 +14,72 @@ notice. It then reduces finding rows in priority order, retaining the complete
 bounded finding state. A report with retained findings never says "No findings."
 If one finding row and the required state cannot fit, publication fails.
 
+## Trusted v5 admission
+
+The private `admitReviewScope` entry point connects trusted report classification
+to the incremental scope collector. The production v4 workflow does not call it.
+
+```ts
+import { admitReviewScope } from "@seqlane/action-code-review";
+
+// Before: the v4 reader returns undefined for missing or invalid state.
+const previousState = parseReviewState(previousReport);
+
+// After: the private v5 path rejects invalid current state before Git work.
+const admission = await admitReviewScope(
+  { pullRequest: frozenPullRequest },
+  { authority: githubReadPort, git: boundedGit, admittedAt, signal },
+);
+```
+
+The frozen PR contains `repositoryId`, `pullRequestNumber`, `targetBranch`,
+`baseRevision`, and `headRevision`. Capture these before admission.
+Admission performs authority lookup itself through the required read-only
+`authority` port. Caller-supplied `history` is rejected; it cannot bypass lookup.
+The GitHub port returns raw issue-comment pages with `items` and explicit
+`hasNextPage`. Lookup requires two matching inventories, each limited to two
+pages and 200 comments: at most four requests, with no retries. Changed
+identities, content, authors, timestamps, or ordering block admission with
+`REVIEW_AUTHORITY_UNSTABLE`. This consistency check is not an atomic snapshot;
+later publication guards must still verify authority. Malformed
+records, incomplete pagination, truncated bodies, and duplicate trusted
+reports block admission. The default authors are `github-actions` and
+`github-actions[bot]`; the caller can supply its trusted bot authors.
+
+An absent report selects a new baseline. Every v1–v4 report selects a full
+current-PR baseline after validating its trusted marker identity. Its payload
+is never decoded. No old finding, checkpoint, metric, cost, or artifact enters
+admission. Only its report ID and exact marker digest remain for later guards.
+Future versions and malformed v5 reports block. A valid v5 report selects its
+published `reviewedRevision` as the checkpoint and preserves all retained
+findings as reference context. Artifact expiry alone does not reset that checkpoint.
+Metadata JSON must have unique decoded property names before version routing.
+Duplicate keys, including escaped aliases, select `invalid-current`; they cannot
+downgrade a report to legacy or reset its checkpoint.
+
+Shared strict v5 schemas are exported by
+`@seqlane/code-review-workflow/contracts`. `encodeReviewStateV5` and
+`decodeReviewStateV5` use canonical JSON, deterministic gzip, canonical base64,
+and one matching metadata marker and hidden state block. Decoding bounds both
+compressed and streamed expanded bytes, validates UTF-8, and checks identity
+and evidence digests. It reads no artifact and performs no publication write.
+Admission returns classification, scope identity, retained findings, and evidence.
+It allocates no generation or finding ID and makes zero model calls.
+
+Retained findings must match the canonical lifecycle matrix:
+
+| Status      | Comparison                   | Verification outcome           |
+| ----------- | ---------------------------- | ------------------------------ |
+| `new`       | `new`, `not_reviewed`        | `null`, `present`, `uncertain` |
+| `open`      | `persisting`, `not_reviewed` | `null`, `present`, `uncertain` |
+| `addressed` | `persisting`, `not_reviewed` | `null`, `uncertain`            |
+| `resolved`  | `resolved`, `not_reviewed`   | `absent`                       |
+| `reopened`  | `persisting`, `not_reviewed` | `present`                      |
+
+Reviewed resolution and reopening require verification at the published head.
+`not_reviewed` preserves valid historical verification and lifecycle without
+claiming a fresh check. Missing or contradictory proof blocks admission.
+
 ## Incremental scope collector
 
 `collectReviewScopeEvidence` is the first private v5 implementation slice.
@@ -44,7 +110,7 @@ It then excludes lockfiles and generated `dist` contents.
 Baseline review batches contain the current PR patch. Incremental review
 batches contain only the checkpoint-to-head diff. Separate `validationBatches`
 hold current-PR evidence for local cause admission; discovery input uses only
-`batches`. The workflow must also load prior findings when the v5 reader is wired.
+`batches`. The private admission path loads prior findings; production wiring remains pending.
 Prior findings are reference context. Only findings whose recorded causes
 overlap new changes get rechecked. A changed file alone is insufficient.
 Untouched findings carry forward as
@@ -73,8 +139,8 @@ Malformed data, unavailable checkpoints, stale HEAD, missing measurements,
 oversized evidence, and budget breaches reject the run.
 It never truncates evidence or resets to a baseline.
 
-The production host adapter, trusted v5 reader, model admission, and publication
-wiring remain follow-up work. The test-only Git adapter requires Git and Python 3
+The production host adapter, workflow wiring, model admission, and publication
+remain follow-up work. The test-only Git adapter requires Git and Python 3
 for child resource measurements. It does not implement production resource controls
 and is excluded from the package build.
 
@@ -83,4 +149,11 @@ Run the test-mapping check before the focused collector tests:
 ```sh
 pnpm run test:mapping
 pnpm --dir libs/action-code-review exec vitest run src/review-scope-selection.spec.ts src/review-git-records.spec.ts src/review-git-budget.spec.ts src/review-scope-evidence.spec.ts
+```
+
+Admission, codec, authority, classifier, and shared schema checks:
+
+```sh
+pnpm run test:mapping
+pnpm --dir libs/action-code-review exec vitest run src/review-report-authority.spec.ts src/review-report-classification.spec.ts src/review-state-codec.spec.ts src/review-v5-state.spec.ts src/review-scope-admission.spec.ts
 ```

@@ -204,14 +204,14 @@ Neither an incomplete admission nor a failed recovery claims publication.
 The workflow uses separate jobs with explicit job-level `permissions`.
 Unlisted GitHub token permissions are `none`. The required token scopes are:
 
-| Job | GitHub token permissions | Credential boundary |
-| --- | --- | --- |
-| Review computation and trusted candidate upload | `contents: read`, `actions: read`, `pull-requests: read` | No PR, comment, or dispatch write. Only the trusted upload adapter receives artifact runtime credentials. |
-| Candidate dispatch | `contents: read`, `actions: write`, `pull-requests: read` | Dispatches only validated candidates. No model work or comment write. |
-| Publisher registration | `contents: read`, `actions: read`, `pull-requests: read` | Trusted runtime capability uploads registration and index artifacts. No model work or comment write. |
-| Final publisher | `contents: read`, `actions: read`, `pull-requests: write` | Reads verified artifacts and writes the one bot comment. No PR checkout, model work, or artifact upload. |
-| Recovery inspection | `contents: read`, `actions: read`, `pull-requests: read` | No dispatch, deletion, or comment write. |
-| Recovery dispatch and cleanup | `contents: read`, `actions: write`, `pull-requests: read` | Acts only on validated inspection output. Trusted runtime capability updates the cursor and index. No comment write. |
+| Job                                             | GitHub token permissions                                  | Credential boundary                                                                                                  |
+| ----------------------------------------------- | --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Review computation and trusted candidate upload | `contents: read`, `actions: read`, `pull-requests: read`  | No PR, comment, or dispatch write. Only the trusted upload adapter receives artifact runtime credentials.            |
+| Candidate dispatch                              | `contents: read`, `actions: write`, `pull-requests: read` | Dispatches only validated candidates. No model work or comment write.                                                |
+| Publisher registration                          | `contents: read`, `actions: read`, `pull-requests: read`  | Trusted runtime capability uploads registration and index artifacts. No model work or comment write.                 |
+| Final publisher                                 | `contents: read`, `actions: read`, `pull-requests: write` | Reads verified artifacts and writes the one bot comment. No PR checkout, model work, or artifact upload.             |
+| Recovery inspection                             | `contents: read`, `actions: read`, `pull-requests: read`  | No dispatch, deletion, or comment write.                                                                             |
+| Recovery dispatch and cleanup                   | `contents: read`, `actions: write`, `pull-requests: read` | Acts only on validated inspection output. Trusted runtime capability updates the cursor and index. No comment write. |
 
 Artifact upload uses the trusted job's separate Actions runtime capability.
 `actions: write` is not required on the computation job's GitHub token.
@@ -262,12 +262,12 @@ complete, complete coverage, valid findings, all findings represented in the
 bounded summary, and passing live publication guards. All other combinations
 are blocked.
 
-| Execution and publication state | Permitted action | Checkpoint | Admission |
-| --- | --- | --- | --- |
-| Execution pending or incomplete, findings invalid, or summary over budget | Report failure in the Action; no v5 comment write | Preserve | blocked |
-| Sealed complete and valid; publication not-started; live guards pass | One final summary create or update | Advance only when confirmed | blocked until confirmed |
-| Exact final write or readback confirmed | Accept published report | New checkpoint in that report | admissible |
-| Publication uncertain, failed, cancelled, or stale | No further write by that attempt | Read live report on next run | blocked |
+| Execution and publication state                                           | Permitted action                                  | Checkpoint                    | Admission               |
+| ------------------------------------------------------------------------- | ------------------------------------------------- | ----------------------------- | ----------------------- |
+| Execution pending or incomplete, findings invalid, or summary over budget | Report failure in the Action; no v5 comment write | Preserve                      | blocked                 |
+| Sealed complete and valid; publication not-started; live guards pass      | One final summary create or update                | Advance only when confirmed   | blocked until confirmed |
+| Exact final write or readback confirmed                                   | Accept published report                           | New checkpoint in that report | admissible              |
+| Publication uncertain, failed, cancelled, or stale                        | No further write by that attempt                  | Read live report on next run  | blocked                 |
 
 The final body carries published and admissible as the postcondition of its
 successful guarded write. Constructing that body is not proof of publication.
@@ -312,6 +312,69 @@ select legacy replacement or an automatic baseline. Artifact expiry does not
 erase a structurally valid reference or reset the published Git checkpoint.
 A later run records that old audit evidence is unavailable and performs fresh
 work.
+
+#### Concrete v5 wire fields
+
+The private shared schemas are exported from
+`@seqlane/code-review-workflow/contracts`. Existing v4 exports remain separate.
+The strict v5 root uses these field names:
+
+```ts
+{
+  schemaVersion: 5,
+  stateRevision,
+  repositoryId,
+  pullRequestNumber,
+  baseRevision,
+  reviewedRevision,
+  previousReviewedRevision, // optional
+  nextFindingIndex,
+  findings,
+  limitations,
+  scopeCheckpoint,
+  runStatus,
+  manifestReference,
+  manifestSummary,
+  publicationOperation,
+  consumedSources,
+  publishedCost,
+}
+```
+
+The metadata contains `schemaVersion`, `repositoryId`, `pullRequestNumber`,
+`reviewedRevision`, `generation`, `stateRevision`, `run: { id, attempt }`, and
+`stateDigest`. The run identifies the review source, not a separate publisher.
+`stateDigest` is lowercase SHA-256 of the canonical decoded state bytes.
+Metadata and state identities must agree.
+
+`manifestSummary` contains nonnegative integer `itemCount`,
+`selectedPathCount`, `expectedLaneCount`, and `completedLaneCount`.
+Item and lane counts are at most 2,048. Selected paths are at most 200.
+Completed and expected lane counts must match for published state.
+This summary does not replace independent manifest validation or readback.
+
+`consumedSources` contains 1–40 unique review run/attempt pairs and includes
+the current publication source with its scope digest. Compaction preserves
+the cost high-water identity and cumulative aggregate.
+`publishedCost` has this exact shape:
+
+```ts
+{
+  periodStart, // UTC ISO date-time
+  knownUsd, // nonnegative decimal string, at most 128 UTF-8 bytes
+  publishedRunCount, // positive safe integer
+  completeness: "complete" | "incomplete",
+  lastRun: { runId, attempt },
+  lastRunKnownUsd: string | null,
+  highWater: { runId, attempt },
+}
+```
+
+The last-run cost uses the same decimal-string bound. A missing cost requires
+`incomplete`. The high-water pair covers all retained sources. The run count
+covers the retained source count. Unknown fields are rejected.
+Reading historical evidence validates its shape and identity; it does not
+claim fresh verification, artifact availability, or current coverage.
 
 ### requirement-run-status-and-metrics
 
@@ -414,6 +477,23 @@ it preserves the original discovery evidence and `evidenceRunId`.
 `absent` permits resolution. `present` permits reopening a resolved finding.
 Null, stale, or uncertain verification permits neither transition.
 `not_reviewed` carries the lifecycle forward without claiming fresh discovery.
+
+The owning schema accepts only these lifecycle combinations. `null` means
+there is no verification record; other values name its `outcome`.
+
+| Lifecycle status | Allowed comparison outcomes | Allowed verification outcomes |
+| --- | --- | --- |
+| `new` | `new`, `not_reviewed` | `null`, `present`, `uncertain` |
+| `open` | `persisting`, `not_reviewed` | `null`, `present`, `uncertain` |
+| `addressed` | `persisting`, `not_reviewed` | `null`, `uncertain` |
+| `resolved` | `resolved`, `not_reviewed` | `absent` |
+| `reopened` | `persisting`, `not_reviewed` | `present` |
+
+A reviewed resolution or reopening must verify the frozen current head.
+`not_reviewed` instead preserves the prior lifecycle and its valid historical
+verification. It does not permit a contradictory outcome or remove the proof
+that established resolution or reopening.
+
 Each ID is unique. Canonical order uses parsed generation bytes, then numeric
 finding index. Each state finding has exactly one visible representation with
 that same ID, either a detail row or an explicit bounded omitted-findings entry.
@@ -426,11 +506,11 @@ No aliases, dispositions, effective severity, or command decisions enter v5.
 
 This specification owns the schema-evolution matrix:
 
-| State revision | Fields and marker | Readers | Migration and replacement |
-| --- | --- | --- | --- |
-| v1-v3 | Earlier state, including disposition-bearing v3. | Legacy identity classification only. | Findings, IDs, checkpoint, and visible metrics do not enter v5. |
-| v4 | Current command-free lifecycle, v4 marker, numeric finding IDs, and visible metrics ledger. | Current v4 reader; v5 classifies it as legacy. | A fresh v5 baseline replaces it after scope-capable delivery. |
-| v5 | Planned hidden state with ScopeCheckpoint, RetainedFinding, RunStatus, ManifestReference, PublicationOperation, and published cost. | One strict v5 reader and marker. | Invalid v5 fails closed; it never selects legacy replacement. |
+| State revision | Fields and marker                                                                                                                   | Readers                                        | Migration and replacement                                       |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- | --------------------------------------------------------------- |
+| v1-v3          | Earlier state, including disposition-bearing v3.                                                                                    | Legacy identity classification only.           | Findings, IDs, checkpoint, and visible metrics do not enter v5. |
+| v4             | Current command-free lifecycle, v4 marker, numeric finding IDs, and visible metrics ledger.                                         | Current v4 reader; v5 classifies it as legacy. | A fresh v5 baseline replaces it after scope-capable delivery.   |
+| v5             | Planned hidden state with ScopeCheckpoint, RetainedFinding, RunStatus, ManifestReference, PublicationOperation, and published cost. | One strict v5 reader and marker.               | Invalid v5 fails closed; it never selects legacy replacement.   |
 
 The marker, state, and compressed envelope must name the same version.
 The v5 contract has one shape. It includes the hidden transport and cost fields

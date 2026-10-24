@@ -29,3 +29,16 @@ export {
   ReviewScopeError,
   ReviewScopeLimitError,
 } from "./review-scope-errors.js";
+export {
+  admitReviewScope,
+  reviewScopeAdmissionSchema,
+} from "./review-scope-admission.js";
+export type { ReviewScopeAdmission } from "./review-scope-admission.js";
+export { readReviewAuthority } from "./review-report-authority.js";
+export type { ReviewAuthorityReadPort } from "./review-report-authority.js";
+export { classifyReviewReport } from "./review-report-classification.js";
+export type { ReviewReportClassification } from "./review-report-classification.js";
+export {
+  encodeReviewStateV5,
+  decodeReviewStateV5,
+} from "./review-state-codec.js";

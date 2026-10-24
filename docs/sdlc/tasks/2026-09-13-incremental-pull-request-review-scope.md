@@ -97,16 +97,21 @@ No existing finding or checkpoint changes during this slice.
 
 ### Remaining delivery
 
-1. Extend the current report-state schema, metadata marker, finding-ID parser,
-   and reader. Keep the new version independent of the retired mechanical
-   disposition contract.
-2. Add a pure report-state classifier and scope selector for
-   P(B,H) intersect D(C,H), then apply exclusions before finding admission.
-   Test invalid current state, exact checkpoint objects, Git paths,
-   non-ancestor commits, renames, deletions, base movement, and same-head runs.
-3. Change Git evidence to use validated literal argv paths and produce a
-   complete scoped patch or fail. Add typed batch plans and results,
-   deterministic aggregation, bounded subprocesses, and cumulative budgets.
+The private [trusted v5 report admission slice](./2026-09-14-unify-code-review-comment-state.md#next-pr-trusted-v5-report-admission)
+is implemented locally on top of PR #176 at `7ce908b`.
+It connects strict report classification to this collector. Model and publication
+wiring remain pending.
+
+1. Integrate the locally implemented v5 schema, hidden codec, classifier, and
+   private admission path with the production host. Invalid current state
+   blocks. Every older schema selects a full current `B...H` baseline without
+   decoding its payload. Keep its exact report and marker identity for later guards.
+2. Implement the production BoundedReviewGitPort with measured hard wall,
+   CPU, memory, output, transfer, and process-group controls. The existing
+   test fixture does not satisfy this production boundary.
+3. Extend complete batching with deterministic hunk partitioning for paths
+   that exceed one batch. Preserve literal paths, complete evidence, shared
+   cumulative budgets, and separate review and validation batches.
 4. Pass scope, the mode-selected review patch, and retained current-generation
    findings as reference context to configured lanes and synthesis. Send only
    retained findings whose primary causes have verified overlap with new
@@ -220,8 +225,8 @@ A follow-up regression proves that older reviewed hunks in an edited file and
 previously reviewed unchanged files stay out of incremental discovery input.
 The focused collector suite passes 25 tests. The v5 contract carries untouched
 findings as `not_reviewed`, schedules verification only for locally established
-cause overlap, and skips all models for empty scope. Reader and orchestration
-enforcement of that selection remain part of the pending v5 delivery work.
+cause overlap, and skips all models for empty scope. Cause selection and
+orchestration enforcement remain pending v5 delivery work.
 
 Follow-up fixes validate the repository's storage hash format and require each
 base, head, and checkpoint to resolve to its admitted full commit ID.
@@ -236,6 +241,14 @@ The test typecheck retains three errors in the untouched
 The current v4 workflow has no collector call and keeps its existing contracts.
 Ripwire flags two short command-status helpers shared across Action packages.
 The packages keep separate helpers because their ports and domain errors differ.
+
+The follow-up private admission slice now validates shared v5 schemas and
+bounded hidden transport before collecting Git evidence. Complete authority
+lookup rejects duplicate reports, malformed records, and incomplete pagination.
+All v1–v4 payloads are ignored and select the full current PR diff. Valid v5
+uses its published `reviewedRevision` and preserves retained findings as reference
+context. Malformed or future state blocks before collection.
+The production caller, host limits, model admission, and publication remain pending.
 
 ## Delivery state
 

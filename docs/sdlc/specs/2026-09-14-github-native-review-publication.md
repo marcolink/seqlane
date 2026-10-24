@@ -120,6 +120,21 @@ decodes UTF-8 with fatal error handling and parses JSON. It never calls an
 unbounded whole-buffer decompressor. These limits apply to every readback and
 reconciliation path.
 
+The concrete v5 transport uses these exact markers and envelope fields:
+
+```html
+<!-- seqlane-code-review -->
+<!-- seqlane-code-review-meta-v5: <canonical metadata JSON> -->
+<!-- seqlane-code-review-state-v5: {"data":"<canonical base64>","encoding":"gzip+base64","schemaVersion":5} -->
+```
+
+Each marker occurs once. The state block ends the report, allowing trailing
+whitespace only. Canonical JSON sorts object keys lexicographically and
+preserves array order. Decoding must reproduce those exact canonical state
+bytes; duplicate JSON keys and noncanonical representations are rejected.
+Metadata fields and the state digest follow the
+[v5 wire contract](./2026-09-05-versioned-pull-request-review-comments.md#concrete-v5-wire-fields).
+
 The publisher renders visible text only from the same state it writes. No separate per-run JSON metrics block appears in the comment.
 Bounded detailed metrics belong in the run artifact.
 
