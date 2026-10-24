@@ -245,7 +245,7 @@
 | [task.implement-codex-app-server-adapter](./2026-09-12-implement-codex-app-server-adapter.md) | Implement the Codex App-Server Adapter | completed | 2026-09-12 | core |
 | [task.integrate-codex-runtime-adapter](./2026-09-12-integrate-codex-runtime-adapter.md) | Integrate the Codex Runtime Adapter | completed | 2026-09-12 | core |
 | [task.prove-codex-app-server-protocol](./2026-09-12-prove-codex-app-server-protocol.md) | Prove the Codex App-Server Protocol | completed | 2026-09-12 | core |
-| [task.incremental-pull-request-review-scope](./2026-09-13-incremental-pull-request-review-scope.md) | Implement Incremental Pull Request Review Scope | planned | 2026-09-13 | core |
+| [task.incremental-pull-request-review-scope](./2026-09-13-incremental-pull-request-review-scope.md) | Implement Incremental Pull Request Review Scope | in-progress | 2026-09-13 | core |
 | [task.deliver-fluent-task-until-repeats](./2026-09-14-deliver-fluent-task-until-repeats.md) | Deliver Fluent Task-Until Repeats | completed | 2026-09-14 | core |
 | [task.persist-code-review-run-artifacts](./2026-09-14-persist-code-review-run-artifacts.md) | Persist Bounded Published Review Artifacts | planned | 2026-09-14 | core |
 | [task.serialize-code-review-publication](./2026-09-14-serialize-code-review-publication.md) | Serialize Final Code Review Publication | planned | 2026-09-14 | core |

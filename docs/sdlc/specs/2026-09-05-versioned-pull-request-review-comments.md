@@ -488,6 +488,11 @@ head. A comment claiming a fix does not change the finding or start a review.
 
 For planned v5, each inspected finding receives the canonical
 `RetainedFinding.verification` value under requirement-retained-finding.
+Only findings whose retained primary causes have verified overlap with new
+changed lines or tree entries may reach this task. A changed file alone is
+insufficient. Untouched findings keep their prior lifecycle and evidence
+as `not_reviewed`; they are not rechecked. Empty scope makes zero model calls,
+including verification and synthesis. The scope specification owns this selection.
 The finalizer validates its finding ID, head, relevant path, source digest,
 and text location or tree entry against the sealed
 [verification sources](./2026-09-14-review-run-manifest-and-provenance.md#requirement-verification-evidence).

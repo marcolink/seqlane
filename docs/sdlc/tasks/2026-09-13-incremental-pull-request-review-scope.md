@@ -1,7 +1,7 @@
 ---
 id: task.incremental-pull-request-review-scope
 title: Implement Incremental Pull Request Review Scope
-status: planned
+status: in-progress
 owners:
   - core
 created: 2026-09-13
@@ -60,6 +60,43 @@ Preserve the state, lifecycle, trust, and publication rules in
 
 ## Implementation plan
 
+### First tracer bullet: private scope and complete Git evidence
+
+Outcome: a trusted admission produces deterministic scope and complete evidence
+through real Git. The current v4 workflow remains separate.
+
+Path: strict ScopeIdentity -> bounded Git port -> pure selector -> grouped
+literal scoped diffs -> review batches, local validation batches, and tree metadata.
+
+Risk: path parsing, checkpoint identity, rebases, exclusions, or incomplete
+output can silently widen scope or omit evidence.
+
+Evidence: temporary Git repositories cover baseline, incremental, same-head,
+rebase, reverted edits, base movement, renames, deletions, binary, mode,
+symlink, submodule, and hostile-path cases. Port tests cover missing measurements,
+truncation, cancellation, and resource boundaries.
+
+This slice implements the collector against a strict trusted host port.
+It rejects absent resource measurements and requires host enforcement before
+production use. The existing process API does not provide complete CPU,
+memory, or fetch-transfer controls. A production host adapter remains required.
+The real-Git test adapter measures child resources but is not a production adapter.
+
+The collector seals complete local evidence before model work. Baseline review
+uses the current PR diff. Incremental review uses the checkpoint-to-head diff.
+Current-PR evidence stays in separate local validation batches. Each selected
+revision range uses one bounded multi-path command, including at most 200
+literal paths. Raw records and patch headers must exactly match that inventory.
+Whole paths are batched locally. A single path patch above the batch limit
+fails closed; hunk partitioning is follow-up work. Both batch groups share
+the existing batch, hunk, byte, and execution ceilings.
+
+Excluded from this slice: trusted v5 report classification and transport,
+model invocation planning, finding admission, manifests, storage, and publication.
+No existing finding or checkpoint changes during this slice.
+
+### Remaining delivery
+
 1. Extend the current report-state schema, metadata marker, finding-ID parser,
    and reader. Keep the new version independent of the retired mechanical
    disposition contract.
@@ -70,16 +107,20 @@ Preserve the state, lifecycle, trust, and publication rules in
 3. Change Git evidence to use validated literal argv paths and produce a
    complete scoped patch or fail. Add typed batch plans and results,
    deterministic aggregation, bounded subprocesses, and cumulative budgets.
-4. Pass scope and retained current-generation findings to history
-   verification, configured lanes, and synthesis. Add the deterministic
+4. Pass scope, the mode-selected review patch, and retained current-generation
+   findings as reference context to configured lanes and synthesis. Send only
+   retained findings whose primary causes have verified overlap with new
+   changes to history verification. A changed file alone is insufficient. Keep
+   current-PR validation batches local to the cause-admission gate. Add the deterministic
    new-finding path and changed-anchor gate, first-observed revision, typed
    evidence and location status, evidence-backed identity, and typed
    comparison outcomes. Reuse the canonical RetainedFinding and evidence schemas.
 5. Seal the canonical current-head verification sources separately from the
    discovery denominator. Validate finding, head, path, digest, and location
    bindings before accepting an outcome; record it in the manifest.
-   Preserve prior findings and compute a cumulative verdict. Skip discovery
-   lanes for empty scope; still verify retained findings as required.
+   Preserve untouched findings as `not_reviewed` and compute a cumulative
+   verdict. Empty scope skips all model work, including history verification
+   and synthesis. Do not claim fresh verification for carried findings.
 6. Add the Action-owned run-local manifest, sealed item and expected-lane
    denominator, one-to-one terminal outcomes, provenance and trusted rule
    validation. Apply the pinned redaction policy before both persistence sinks.
@@ -165,11 +206,40 @@ Preserve the state, lifecycle, trust, and publication rules in
 
 ## Outcome
 
-Implementation pending.
+The first private scope collector slice is proposed in
+[PR #176](https://github.com/marcolink/seqlane/pull/176), based on PR #112 at `6688815`.
+It has no production caller. Focused real-Git and port tests provide local evidence.
+The production host adapter and all remaining v5 delivery work are pending.
+
+Incremental review input is the checkpoint-to-head diff. Current-PR validation
+is separate. A real-Git test covers 200 incremental paths with two patch
+commands, complete discovery and validation inventories, and no earlier PR
+patch in discovery input. File-type transitions retain both patch blocks.
+
+A follow-up regression proves that older reviewed hunks in an edited file and
+previously reviewed unchanged files stay out of incremental discovery input.
+The focused collector suite passes 25 tests. The v5 contract carries untouched
+findings as `not_reviewed`, schedules verification only for locally established
+cause overlap, and skips all models for empty scope. Reader and orchestration
+enforcement of that selection remain part of the pending v5 delivery work.
+
+Follow-up fixes validate the repository's storage hash format and require each
+base, head, and checkpoint to resolve to its admitted full commit ID.
+Real-Git regressions reject 40-character SHA-256 prefixes and accept full
+SHA-1 and SHA-256 IDs. Command and checkpoint-fetch methods are explicit and
+share one execution budget; 13 budget tests cover their routing and accounting.
+
+Local verification passes the full Action library suite: 15 files and 150 tests.
+Source typecheck, test mapping, formatting, and SDLC validation pass.
+The test typecheck retains three errors in the untouched
+`pr-code-review-example.spec.ts` at lines 1467 and 1532.
+The current v4 workflow has no collector call and keeps its existing contracts.
+Ripwire flags two short command-status helpers shared across Action packages.
+The packages keep separate helpers because their ports and domain errors differ.
 
 ## Delivery state
 
-Planned. No implementation or target-branch delivery claim is made here.
+Partial local implementation. No target-branch delivery claim is made here.
 
 ## Traceability
 
