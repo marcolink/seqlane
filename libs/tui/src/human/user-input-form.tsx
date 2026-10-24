@@ -4,6 +4,10 @@ import { userInputAnswersForRequestSchema } from "@seqlane/protocol";
 import type { UserInputView } from "../renderer-contract.js";
 import { encodeTerminalField } from "../terminal-field.js";
 
+function savedAnswer(answers: Record<string, string>, id: string): string {
+  return Object.hasOwn(answers, id) ? (answers[id] ?? "") : "";
+}
+
 /** Mounted only while a request is pending; passive runs never read keys. */
 export function UserInputForm({
   input,
@@ -28,7 +32,7 @@ export function UserInputForm({
     }
     if (question === undefined || input.submitting || submitted.current) return;
     if (key.tab && key.shift && index > 0) {
-      setValue(answers[input.questions[index - 1]?.id ?? ""] ?? "");
+      setValue(savedAnswer(answers, input.questions[index - 1]?.id ?? ""));
       setIndex(index - 1);
       setError(undefined);
     } else if (key.return) {
@@ -53,7 +57,7 @@ export function UserInputForm({
         input.onSubmit(next);
       } else {
         setIndex(index + 1);
-        setValue(next[input.questions[index + 1]?.id ?? ""] ?? "");
+        setValue(savedAnswer(next, input.questions[index + 1]?.id ?? ""));
       }
     } else if (key.backspace || key.delete) {
       setValue((previous) => [...previous].slice(0, -1).join(""));

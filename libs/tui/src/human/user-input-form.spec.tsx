@@ -52,6 +52,64 @@ describe("user input form", () => {
     ui.unmount();
     expect(ui.stdin.listenerCount("readable")).toBe(0);
   });
+  it.each(["toString", "hasOwnProperty"])(
+    "requires an explicit answer for %s and preserves it across navigation",
+    async (id) => {
+      const state = {
+        ...input(),
+        questions: [
+          ...input().questions.slice(0, 1),
+          { id, prompt: "Note", allowFreeText: true },
+          { id: "last", prompt: "Last", allowFreeText: true },
+        ],
+      };
+      const ui = render(<UserInputForm input={state} />);
+      await vi.waitFor(() =>
+        expect(ui.stdin.listenerCount("readable")).toBeGreaterThan(0),
+      );
+      ui.stdin.write("1");
+      await vi.waitFor(() => expect(ui.lastFrame()).toContain("1▌"));
+      ui.stdin.write("\r");
+      await vi.waitFor(() => {
+        expect(ui.lastFrame()).toContain("2/3: Note");
+        expect(ui.lastFrame()).toContain("Text: ▌");
+      });
+      ui.stdin.write("\r");
+      await vi.waitFor(() => expect(ui.lastFrame()).toContain("valid answer"));
+      expect(state.onSubmit).not.toHaveBeenCalled();
+
+      ui.stdin.write("my answer");
+      await vi.waitFor(() => expect(ui.lastFrame()).toContain("my answer▌"));
+      ui.stdin.write("\r");
+      await vi.waitFor(() => expect(ui.lastFrame()).toContain("3/3: Last"));
+      ui.stdin.write("\u001b[Z");
+      await vi.waitFor(() => {
+        expect(ui.lastFrame()).toContain("2/3: Note");
+        expect(ui.lastFrame()).toContain("my answer▌");
+      });
+      ui.stdin.write("\u001b[Z");
+      await vi.waitFor(() =>
+        expect(ui.lastFrame()).toContain("1/3: Choose region"),
+      );
+      ui.stdin.write("\r");
+      await vi.waitFor(() => {
+        expect(ui.lastFrame()).toContain("2/3: Note");
+        expect(ui.lastFrame()).toContain("my answer▌");
+      });
+      ui.stdin.write("\r");
+      await vi.waitFor(() => expect(ui.lastFrame()).toContain("3/3: Last"));
+      ui.stdin.write("done");
+      await vi.waitFor(() => expect(ui.lastFrame()).toContain("done▌"));
+      ui.stdin.write("\r");
+      await vi.waitFor(() =>
+        expect(state.onSubmit).toHaveBeenCalledWith({
+          region: "eu",
+          [id]: "my answer",
+          last: "done",
+        }),
+      );
+    },
+  );
   it.each(["\u001b", "\u0003", "\u0004"])(
     "cancels on control %j",
     async (key) => {
