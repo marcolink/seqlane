@@ -94,6 +94,7 @@ Use `--interactive` with [Codex](../adapters/codex.md) to let an agent ask
 questions during a run. A skill can trigger a question without a predefined
 workflow schema. Answers resume the same invocation; the task's final output
 still follows its declared schema. Permission approvals remain unavailable.
+See [Interactivity](../interactivity.md) for the question flow and skill examples.
 
 ## General flags
 
@@ -187,18 +188,11 @@ Interactive execution requires human output and terminal input. It rejects CI,
 reject this policy. A dry run validates the flags without opening an input
 consumer or starting an adapter.
 
-An agent can ask up to eight questions per batch. Each question accepts text,
-one listed choice, or a choice with a text alternative. Enter an option number
-or value, then press Enter. Text answers preserve spaces. Shift+Tab returns to
-the previous question. Esc, Ctrl+C, Ctrl+D, or terminal input loss cancels the run.
+`--input-timeout` accepts 1–86400 seconds and defaults to 300 seconds.
+It requires `--interactive`. Task and run deadlines continue during input waits.
 
-Requests from independent tasks queue in arrival order. The terminal shows the
-pending count and marks tasks waiting for input. Queued requests keep their
-deadlines. `--input-timeout` accepts 1–86400 seconds and defaults to 300 seconds;
-it requires `--interactive`. Task and run deadlines continue during input waits.
-
-Pending questions exist only in the live process. Restarting the CLI cannot
-resume them. Answers supply task information; they do not grant permissions.
+See [Interactivity](../interactivity.md) for question formats, terminal controls,
+queue behavior, cancellation, and the limits of live input.
 
 ### `--output`
 
