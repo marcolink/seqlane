@@ -7,6 +7,7 @@ import {
   type SeqlaneExecutionEventMetadata,
   type InvocationObservationEvent,
   type SeqlanePlanSnapshot,
+  type InteractionEventInput,
 } from "@seqlane/protocol";
 import type { TraceCarrier } from "@seqlane/protocol/private/trace-carrier";
 import { Effect, Exit, Option, Semaphore } from "effect";
@@ -23,13 +24,16 @@ export type SendExecutionEvent = (
   event: SeqlaneExecutionEvent,
 ) => Promise<void>;
 
+export type UserInputExecutionEvent = InteractionEventInput;
+
 type ExecutionBridgeEvent =
   | Exclude<SeqlaneEvent, { type: "run.failed" }>
   | (Extract<SeqlaneEvent, { type: "run.failed" }> &
-      Pick<Extract<SeqlaneExecutionEvent, { type: "run.failed" }>, "phase">);
+      Pick<Extract<SeqlaneExecutionEvent, { type: "run.failed" }>, "phase">)
+  | UserInputExecutionEvent;
 
 export interface ExecutionEventBridge extends SeqlaneEventSink {
-  emit(event: ExecutionBridgeEvent): void;
+  emit(event: SeqlaneEvent): void;
   emitPlan(plan: SeqlanePlanSnapshot, workId: string, runId: string): void;
   emitPlanEffect(
     plan: SeqlanePlanSnapshot,
@@ -37,7 +41,7 @@ export interface ExecutionEventBridge extends SeqlaneEventSink {
     runId: string,
   ): Effect.Effect<void, Error>;
   emitObservation(event: Omit<InvocationObservationEvent, "metadata">): void;
-  emitAsync(event: SeqlaneEvent): Promise<void>;
+  emitAsync(event: SeqlaneEvent | UserInputExecutionEvent): Promise<void>;
   /** Native runtime producers use this Effect seam to wait for byte capacity. */
   emitEffect(event: ExecutionBridgeEvent): Effect.Effect<void, Error>;
   flush(): Promise<void>;
@@ -163,6 +167,9 @@ function toExecutionEvent(
     case "invocation.progress":
     case "invocation.output":
     case "invocation.activity":
+    case "interaction.requested":
+    case "interaction.response":
+    case "interaction.resolved":
     case "invocation.input":
     case "invocation.result":
     case "invocation.succeeded":
@@ -307,6 +314,52 @@ export function createExecutionEventBridge(
       onAdmitted,
     );
   };
+  const emitSequencedEffect = (
+    event: ExecutionBridgeEvent,
+  ): Effect.Effect<void, Error> => {
+    if (options.skipRunStarted && event.type === "run.started")
+      return Effect.void;
+    return sequenceAdmission.withPermits(1)(
+      Effect.suspend(() => {
+        const nextSequence = sequence + 1;
+        const canonical = toExecutionEvent(
+          event,
+          createMetadata(
+            nextSequence,
+            createEventId,
+            clock,
+            options.traceCarrier,
+          ),
+        );
+        if (
+          options.deferTerminalUntilTelemetry &&
+          (canonical.type === "run.succeeded" ||
+            canonical.type === "run.cancelled" ||
+            canonical.type === "run.failed")
+        ) {
+          deferredTerminal = canonical;
+          commitAdmission(nextSequence);
+          return Effect.void;
+        }
+        pendingNativeSequence = nextSequence;
+        const admission = Effect.suspend(() =>
+          enqueueEffect(canonical, () => commitAdmission(nextSequence)),
+        );
+        return admission.pipe(
+          Effect.onExit((exit) =>
+            Effect.sync(() => {
+              if (
+                Exit.isFailure(exit) &&
+                pendingNativeSequence === nextSequence
+              ) {
+                pendingNativeSequence = undefined;
+              }
+            }),
+          ),
+        );
+      }),
+    );
+  };
 
   return {
     emitPlan(plan, workId, runId) {
@@ -401,48 +454,7 @@ export function createExecutionEventBridge(
       enqueue(canonical, () => commitAdmission(nextSequence));
     },
     emitEffect(event) {
-      if (options.skipRunStarted && event.type === "run.started")
-        return Effect.void;
-      return sequenceAdmission.withPermits(1)(
-        Effect.suspend(() => {
-          const nextSequence = sequence + 1;
-          const canonical = toExecutionEvent(
-            event,
-            createMetadata(
-              nextSequence,
-              createEventId,
-              clock,
-              options.traceCarrier,
-            ),
-          );
-          if (
-            options.deferTerminalUntilTelemetry &&
-            (canonical.type === "run.succeeded" ||
-              canonical.type === "run.cancelled" ||
-              canonical.type === "run.failed")
-          ) {
-            deferredTerminal = canonical;
-            commitAdmission(nextSequence);
-            return Effect.void;
-          }
-          pendingNativeSequence = nextSequence;
-          const admission = Effect.suspend(() =>
-            enqueueEffect(canonical, () => commitAdmission(nextSequence)),
-          );
-          return admission.pipe(
-            Effect.onExit((exit) =>
-              Effect.sync(() => {
-                if (
-                  Exit.isFailure(exit) &&
-                  pendingNativeSequence === nextSequence
-                ) {
-                  pendingNativeSequence = undefined;
-                }
-              }),
-            ),
-          );
-        }),
-      );
+      return emitSequencedEffect(event);
     },
     emitAsync(event) {
       return Effect.runPromise(this.emitEffect(event));

@@ -5,12 +5,15 @@ import type { HumanDisplayCapabilities } from "./format.js";
 import { HumanHeader } from "./header.js";
 import { HumanTree } from "./tree.js";
 import { encodeTerminalField } from "../terminal-field.js";
+import type { UserInputView } from "../renderer-contract.js";
+import { UserInputForm } from "./user-input-form.js";
 
 export interface HumanAppProps {
   readonly view: RunViewModel;
   readonly capabilities: HumanDisplayCapabilities;
   readonly spinnerFrame: number;
   readonly animate?: boolean;
+  readonly userInput?: UserInputView;
 }
 
 export interface MountedHumanApp {
@@ -70,6 +73,7 @@ export function HumanApp({
   capabilities,
   spinnerFrame,
   animate = false,
+  userInput,
 }: HumanAppProps): React.JSX.Element {
   // Leave the terminal's final column unused to avoid edge clipping/autowrap.
   const contentCapabilities = useMemo(
@@ -99,6 +103,13 @@ export function HumanApp({
         <Text color={capabilities.supportsAnsi ? "red" : undefined}>
           {encodeTerminalField(view.runError.message, capabilities.redactions)}
         </Text>
+      )}
+      {userInput === undefined ? null : (
+        <UserInputForm
+          key={userInput.requestId}
+          input={userInput}
+          redactions={capabilities.redactions}
+        />
       )}
     </Box>
   );

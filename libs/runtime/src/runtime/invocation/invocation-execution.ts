@@ -36,6 +36,7 @@ import {
   sessionForInvocation,
 } from "../session/session-resolution.js";
 import type { SessionLockLease } from "../session/session-lock.js";
+import type { UserInputRequest } from "@seqlane/protocol";
 import { summarizeSeqlaneOutput } from "../execution/output-summary.js";
 import { getTaskSchema } from "../plan/task-schema.js";
 import { toSeqlaneDisplayValue } from "../execution/display-value.js";
@@ -407,6 +408,7 @@ export async function executeTaskNode(
           throw new Error(`No task definition registered for "${node.taskId}"`);
         }
         const classifier = context.classifier;
+        const requestUserInput = context.requestUserInput;
         const runAgent = async (
           agentRequest: AgentTaskRequest,
         ): Promise<unknown> => {
@@ -437,6 +439,20 @@ export async function executeTaskNode(
                     executor: node.taskId,
                     input,
                     agent: agentRequest,
+                    ...(requestUserInput === undefined
+                      ? {}
+                      : {
+                          requestUserInput: (
+                            inputRequest: UserInputRequest,
+                            inputSignal: AbortSignal,
+                          ) =>
+                            requestUserInput(
+                              invocationId,
+                              node.taskId,
+                              inputRequest,
+                              inputSignal,
+                            ),
+                        }),
                     signal: abortSignal,
                     onMetrics: (value) => {
                       metrics = value;

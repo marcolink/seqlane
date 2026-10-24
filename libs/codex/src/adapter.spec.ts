@@ -2,6 +2,7 @@
 // @test-scope ./protocol.ts
 // @test-scope ./turn-tracker.ts
 // @test-scope ./activity.ts
+// @test-scope ./user-input-tool.ts
 import type {
   AgentAdapterRequest,
   AgentActivity,
@@ -85,6 +86,10 @@ class FakeTransport implements CodexTransport {
   nativeTurnFields: Record<string, unknown> = {};
   nativeUsageFields: Record<string, unknown> = {};
   nativeItemFields: Record<string, unknown> = {};
+  userInputRequest: unknown;
+  userInputResponse: unknown;
+  completeBeforeUserInputResponse = false;
+  private pendingTurnCompletion?: () => void;
   agentMessageDeltas: string[] | undefined;
   delayTurnStart = false;
   failInterrupt = false;
@@ -285,25 +290,49 @@ class FakeTransport implements CodexTransport {
             },
           },
         });
-        this.emit({
-          kind: "notification",
-          notification: {
-            method: "turn/completed",
-            params: {
-              threadId: threadId.threadId,
-              turn: {
-                id: turnId,
-                status:
-                  this.failedTurnMessage === undefined ? "completed" : "failed",
-                items: [],
-                ...this.nativeTurnFields,
-                ...(this.failedTurnMessage === undefined
-                  ? {}
-                  : { error: { message: this.failedTurnMessage } }),
+        const completeTurn = (): void => {
+          this.emit({
+            kind: "notification",
+            notification: {
+              method: "turn/completed",
+              params: {
+                threadId: threadId.threadId,
+                turn: {
+                  id: turnId,
+                  status:
+                    this.failedTurnMessage === undefined
+                      ? "completed"
+                      : "failed",
+                  items: [],
+                  ...this.nativeTurnFields,
+                  ...(this.failedTurnMessage === undefined
+                    ? {}
+                    : { error: { message: this.failedTurnMessage } }),
+                },
               },
             },
-          },
-        });
+          });
+        };
+        if (this.userInputRequest !== undefined) {
+          if (!this.completeBeforeUserInputResponse)
+            this.pendingTurnCompletion = completeTurn;
+          this.emit({
+            kind: "server-request",
+            request: {
+              id: "ask-user-1",
+              method: "item/tool/call",
+              params: {
+                threadId: threadId.threadId,
+                turnId,
+                callId: "ask-user-call-1",
+                namespace: null,
+                tool: "ask_user",
+                arguments: this.userInputRequest,
+              },
+            },
+          });
+          if (this.completeBeforeUserInputResponse) completeTurn();
+        } else completeTurn();
       };
       if (this.emitBeforeTurnResponse) emitTurnEvents();
       else setTimeout(emitTurnEvents, 0);
@@ -328,9 +357,17 @@ class FakeTransport implements CodexTransport {
     return Promise.resolve();
   }
 
-  respond(): void {
-    // Server-request responses are not needed by this fake.
-  }
+  respond = (requestId: unknown, response: unknown): void => {
+    if (requestId !== "ask-user-1") return;
+    this.userInputResponse = response;
+    const succeeded = z
+      .object({ result: z.object({ success: z.literal(true) }) })
+      .safeParse(response).success;
+    if (succeeded) {
+      this.pendingTurnCompletion?.();
+      this.pendingTurnCompletion = undefined;
+    }
+  };
 
   emit(message: CodexInboundMessage): void {
     for (const listener of this.listeners) listener(message);
@@ -338,6 +375,114 @@ class FakeTransport implements CodexTransport {
 }
 
 describe("Codex AgentAdapter", () => {
+  it("round-trips validated ask_user answers through the native dynamic tool", async () => {
+    const transport = new FakeTransport();
+    transport.userInputRequest = {
+      questions: [
+        {
+          id: "region",
+          prompt: "Choose a region",
+          allowFreeText: false,
+          options: [
+            { value: "eu-west", label: "Europe West" },
+            { value: "us-east", label: "US East" },
+          ],
+        },
+      ],
+    };
+    const requestUserInput = vi.fn().mockResolvedValue({
+      status: "answered",
+      answers: { region: "eu-west" },
+    });
+    const adapter = createCodexAdapterForTransport(transport, configuration, {
+      modelSelection: selection,
+    });
+
+    await expect(
+      adapter.execute(request({ requestUserInput })),
+    ).resolves.toEqual({ result: "done" });
+    expect(requestUserInput).toHaveBeenCalledWith(transport.userInputRequest);
+    const threadStart = transport.requests.find(
+      (value) => value.method === "thread/start",
+    );
+    expect(threadStart?.params).toMatchObject({
+      dynamicTools: [{ name: "ask_user", type: "function" }],
+    });
+    expect(transport.userInputResponse).toEqual({
+      result: {
+        contentItems: [
+          {
+            type: "inputText",
+            text: JSON.stringify({
+              status: "answered",
+              answers: { region: "eu-west" },
+            }),
+          },
+        ],
+        success: true,
+      },
+    });
+  });
+
+  it("interrupts the native turn when the user-input deadline expires", async () => {
+    const transport = new FakeTransport();
+    transport.userInputRequest = {
+      questions: [{ id: "note", prompt: "Note", allowFreeText: true }],
+    };
+    const timeout = new Error("User input deadline expired");
+    timeout.name = "UserInputTimeoutError";
+    const adapter = createCodexAdapterForTransport(transport, configuration, {
+      modelSelection: selection,
+    });
+
+    await expect(
+      adapter.execute(
+        request({ requestUserInput: async () => Promise.reject(timeout) }),
+      ),
+    ).rejects.toBe(timeout);
+
+    expect(transport.interruptAcknowledged).toBe(true);
+    expect(transport.requests).toContainEqual({
+      method: "turn/interrupt",
+      params: { threadId: "thread-1", turnId: "turn-1" },
+    });
+    expect(transport.userInputResponse).toMatchObject({
+      result: { success: false },
+    });
+  });
+
+  it("fails completion with a pending ask_user call and drops its late answer", async () => {
+    const transport = new FakeTransport();
+    transport.userInputRequest = {
+      questions: [{ id: "note", prompt: "Note", allowFreeText: true }],
+    };
+    transport.completeBeforeUserInputResponse = true;
+    let resolveAnswer!: (answer: {
+      status: "answered";
+      answers: Record<string, string>;
+    }) => void;
+    const lateAnswer = new Promise<{
+      status: "answered";
+      answers: Record<string, string>;
+    }>((resolve) => {
+      resolveAnswer = resolve;
+    });
+    const adapter = createCodexAdapterForTransport(transport, configuration, {
+      modelSelection: selection,
+    });
+
+    const execution = adapter.execute(
+      request({ requestUserInput: async () => lateAnswer }),
+    );
+    await expect(execution).rejects.toMatchObject({
+      code: "USER_INPUT_PROTOCOL_ERROR",
+    });
+    resolveAnswer({ status: "answered", answers: { note: "late" } });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(transport.userInputResponse).toBeUndefined();
+  });
+
   it("uses the shared 15-second startup and model preflight deadline", async () => {
     vi.useFakeTimers();
     try {

@@ -666,6 +666,7 @@ export async function createCodexTransportForProcess(
         transport.request(
           "initialize",
           {
+            capabilities: { experimentalApi: true },
             clientInfo: {
               name: "seqlane",
               title: "Seqlane Codex adapter",

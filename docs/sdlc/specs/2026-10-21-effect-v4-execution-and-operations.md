@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-10-21
-updated: 2026-10-22
+updated: 2026-10-24
 upstream:
   - rfc.effect-v4-migration
   - prd.seqlane-runtime
@@ -225,6 +225,20 @@ foreign process. External services remain outside worker ownership.
 These private records do not change public Plans or the execution-event version.
 Plan and replay commands retain their current behavior and Zod validation.
 Remove `unstable_studio` after hosted inspection parity; update help and documentation with its replacement inspection paths.
+
+### requirement-runtime-user-input
+
+Explicitly enabled local runs use
+[spec.runtime-user-input](./2026-10-23-runtime-user-input.md).
+The shared Effect program owns pending requests, identity, deadlines, and
+cancellation. The child runner accepts validated response commands. The CLI
+owns terminal input. The default policy still rejects input requirements.
+
+Waiting retains the invocation's process, session, and workspace ownership.
+Existing execution deadlines continue. Interaction lifecycle events remain
+canonical and independent of activity retention. Answers do not replace task
+outputs, grant permissions, or introduce durable resume. Hosted callers keep
+input disabled until a separate consumer contract exists.
 
 ### requirement-action-lifetimes
 

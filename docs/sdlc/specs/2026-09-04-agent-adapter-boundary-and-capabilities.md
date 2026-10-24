@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-04
-updated: 2026-10-22
+updated: 2026-10-24
 upstream:
   - adr.executor-neutral-workflow-authoring
   - adr.opencode-executor-integration
@@ -192,9 +192,13 @@ OpenCode SDK. It must not switch adapters after a capability failure.
 
 ### requirement-autonomous-interactions
 
-Each adapter must reject unresolved permission and user-input requests through
-the shared non-interactive failure contract. No adapter can approve an
-interaction on behalf of the user.
+Each adapter rejects unresolved permission requests through the shared failure
+contract. Disabled user input follows the same failure path. Enabled user
+input follows [spec.runtime-user-input](./2026-10-23-runtime-user-input.md).
+The adapter declares `userInput` support and uses the optional asynchronous
+`requestUserInput` operation. Missing support means unsupported. Native tool
+availability, payload translation, and response delivery remain adapter-owned.
+No user answer grants execution permission.
 
 ### requirement-private-observability
 

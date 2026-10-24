@@ -23,6 +23,7 @@ import {
 } from "./index-internal.js";
 import { unsupportedCodexServerRequest } from "./protocol.js";
 import type { CodexTransport } from "./transport.js";
+import { createCodexUserInputHandler } from "./user-input-handler.js";
 
 export interface CompletedTurn {
   readonly turn: ReturnType<typeof parseTurnStartResult>;
@@ -39,7 +40,10 @@ export interface TurnObservationSnapshot {
 
 export interface TurnTrackerOptions {
   readonly startedTurn: CodexTurn;
+  readonly threadId?: string;
   readonly onSnapshot?: (snapshot: TurnObservationSnapshot) => void;
+  readonly onUserInput?: (request: unknown) => Promise<string>;
+  readonly signal?: AbortSignal;
 }
 
 export interface TurnTracker {
@@ -50,6 +54,8 @@ export interface TurnTracker {
   stopFailure(): { readonly cause: unknown } | undefined;
   sinkFailure(): { readonly failed: boolean; readonly cause: unknown };
   isStopped(): boolean;
+  /** A native user-input request failed and the active turn must be stopped. */
+  userInputFailed(): boolean;
   confirmStopped(
     endedAt: number,
     message: string,
@@ -130,6 +136,7 @@ export function createTurnTracker(
   let terminationFailure: { readonly cause: unknown } | undefined;
   let activitySinkFailed = false;
   let activitySinkCause: unknown;
+  let userInputFailed = false;
   const agentMessages = new Map<string, AgentMessageState>();
   const completedAgentMessageIds: string[] = [];
   const reducer = new CodexActivityReducer((activity: AgentActivity) => {
@@ -233,10 +240,25 @@ export function createTurnTracker(
       throw cause;
     }
   };
+  const userInputHandler = createCodexUserInputHandler({
+    turnId,
+    threadId: options.threadId,
+    onUserInput: options.onUserInput,
+    respond,
+    signal: options.signal,
+    fail: (cause) => {
+      userInputFailed = true;
+      Deferred.doneUnsafe(failure, Effect.fail(cause));
+    },
+  });
   const onMessage = (message: SessionEvent): void => {
     if (Deferred.isDoneUnsafe(completion)) return;
     try {
       if (message.kind === "server-request") {
+        if (message.request.method === "item/tool/call") {
+          userInputHandler.handle(message.request);
+          return;
+        }
         respond(
           message.request.id,
           unsupportedCodexServerRequest(message.request),
@@ -244,7 +266,14 @@ export function createTurnTracker(
         if (isInteraction(message.request.method)) {
           Deferred.doneUnsafe(
             interaction,
-            Effect.fail(new InteractionRequiredError("user-input")),
+            Effect.fail(
+              options.onUserInput === undefined
+                ? new InteractionRequiredError("user-input")
+                : new CodexAdapterError(
+                    "user-input.unsupported",
+                    "Codex requested a question outside the supported ask_user format",
+                  ),
+            ),
           );
         } else {
           Deferred.doneUnsafe(
@@ -299,6 +328,23 @@ export function createTurnTracker(
         return;
       }
       if (notification.method === "turn/completed") {
+        if (userInputHandler.pendingCallCount > 0) {
+          reducer.terminateOpenActivities(
+            Date.now(),
+            "Codex turn completed with unanswered user input",
+          );
+          Deferred.doneUnsafe(stopped, Effect.void);
+          Deferred.doneUnsafe(
+            failure,
+            Effect.fail(
+              new CodexAdapterError(
+                "USER_INPUT_PROTOCOL_ERROR",
+                "Codex turn completed with unanswered user input",
+              ),
+            ),
+          );
+          return;
+        }
         const completedTurn = params.turn as ReturnType<
           typeof parseTurnStartResult
         >;
@@ -342,6 +388,7 @@ export function createTurnTracker(
       cause: activitySinkCause,
     }),
     isStopped: () => Deferred.isDoneUnsafe(stopped),
+    userInputFailed: () => userInputFailed,
     confirmStopped(endedAt, message, ...failure) {
       if (Deferred.isDoneUnsafe(stopped)) return;
       reducer.terminateOpenActivities(endedAt, message);
@@ -370,6 +417,7 @@ export function createTurnTracker(
     },
     snapshot,
     dispose() {
+      userInputHandler.dispose();
       subscription.dispose();
       if (!Deferred.isDoneUnsafe(completion)) {
         Deferred.doneUnsafe(

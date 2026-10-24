@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-02
-updated: 2026-10-22
+updated: 2026-10-24
 upstream:
   - adr.autonomous-non-interactive-execution
 supersedes: []
@@ -14,6 +14,15 @@ supersedes: []
 # Autonomous Non-Interactive Execution
 
 > Migrated from legacy technical specification `TS-005`.
+
+## Policy scope
+
+All autonomous execution and interaction-rejection requirements in this spec
+apply to the disabled input policy. That policy remains the default.
+Enabled user input follows
+[spec.runtime-user-input](./2026-10-23-runtime-user-input.md).
+Permission approval remains unsupported in either policy. Input answers do not
+grant execution authority. The runner never reads the terminal directly.
 
 ## 1. Objective
 

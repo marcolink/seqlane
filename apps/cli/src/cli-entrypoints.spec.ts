@@ -786,6 +786,52 @@ export default createFlow({ id: "stdout", input: z.object({}), output: z.boolean
     );
   });
 
+  it("rejects interactive JSON mode before starting the runner", async () => {
+    const result = await runCli(productionEntry, [
+      "run",
+      exampleWorkflowReference,
+      "--interactive",
+      "--json",
+    ]);
+
+    expect(result.code).toBe(1);
+    expect(`${result.stdout}${result.stderr}`).toContain(
+      "--interactive cannot be combined with --json",
+    );
+  });
+
+  it("validates interactive flags during dry planning without opening a consumer", async () => {
+    const result = await runCli(productionEntry, [
+      "run",
+      exampleWorkflowReference,
+      "--input",
+      builtinInput,
+      "--interactive",
+      "--dry",
+    ]);
+
+    expect(result.code).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      workflow: { id: "minimal-example" },
+    });
+    expect(result.stderr).toBe("");
+  });
+
+  it("requires --interactive when an input timeout is set", async () => {
+    const result = await runCli(productionEntry, [
+      "run",
+      exampleWorkflowReference,
+      "--input-timeout",
+      "5",
+      "--dry",
+    ]);
+
+    expect(result.code).toBe(1);
+    expect(`${result.stdout}${result.stderr}`).toContain(
+      "--input-timeout requires --interactive",
+    );
+  });
+
   it("reads workflow input from a JSON file", async () => {
     const directory = mkdtempSync(join(tmpdir(), "seqlane-input-cli-"));
     const path = join(directory, "input.json");

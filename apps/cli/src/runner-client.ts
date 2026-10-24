@@ -7,6 +7,8 @@ import {
   decodeSeqlaneExecutionEvent,
   encodeRunnerCommand,
   type RunRequest,
+  type RespondToInteraction,
+  type InteractionRequestedEvent,
   type SeqlaneExecutionEvent,
 } from "@seqlane/protocol";
 import {
@@ -116,7 +118,13 @@ export interface RunnerSignalSource {
 }
 
 export interface RunnerSupervisionOptions {
+  readonly onReady?: (cancelRun: () => void) => void;
   readonly onExecutionEvent?: (event: SeqlaneExecutionEvent) => void;
+  readonly onInteractionRequested?: (
+    event: InteractionRequestedEvent,
+    respond: (command: RespondToInteraction) => Promise<void>,
+    cancelRun: () => void,
+  ) => void | Promise<void>;
   readonly onTelemetrySpans?: (frame: TelemetrySpanSnapshotFrame) => void;
   readonly onTelemetryDiagnostic?: () => void;
   readonly onRuntimeSessionUiAvailable?: (
@@ -266,6 +274,7 @@ type SupervisionMessage =
     }
   | { readonly type: "disconnect" }
   | { readonly type: "error"; readonly error: Error }
+  | { readonly type: "user-cancel" }
   | { readonly type: "signal"; readonly signal: RunnerCancellationSignal }
   | { readonly type: "request-send-error"; readonly error: Error }
   | { readonly type: "cancel-send-error"; readonly error: Error }
@@ -314,6 +323,7 @@ export function superviseRunnerEffect(
       };
       let terminalEvent: TerminalEvent | undefined;
       let cancellationSignal: RunnerCancellationSignal | undefined;
+      let userCancellationRequested = false;
       let cancellationRequested = false;
       let failureResult: RunnerSupervisionResult | undefined;
       let closed = false;
@@ -436,11 +446,31 @@ export function superviseRunnerEffect(
         }
       };
 
+      const respondToInteraction = (
+        command: RespondToInteraction,
+      ): Promise<void> => {
+        const encoded = encodeRunnerCommand(command);
+        return new Promise((resolve, reject) => {
+          try {
+            child.send(encoded, (error) =>
+              error === null ? resolve() : reject(error),
+            );
+          } catch (cause) {
+            reject(cause);
+          }
+        });
+      };
+
       const startFallback = (): void => {
         if (fallbackStarted) return;
         fallbackStarted = true;
         sendCancel();
       };
+      const cancelRun = (): void => {
+        offer({ type: "user-cancel" });
+      };
+      const isCancellationRequested = (): boolean =>
+        cancellationSignal !== undefined || userCancellationRequested;
 
       const workerClosed = (
         code: number | null,
@@ -457,14 +487,14 @@ export function superviseRunnerEffect(
               "Runner closed before releasing all owned processes",
             );
             reportProtocolError(error);
-            failureResult ??=
-              cancellationSignal !== undefined
-                ? cancellationFailure(error.message, cancellationSignal, error)
-                : failure(error.message, error);
+            failureResult ??= isCancellationRequested()
+              ? cancellationFailure(error.message, cancellationSignal, error)
+              : failure(error.message, error);
           }
         });
 
       try {
+        options.onReady?.(cancelRun);
         child.send(encodedRequest, (error) => {
           if (error !== null) offer({ type: "request-send-error", error });
         });
@@ -509,7 +539,7 @@ export function superviseRunnerEffect(
         } else if (closed && terminalEvent !== undefined) {
           return terminalResult(terminalEvent, cancellationSignal);
         } else if (closed) {
-          return cancellationSignal !== undefined
+          return isCancellationRequested()
             ? cancellationFailure(
                 "Runner closed during cancellation before reporting run.cancelled",
                 cancellationSignal,
@@ -566,14 +596,9 @@ export function superviseRunnerEffect(
             case "invalid-runner-message": {
               const error = new TypeError("Invalid runner message");
               reportProtocolError(error);
-              failureResult ??=
-                cancellationSignal !== undefined
-                  ? cancellationFailure(
-                      error.message,
-                      cancellationSignal,
-                      error,
-                    )
-                  : failure(error.message, error);
+              failureResult ??= isCancellationRequested()
+                ? cancellationFailure(error.message, cancellationSignal, error)
+                : failure(error.message, error);
               startFallback();
               continue;
             }
@@ -591,14 +616,13 @@ export function superviseRunnerEffect(
                   continue;
                 }
                 reportProtocolError(error);
-                failureResult ??=
-                  cancellationSignal !== undefined
-                    ? cancellationFailure(
-                        errorMessage(error),
-                        cancellationSignal,
-                        error,
-                      )
-                    : failure(errorMessage(error), error);
+                failureResult ??= isCancellationRequested()
+                  ? cancellationFailure(
+                      errorMessage(error),
+                      cancellationSignal,
+                      error,
+                    )
+                  : failure(errorMessage(error), error);
                 startFallback();
                 continue;
               }
@@ -625,32 +649,48 @@ export function superviseRunnerEffect(
                 );
                 reportProtocolError(error);
                 terminalEvent = undefined;
-                failureResult ??=
-                  cancellationSignal !== undefined
-                    ? cancellationFailure(
-                        error.message,
-                        cancellationSignal,
-                        error,
-                      )
-                    : failure(error.message, error);
+                failureResult ??= isCancellationRequested()
+                  ? cancellationFailure(
+                      error.message,
+                      cancellationSignal,
+                      error,
+                    )
+                  : failure(error.message, error);
                 startFallback();
                 continue;
               }
               try {
                 options.onExecutionEvent?.(event);
+                if (event.type === "interaction.requested") {
+                  const handled = options.onInteractionRequested?.(
+                    event,
+                    respondToInteraction,
+                    cancelRun,
+                  );
+                  if (handled instanceof Promise) {
+                    void handled.catch((cause: unknown) =>
+                      offer({
+                        type: "error",
+                        error:
+                          cause instanceof Error
+                            ? cause
+                            : new Error(errorMessage(cause)),
+                      }),
+                    );
+                  }
+                }
               } catch (error) {
                 reportProtocolError(error);
-                failureResult ??=
-                  cancellationSignal !== undefined
-                    ? cancellationFailure(
-                        `Runner output failed: ${errorMessage(error)}`,
-                        cancellationSignal,
-                        error,
-                      )
-                    : failure(
-                        `Runner output failed: ${errorMessage(error)}`,
-                        error,
-                      );
+                failureResult ??= isCancellationRequested()
+                  ? cancellationFailure(
+                      `Runner output failed: ${errorMessage(error)}`,
+                      cancellationSignal,
+                      error,
+                    )
+                  : failure(
+                      `Runner output failed: ${errorMessage(error)}`,
+                      error,
+                    );
                 startFallback();
                 continue;
               }
@@ -675,14 +715,13 @@ export function superviseRunnerEffect(
               if ("error" in result) {
                 const error = result.error;
                 reportProtocolError(error);
-                failureResult ??=
-                  cancellationSignal !== undefined
-                    ? cancellationFailure(
-                        errorMessage(error),
-                        cancellationSignal,
-                        error,
-                      )
-                    : failure(errorMessage(error), error);
+                failureResult ??= isCancellationRequested()
+                  ? cancellationFailure(
+                      errorMessage(error),
+                      cancellationSignal,
+                      error,
+                    )
+                  : failure(errorMessage(error), error);
                 startFallback();
               }
               continue;
@@ -692,19 +731,22 @@ export function superviseRunnerEffect(
               startFallback();
               if (signalCount > 1) offer({ type: "fallback-timeout" });
               continue;
+            case "user-cancel":
+              userCancellationRequested = true;
+              startFallback();
+              continue;
             case "request-send-error":
               reportProtocolError(message.error);
-              failureResult ??=
-                cancellationSignal !== undefined
-                  ? cancellationFailure(
-                      `Runner process error during cancellation: ${errorMessage(message.error)}`,
-                      cancellationSignal,
-                      message.error,
-                    )
-                  : failure(
-                      `Runner process error: ${errorMessage(message.error)}`,
-                      message.error,
-                    );
+              failureResult ??= isCancellationRequested()
+                ? cancellationFailure(
+                    `Runner process error during cancellation: ${errorMessage(message.error)}`,
+                    cancellationSignal,
+                    message.error,
+                  )
+                : failure(
+                    `Runner process error: ${errorMessage(message.error)}`,
+                    message.error,
+                  );
               startFallback();
               continue;
             case "cancel-send-error":
@@ -712,31 +754,28 @@ export function superviseRunnerEffect(
               continue;
             case "error":
               reportProtocolError(message.error);
-              failureResult ??=
-                cancellationSignal !== undefined
-                  ? cancellationFailure(
-                      `Runner process error during cancellation: ${errorMessage(message.error)}`,
-                      cancellationSignal,
-                      message.error,
-                    )
-                  : failure(
-                      `Runner process error: ${errorMessage(message.error)}`,
-                      message.error,
-                    );
+              failureResult ??= isCancellationRequested()
+                ? cancellationFailure(
+                    `Runner process error during cancellation: ${errorMessage(message.error)}`,
+                    cancellationSignal,
+                    message.error,
+                  )
+                : failure(
+                    `Runner process error: ${errorMessage(message.error)}`,
+                    message.error,
+                  );
               startFallback();
               continue;
             case "disconnect":
               disconnectObserved = true;
               if (terminalEvent === undefined) {
-                const message =
-                  cancellationSignal !== undefined
-                    ? "Runner disconnected during cancellation before reporting run.cancelled"
-                    : "Runner disconnected before reporting a terminal event";
+                const message = isCancellationRequested()
+                  ? "Runner disconnected during cancellation before reporting run.cancelled"
+                  : "Runner disconnected before reporting a terminal event";
                 const error = new Error(message);
-                failureResult ??=
-                  cancellationSignal !== undefined
-                    ? cancellationFailure(message, cancellationSignal, error)
-                    : failure(message, error);
+                failureResult ??= isCancellationRequested()
+                  ? cancellationFailure(message, cancellationSignal, error)
+                  : failure(message, error);
                 reportProtocolError(error);
                 startFallback();
               }
@@ -776,13 +815,12 @@ export function superviseRunnerEffect(
               const ownedCleanupConfirmed =
                 yield* ownedProcessSupervision.cleanup();
               if (!ownedCleanupConfirmed && failureResult === undefined) {
-                failureResult ??=
-                  cancellationSignal !== undefined
-                    ? cancellationFailure(
-                        "Could not confirm all owned processes stopped during cancellation",
-                        cancellationSignal,
-                      )
-                    : failure("Could not confirm all owned processes stopped");
+                failureResult ??= isCancellationRequested()
+                  ? cancellationFailure(
+                      "Could not confirm all owned processes stopped during cancellation",
+                      cancellationSignal,
+                    )
+                  : failure("Could not confirm all owned processes stopped");
               }
               workerKillSent = true;
               workerCloseDeadlineNanos =
@@ -800,7 +838,7 @@ export function superviseRunnerEffect(
                 reportProtocolError(
                   new Error("Runner did not close after forced cleanup"),
                 );
-                return cancellationSignal !== undefined
+                return isCancellationRequested()
                   ? cancellationFailure(
                       "Runner did not close after forced cleanup",
                       cancellationSignal,
@@ -812,15 +850,14 @@ export function superviseRunnerEffect(
                   `Runner reported its terminal event but did not close within ${closeGracePeriodMs}ms`,
                 ),
               );
-              failureResult ??=
-                cancellationSignal !== undefined
-                  ? cancellationFailure(
-                      "Runner did not close after reporting a terminal event",
-                      cancellationSignal,
-                    )
-                  : failure(
-                      "Runner did not close after reporting a terminal event",
-                    );
+              failureResult ??= isCancellationRequested()
+                ? cancellationFailure(
+                    "Runner did not close after reporting a terminal event",
+                    cancellationSignal,
+                  )
+                : failure(
+                    "Runner did not close after reporting a terminal event",
+                  );
               try {
                 child.kill?.("SIGTERM");
               } catch (error) {

@@ -5,7 +5,7 @@ status: draft
 owners:
   - core
 created: 2026-09-12
-updated: 2026-10-22
+updated: 2026-10-24
 upstream:
   - spec.agent-adapter-boundary-and-capabilities
   - spec.autonomous-non-interactive-execution
@@ -119,8 +119,12 @@ The adapter must not add a repair turn or automatic task retry in the first deli
 The adapter must set `approvalPolicy: "never"` and workspace-write sandbox settings on thread creation and every turn.
 It must restrict writable roots to the runtime workspace and disable network access by default.
 Private configuration can enable network access explicitly. It cannot select `dangerFullAccess` in this delivery.
-If Codex requests approval or user input, the adapter must fail with `InteractionRequiredError`.
-It must not approve, decline, or otherwise answer the request.
+If Codex requests approval, the adapter fails with `InteractionRequiredError`.
+It must not approve or decline that request. User input is disabled by default.
+Enabled user input follows
+[spec.runtime-user-input](./2026-10-23-runtime-user-input.md).
+The adapter must prove a callable native question mechanism and same-session
+continuation before declaring the input capability.
 It must interrupt the active turn and terminate its owned process when the
 task-provided runtime deadline aborts its execution signal. It must not apply a
 separate Codex execution deadline. Its bounded interruption confirmation is
@@ -192,7 +196,7 @@ Neither path may put Codex thread IDs in Seqlane's canonical run store.
 - If no configured executable or `PATH` candidate is usable, the runtime reports a
   stable not-found diagnostic with remediation guidance. Configured-path fallback
   warnings go to diagnostics, not structured JSON stdout.
-- An approval or user-input request fails through the existing non-interactive error path.
+- Approval and disabled user-input requests fail through the existing non-interactive error path.
 - A failed or interrupted turn cannot publish a checkpoint or a typed result.
 - A transport disconnect with an active turn reports uncertain activity until termination is confirmed.
 - A response for an unknown request ID or a notification for another thread cannot complete the active invocation.
@@ -221,7 +225,7 @@ Do not add Codex fields to public authoring, Plan, runner IPC, or CLI result sch
 - One private configuration selects a working Codex adapter without changing workflow source or Plans.
 - An isolated task, ordered reuse, and an exact fork return locally validated typed output.
 - Unsupported capabilities and models fail before task execution.
-- An interaction request never receives a decision from Seqlane.
+- A permission request never receives a decision from Seqlane. Enabled user input requires a validated user answer.
 - Cancellation either confirms interruption or reports uncertain activity.
 - No raw Codex protocol value crosses a public Seqlane boundary.
 

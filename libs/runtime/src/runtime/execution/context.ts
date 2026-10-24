@@ -13,7 +13,11 @@ import type {
   ModelSelection,
   SeqlaneInvocationMetrics,
 } from "@seqlane/core";
-import type { SeqlaneObservation } from "@seqlane/protocol";
+import type {
+  InteractionEventInput,
+  SeqlaneObservation,
+} from "@seqlane/protocol";
+import type { UserInputAnswer, UserInputRequest } from "@seqlane/protocol";
 import type { ExecutorRegistry } from "./executor.js";
 import { ChildSessionRegistry } from "../session/child-session.js";
 import { ChoiceSourceGate } from "../session/choice-source-gate.js";
@@ -33,7 +37,9 @@ import type { ClassifierTaskRunner } from "../../classifier/types.js";
 
 export interface ExecutionEventSink extends SeqlaneEventSink {
   /** Async producers can wait for the private worker's byte-bounded ACK queue. */
-  readonly emitAsync?: (event: SeqlaneEvent) => Promise<void>;
+  readonly emitAsync?: (
+    event: SeqlaneEvent | InteractionEventInput,
+  ) => Promise<void>;
 }
 export type ExecutionObservationSink = (
   invocationId: InvocationId,
@@ -94,6 +100,12 @@ export interface ExecutionContext {
   readonly onObservation?: ExecutionObservationSink;
   readonly classifier?: ClassifierTaskRunner;
   readonly onOwnedProcessAcquired?: (pid: number) => Promise<void>;
+  readonly requestUserInput?: (
+    invocationId: string,
+    taskId: string,
+    request: UserInputRequest,
+    signal: AbortSignal,
+  ) => Promise<UserInputAnswer>;
   workflowResult?: unknown;
   failure?: SeqlaneError;
 }
@@ -121,6 +133,7 @@ export interface ExecutionContextOptions {
   readonly onObservation?: ExecutionObservationSink;
   readonly classifier?: ClassifierTaskRunner;
   readonly onOwnedProcessAcquired?: (pid: number) => Promise<void>;
+  readonly requestUserInput?: ExecutionContext["requestUserInput"];
 }
 
 export function createExecutionContext(
@@ -190,15 +203,22 @@ export function createExecutionContext(
       ...(options.events?.emitAsync === undefined
         ? {}
         : {
-            emitAsync: async (event: SeqlaneEvent) => {
+            emitAsync: async (event: SeqlaneEvent | InteractionEventInput) => {
               await options.events!.emitAsync!(event);
-              observeEvent(event);
+              if (
+                event.type !== "interaction.requested" &&
+                event.type !== "interaction.response" &&
+                event.type !== "interaction.resolved"
+              ) {
+                observeEvent(event);
+              }
             },
           }),
     },
     onObservation: options.onObservation,
     classifier: options.classifier,
     onOwnedProcessAcquired: options.onOwnedProcessAcquired,
+    requestUserInput: options.requestUserInput,
   };
 
   function observeEvent(event: SeqlaneEvent): void {

@@ -75,6 +75,27 @@ CI output prints complete invocation input, result, activity, and model
 observation events as JSON lines. Transient output has its own channel. Use
 `run --json` for one final machine-readable result.
 
+## Questions during a run
+
+Runs are non-interactive by default. Enable live questions for Codex tasks:
+
+```sh
+seqlane run ./workflow.ts \
+  --input '{}' \
+  --adapter codex \
+  --workspace . \
+  --interactive \
+  --input-timeout 300
+```
+
+This mode needs human terminal input and output. It rejects CI, JSON output,
+redirected streams, and workflow input from stdin. Text and choice questions
+can appear when an agent loads a skill. Answers resume the same invocation.
+Esc or terminal input loss cancels the run. Task deadlines continue while
+waiting. `--input-timeout` is 1–86400 seconds and defaults to 300 seconds.
+Permissions remain configured before execution. Pending questions cannot
+resume after restart. See the [run guide](../docs/cli/run.md#interactive-and-input-timeout).
+
 ## File-accessing workflows
 
 `workspace: "shared"` permits overlap with other shared tasks;

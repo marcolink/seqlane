@@ -5,7 +5,7 @@ status: accepted
 owners:
   - core
 created: 2026-10-21
-updated: 2026-10-22
+updated: 2026-10-24
 upstream:
   - brd.seqlane
 supersedes:
@@ -89,7 +89,7 @@ without changing the authoring contract.
 Workflow is the public unit of discovery, reuse, composition, and execution.
 Task sharing is not a separately versioned public plugin contract. Validate
 dependencies before execution and reject ambiguous discovery names.
-Runs proceed non-interactively to success, failure, or cancellation. Propagate
+By default, runs proceed non-interactively to success, failure, or cancellation. Propagate
 cancellation to active processes and agents where supported; report unavailable
 capabilities and uncertain termination truthfully.
 
@@ -97,6 +97,25 @@ Native repository instructions, AGENTS files, skills, tools, plugins, MCP,
 authentication, and permission settings remain authoritative in the selected
 coding harness. Session forks do not merge. Workspace policy coordinates
 ordering and compatibility; it does not grant tool permissions.
+
+### requirement-runtime-user-input
+
+An operator can explicitly enable user input for a supported agent run.
+A skill can ask questions whose structure is unknown at workflow creation.
+The user answers through the connected terminal, and the same task continues.
+The task's declared input and output contracts do not change.
+
+Autonomous execution remains the default. The user can cancel while a task
+waits. Waiting has a deadline. Independent tasks can continue when existing
+resource rules permit them. Answers do not grant execution permissions.
+
+The first delivery supports text and choice questions in a live local run.
+Permission approvals, secret entry, hosted delivery, and restart recovery
+remain outside this scope.
+
+[adr.runtime-user-input](../adrs/2026-10-23-runtime-user-input.md) records the
+decision. [spec.runtime-user-input](../specs/2026-10-23-runtime-user-input.md)
+defines the contract. These documents do not claim implementation delivery.
 
 ### requirement-standalone-cli-runs
 
@@ -115,8 +134,8 @@ adapter-managed storage keep their existing ownership.
 ### requirement-operator-experience
 
 Keep a focused CLI for planning, execution, progress, cancellation, and results.
-Terminal output provides passive nested progress and elapsed run time without
-keyboard input. CI provides permanent progress lines without terminal input.
+Default terminal output provides passive nested progress and elapsed run time
+without keyboard input. Explicit interactive mode adds structured questions. CI provides permanent progress lines without terminal input.
 Final JSON produces one result without progress output. Explicit output
 selection and environment-safe defaults remain available.
 
