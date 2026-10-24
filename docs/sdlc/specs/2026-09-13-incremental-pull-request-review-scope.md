@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-13
-updated: 2026-10-06
+updated: 2026-10-07
 upstream:
   - spec.versioned-pull-request-review-comments
   - spec.review-run-manifest-and-provenance
@@ -438,35 +438,54 @@ Pre-model Git work has its own budget beginning when admission accepts the
 event. This is separate from the model-phase elapsed-time ceiling and does not
 change the unapproved decision about when the overall review deadline starts:
 
-These limits are required because the review consumes untrusted repository
-content and can fan out work across batches, lanes, and retries. Without hard
-ceilings, a large diff, pathological path names, repeated failures, or an
-oversized model context could consume the Action's available CPU, memory,
-output, or wall time and still leave an incomplete review looking successful.
-The ceilings make completeness decidable: the workflow either accounts for the
-whole permitted scope within the budget or fails closed without publishing.
-They are normative defaults owned by the Action library. A model, review lane,
-or repository input cannot raise them for one run.
+Timeouts stop stalled Git work. Output and evidence bounds prevent incomplete
+patches from becoming successful review input. These defaults belong to the
+Action library; repository input and model output cannot raise them.
 
 | Resource | Maximum |
 | --- | ---: |
 | Admission-to-model-start wall time | 120 seconds |
 | One Git subprocess wall time | 30 seconds |
 | Cumulative Git subprocess wall time | 90 seconds |
-| Cumulative Git subprocess CPU time | 60 seconds |
-| Peak Git subprocess memory | 256 MiB |
 | Git stdout plus stderr before parsing | 2,048,000 bytes |
-| Exact-checkpoint fetch transfer | 16 MiB |
-| Exact-checkpoint fetch wall time | 30 seconds |
+
+Use native Git subprocesses with argv arrays, timeout, cancellation, and bounded
+output. The runner prepares all required commits in the local checkout.
+Git execution does not require CPU quotas, memory quotas, transfer-byte metering,
+a kernel network sandbox, a custom supervisor, or a Git transport implementation.
+No observed review failure currently justifies those additional controls.
+Add stronger controls only after a reproducible failure or measured requirement
+establishes their benefit and cost.
+
+CPU, memory, and network transfer remain runner responsibilities. The adapter
+reports measured wall time and complete output; it does not fabricate resource
+measurements. Cancellation and timeout stop Git and its ordinary process group,
+even when the Git parent has exited. Cleanup has a finite grace period; an
+unconfirmed stop is a typed failure rather than an indefinite wait.
+This contract does not promise containment of independently detached processes.
+Disable executable Git helpers, replacement objects, and implicit lazy fetch.
+Local evidence collection must not execute repository code or obtain credentials.
+Admission does not fetch commits, accept remote configuration, or use credentials.
+The runner must prepare the exact base, head, and checkpoint commits before
+admission. A missing checkpoint fails with `CHECKPOINT_UNAVAILABLE`, without
+retry or baseline fallback. Collection cannot move HEAD, the index, or the worktree.
+
+Use one admission entry point. `admitReviewScope` owns the shared deadline and
+passes its signal to authority reads and Git collection. A small private adapter
+implements the existing `BoundedReviewGitPort`; it owns no admission lifecycle.
+The trusted collector constructs local Git argv. Do not duplicate its command
+grammar in a second whitelist. Validate untrusted revisions, paths, and raw
+results at their owning boundaries. Admission needs no temporary Git repositories
+or credential configuration.
 
 The limits apply in layers:
 
 1. Admission constructs one immutable budget object containing the limits and
    zeroed monotonic counters. The scope selector and evidence collector reserve
    path, hunk, batch, byte, and Git-operation capacity before work starts.
-2. The bounded Git adapter wraps every subprocess and exact-SHA fetch. It
-   streams NUL-delimited output, enforces wall, CPU, memory, transfer, and
-   output caps, and kills the complete process group on a breach. It returns a
+2. The bounded Git adapter wraps every local subprocess. It
+   preserves raw NUL-delimited output, enforces timeout and output caps,
+   and stops Git and its ordinary process group on a breach. It returns a
    typed limit failure; it does not retry outside the same budget.
 3. Before model fan-out, the orchestrator preflights all planned batch,
    invocation, token, and elapsed-time capacity. Before each invocation it
@@ -480,8 +499,8 @@ The limits apply in layers:
    are covered by the verification tests below.
 
 Run Git through a bounded subprocess adapter that streams NUL-delimited path
-records, caps output before buffering, and aborts the process group when any
-limit is reached. The adapter must report which limit fired. It must never
+records, caps output before buffering, and stops the process group on
+timeout, cancellation, or output overflow. The adapter must report which limit fired. It must never
 retry an exact-SHA fetch outside the cumulative budget. A pre-model budget
 failure makes zero model calls and preserves the previous checkpoint.
 
@@ -679,7 +698,7 @@ is an incomplete review, not a smaller valid scope.
 | New commit changes one PR file | Review that file's current PR diff; new findings only in that file. |
 | Earlier change is reverted before the next review | Restored tree entry is ineligible. |
 | Rebase or force-push keeps `C` available | Compare `C` and `H` trees; no automatic baseline. |
-| `C` cannot be fetched by exact SHA | Fail closed with the old checkpoint intact; no baseline fallback. |
+| `C` is unavailable in the prepared checkout | Fail closed with the old checkpoint intact; no baseline fallback. |
 | Target branch moves or PR is retargeted | Recompute current PR paths; unchanged head files remain ineligible. |
 | File leaves the current PR diff | It cannot receive a new finding; retained findings follow lifecycle rules. |
 | Path list, patch batch, or state exceeds a bound | Fail without publishing or advancing. |

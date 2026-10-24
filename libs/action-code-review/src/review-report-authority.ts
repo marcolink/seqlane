@@ -4,7 +4,6 @@ import {
   reviewPositiveIntegerSchema,
 } from "@seqlane/code-review-workflow/contracts";
 import { reviewHistorySchema, type ReviewHistory } from "./contracts.js";
-import type { GitHubReviewClient } from "./github-port.js";
 import { REVIEW_REPORT_MARKER } from "./review-report-identity.js";
 import { ReviewScopeError } from "./review-scope-errors.js";
 import { canonicalReviewJson } from "./review-state-canonical.js";
@@ -31,19 +30,49 @@ const authorityPageSchema = z.strictObject({
 const botAuthorsSchema = z.array(z.string().min(1).max(256)).min(1).max(8);
 
 /** Read-only raw GitHub boundary; pagination completeness is mandatory. */
-export type ReviewAuthorityReadPort = Pick<
-  GitHubReviewClient,
-  "listIssueComments"
->;
+export type ReviewAuthorityReadPort = {
+  listIssueComments: (
+    number: number,
+    page: number,
+    signal?: AbortSignal,
+  ) => Promise<unknown>;
+};
+
+/** Settle even a defective port that ignores cancellation. */
+async function readAuthorityPage(
+  port: ReviewAuthorityReadPort,
+  number: number,
+  page: number,
+  signal?: AbortSignal,
+) {
+  signal?.throwIfAborted();
+  const pending =
+    signal === undefined
+      ? port.listIssueComments(number, page)
+      : port.listIssueComments(number, page, signal);
+  if (signal === undefined) return pending;
+  let abort: () => void = () => undefined;
+  const cancelled = new Promise<never>((_, reject) => {
+    abort = () => reject(signal.reason);
+    if (signal.aborted) abort();
+    else signal.addEventListener("abort", abort, { once: true });
+  });
+  try {
+    return await Promise.race([pending, cancelled]);
+  } finally {
+    signal.removeEventListener("abort", abort);
+  }
+}
 
 async function readCommentInventory(
   port: ReviewAuthorityReadPort,
   pullRequestNumber: number,
+  signal?: AbortSignal,
 ): Promise<ReviewHistory> {
   const comments: ReviewHistory["comments"] = [];
   for (let pageNumber = 1; pageNumber <= 2; pageNumber += 1) {
     const page = authorityPageSchema.parse(
-      await port.listIssueComments(pullRequestNumber, pageNumber),
+      await readAuthorityPage(port, pullRequestNumber, pageNumber, signal),
     );
     for (const comment of page.items) {
       comments.push({
@@ -69,11 +98,12 @@ async function readCommentInventory(
 export async function readReviewAuthority(
   port: ReviewAuthorityReadPort,
   pullRequestNumber: number,
+  signal?: AbortSignal,
 ): Promise<ReviewHistory> {
   try {
     reviewPositiveIntegerSchema.parse(pullRequestNumber);
-    const first = await readCommentInventory(port, pullRequestNumber);
-    const second = await readCommentInventory(port, pullRequestNumber);
+    const first = await readCommentInventory(port, pullRequestNumber, signal);
+    const second = await readCommentInventory(port, pullRequestNumber, signal);
     if (canonicalReviewJson(first) !== canonicalReviewJson(second)) {
       throw new ReviewScopeError(
         "REVIEW_AUTHORITY_UNSTABLE",

@@ -63,16 +63,14 @@ describe(
     );
 
     it.each(["base", "head", "checkpoint"])(
-      "rejects a 40-character SHA-256 %s prefix before diff or fetch",
+      "rejects a 40-character SHA-256 %s prefix before diff",
       async (role) => {
         const { fixture, baseRevision } = await fixtureWithBase("sha256");
         await fixture.write("edited.ts", "first\n");
         const checkpointRevision = await fixture.commit();
         await fixture.write("edited.ts", "second\n");
         const headRevision = await fixture.commit();
-        const fetchExactCommit = vi.fn(async () => {
-          throw new Error("Unexpected fetch");
-        });
+
         await expect(
           collectReviewScopeEvidence(
             {
@@ -88,23 +86,21 @@ describe(
               reportId: "42",
             },
             {
-              git: { ...fixture.git, fetchExactCommit },
+              git: fixture.git,
               admittedAt: performance.now(),
             },
           ),
         ).rejects.toMatchObject({ code: "COMMIT_REQUIRED" });
-        expect(fetchExactCommit).not.toHaveBeenCalled();
+
         expect(fixture.commands.some(({ argv }) => argv.includes("diff"))).toBe(
           false,
         );
       },
     );
 
-    it("rejects a wrong-format SHA-1 checkpoint before attempting a fetch", async () => {
+    it("rejects a wrong-format SHA-1 checkpoint before diff", async () => {
       const { fixture, baseRevision } = await fixtureWithBase();
-      const fetchExactCommit = vi.fn(async () => {
-        throw new Error("Unexpected fetch");
-      });
+
       await expect(
         collectReviewScopeEvidence(
           {
@@ -114,12 +110,12 @@ describe(
             reportId: "42",
           },
           {
-            git: { ...fixture.git, fetchExactCommit },
+            git: fixture.git,
             admittedAt: performance.now(),
           },
         ),
       ).rejects.toMatchObject({ code: "COMMIT_REQUIRED" });
-      expect(fetchExactCommit).not.toHaveBeenCalled();
+
       expect(fixture.commands.some(({ argv }) => argv.includes("diff"))).toBe(
         false,
       );
@@ -142,9 +138,6 @@ describe(
             stderrTruncated: false,
             usage: {
               wallMs: 1,
-              cpuMs: 1,
-              peakMemoryBytes: 1,
-              transferBytes: 0,
             },
           };
         }
@@ -545,7 +538,7 @@ describe(
       });
     });
 
-    it("rejects a tree object as checkpoint without attempting to peel or fetch it", async () => {
+    it("rejects a tree object as checkpoint without peeling it", async () => {
       const { fixture, baseRevision } = await fixtureWithBase();
       const checkpointRevision = await fixture.run("rev-parse", "HEAD^{tree}");
       await expect(

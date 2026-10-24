@@ -34,6 +34,8 @@ export {
   reviewScopeAdmissionSchema,
 } from "./review-scope-admission.js";
 export type { ReviewScopeAdmission } from "./review-scope-admission.js";
+export { createReviewGitAdapter } from "./review-git-adapter.js";
+export type { ReviewGitOptions } from "./review-git-config.js";
 export { readReviewAuthority } from "./review-report-authority.js";
 export type { ReviewAuthorityReadPort } from "./review-report-authority.js";
 export { classifyReviewReport } from "./review-report-classification.js";

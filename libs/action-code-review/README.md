@@ -28,7 +28,7 @@ const previousState = parseReviewState(previousReport);
 // After: the private v5 path rejects invalid current state before Git work.
 const admission = await admitReviewScope(
   { pullRequest: frozenPullRequest },
-  { authority: githubReadPort, git: boundedGit, admittedAt, signal },
+  { authority: githubReadPort, git: boundedGit, signal },
 );
 ```
 
@@ -80,6 +80,48 @@ Reviewed resolution and reopening require verification at the published head.
 `not_reviewed` preserves valid historical verification and lifecycle without
 claiming a fresh check. Missing or contradictory proof blocks admission.
 
+## Native Git evidence
+
+The existing `admitReviewScope` entry point owns the shared 120-second deadline.
+It passes the same signal to raw authority reads and the Git collector. Authority
+ports must pass that signal to HTTP requests and disable retries.
+
+```ts
+// Before: separate admission wrapper and host lifecycle.
+await admitReviewScopeWithGitHost(input, options, createAuthority);
+
+// After: existing admission with the private byte-safe adapter.
+await admitReviewScope(input, {
+  authority: githubReadPort,
+  git: createReviewGitAdapter({ reviewTarget }),
+  signal,
+});
+```
+
+`context.exec` returns text and inherits the process environment. The private
+Git adapter preserves raw bytes and uses controlled Git configuration. It
+implements the existing `BoundedReviewGitPort`, without a host lifecycle or a
+second local-command grammar. Only trusted collector code constructs local argv.
+Owning schemas validate untrusted revisions, paths, and
+raw results. Public runtime and executor APIs stay unchanged.
+
+Git counts stdout and stderr together before retaining output. Timeout,
+cancellation, and overflow stop the ordinary process group even after Git exits.
+Cleanup has a finite grace period; unconfirmed termination is a typed failure.
+Independently detached processes are outside this contract. The existing budget
+accounts for complete output and measured wall time across all operations.
+
+Local collection disables replacement objects, lazy fetch, hooks, executable
+helpers, prompts, protocols, and inherited credentials. The runner prepares
+the exact base, head, and checkpoint commits before admission. Admission accepts
+no remote or authentication options and never fetches a missing checkpoint.
+A missing checkpoint returns `CHECKPOINT_UNAVAILABLE`, without retries or baseline
+fallback. Collection preserves HEAD, index, and worktree and needs no temporary
+Git repositories.
+
+Real-Git fixtures cover both object formats. The production v4 caller remains
+unchanged; production v5 wiring, models, manifests, and publication are later work.
+
 ## Incremental scope collector
 
 `collectReviewScopeEvidence` is the first private v5 implementation slice.
@@ -127,22 +169,21 @@ whole paths into bounded batches. Missing, extra, or duplicate evidence fails.
 Review and validation batches share the batch, hunk, byte, and execution limits.
 
 The trusted host must implement `BoundedReviewGitPort`.
-It must stream raw bytes and enforce the supplied wall, CPU, memory, output,
-and transfer limits. It must terminate the complete process group on cancellation
-or a breach. It must disable automatic lazy fetches during local Git commands.
-Every result must include resource measurements and explicit non-truncation flags.
-The collector charges all commands and exact-checkpoint fetches to one admission budget.
+It must preserve raw bytes and enforce the supplied timeout and output limits.
+It stops Git and its ordinary process group on cancellation or a breach.
+It must disable automatic lazy fetches during local Git commands.
+Every result includes measured wall time and explicit non-truncation flags.
+The collector charges all local commands to one admission budget.
 Base, head, and checkpoint IDs must match the repository's storage hash format:
 40 characters for SHA-1 or 64 for SHA-256. Each ID must resolve to exactly that
 commit object. Abbreviated IDs, tags, trees, and blobs are rejected.
-Malformed data, unavailable checkpoints, stale HEAD, missing measurements,
+Malformed data, unavailable checkpoints, stale HEAD, invalid wall measurements,
 oversized evidence, and budget breaches reject the run.
 It never truncates evidence or resets to a baseline.
 
-The production host adapter, workflow wiring, model admission, and publication
-remain follow-up work. The test-only Git adapter requires Git and Python 3
-for child resource measurements. It does not implement production resource controls
-and is excluded from the package build.
+The private native Git adapter is available. Workflow wiring, model admission,
+and publication remain follow-up work. Real-Git tests use the same native adapter
+and require Git, with no Python dependency.
 
 Run the test-mapping check before the focused collector tests:
 

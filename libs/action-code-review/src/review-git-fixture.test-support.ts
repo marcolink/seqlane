@@ -3,38 +3,13 @@ import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
-import { z } from "zod";
+import { createReviewGitAdapter } from "./review-git-adapter.js";
 import type {
   BoundedReviewGitPort,
   ReviewGitRequest,
 } from "./review-git-budget.js";
 
 const exec = promisify(execFile);
-const measuredGitResultSchema = z.strictObject({
-  exitCode: z.number().int(),
-  stdout: z.string(),
-  stderr: z.string(),
-  wallMs: z.number().nonnegative(),
-  cpuMs: z.number().nonnegative(),
-  peakMemoryBytes: z.number().nonnegative(),
-});
-
-// Test adapter only. Python's wait4 measures real child CPU and peak RSS.
-// It does not implement the production port's hard CPU/memory/transfer controls.
-const measuredGit = `
-import base64, json, resource, subprocess, sys, time
-started = time.monotonic()
-child = subprocess.Popen(["git", *sys.argv[2:]], cwd=sys.argv[1], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-stdout, stderr = child.communicate()
-usage = resource.getrusage(resource.RUSAGE_CHILDREN)
-print(json.dumps({"exitCode": child.returncode,
-  "stdout": base64.b64encode(stdout).decode("ascii"),
-  "stderr": base64.b64encode(stderr).decode("ascii"),
-  "wallMs": (time.monotonic() - started) * 1000,
-  "cpuMs": (usage.ru_utime + usage.ru_stime) * 1000,
-  "peakMemoryBytes": usage.ru_maxrss * (1 if sys.platform == "darwin" else 1024)}))
-`;
-
 export async function createReviewGitFixture(
   objectFormat: "sha1" | "sha256" = "sha1",
 ): Promise<{
@@ -57,6 +32,7 @@ export async function createReviewGitFixture(
   );
   await run("config", "user.name", "Review fixture");
   await run("config", "user.email", "review@example.test");
+  const git = createReviewGitAdapter({ reviewTarget: cwd });
   const commands: ReviewGitRequest[] = [];
   return {
     cwd,
@@ -65,29 +41,7 @@ export async function createReviewGitFixture(
     git: {
       run: async (request) => {
         commands.push(request);
-        const result = await exec(
-          "python3",
-          ["-c", measuredGit, cwd, ...request.argv],
-          {
-            timeout: request.limits.wallMs,
-            maxBuffer: 4_000_000,
-          },
-        );
-        const value: unknown = JSON.parse(result.stdout);
-        const parsed = measuredGitResultSchema.parse(value);
-        return {
-          exitCode: parsed.exitCode,
-          stdout: Buffer.from(parsed.stdout, "base64"),
-          stderr: Buffer.from(parsed.stderr, "base64"),
-          stdoutTruncated: false,
-          stderrTruncated: false,
-          usage: {
-            wallMs: parsed.wallMs,
-            cpuMs: parsed.cpuMs,
-            peakMemoryBytes: parsed.peakMemoryBytes,
-            transferBytes: 0,
-          },
-        };
+        return git.run(request);
       },
     },
     write: async (path, content) => {
@@ -105,6 +59,8 @@ export async function createReviewGitFixture(
       );
       return run("rev-parse", "HEAD");
     },
-    dispose: () => rm(cwd, { recursive: true, force: true }),
+    dispose: async () => {
+      await rm(cwd, { recursive: true, force: true });
+    },
   };
 }

@@ -59,7 +59,7 @@ describe("trusted review scope admission", { timeout: 20_000 }, () => {
       hasNextPage: page === 1,
     }));
     const run = vi.fn();
-    const fetchExactCommit = vi.fn();
+
     await expect(
       admitReviewScope(
         {
@@ -67,19 +67,17 @@ describe("trusted review scope admission", { timeout: 20_000 }, () => {
         },
         {
           authority: { listIssueComments },
-          git: { run, fetchExactCommit },
-          admittedAt: performance.now(),
+          git: { run },
         },
       ),
     ).rejects.toMatchObject({ code: "REVIEW_AUTHORITY_AMBIGUOUS" });
     expect(listIssueComments.mock.calls).toEqual([
-      [112, 1],
-      [112, 2],
-      [112, 1],
-      [112, 2],
+      [112, 1, expect.any(AbortSignal)],
+      [112, 2, expect.any(AbortSignal)],
+      [112, 1, expect.any(AbortSignal)],
+      [112, 2, expect.any(AbortSignal)],
     ]);
     expect(run).not.toHaveBeenCalled();
-    expect(fetchExactCommit).not.toHaveBeenCalled();
   });
   it.each([
     { comments: [], truncated: false },
@@ -94,20 +92,18 @@ describe("trusted review scope admission", { timeout: 20_000 }, () => {
     async (history) => {
       const authority = authorityFixture();
       const run = vi.fn();
-      const fetchExactCommit = vi.fn();
+
       await expect(
         admitReviewScope(
           { pullRequest: frozenPullRequest, history },
           {
             authority,
-            git: { run, fetchExactCommit },
-            admittedAt: performance.now(),
+            git: { run },
           },
         ),
       ).rejects.toMatchObject({ code: "REVIEW_ADMISSION_INVALID" });
       expect(authority.listIssueComments).not.toHaveBeenCalled();
       expect(run).not.toHaveBeenCalled();
-      expect(fetchExactCommit).not.toHaveBeenCalled();
     },
   );
   it.each([
@@ -144,20 +140,18 @@ describe("trusted review scope admission", { timeout: 20_000 }, () => {
       .mockResolvedValueOnce({ items: [], hasNextPage: false })
       .mockResolvedValue(secondPage);
     const run = vi.fn();
-    const fetchExactCommit = vi.fn();
+
     await expect(
       admitReviewScope(
         { pullRequest: frozenPullRequest },
         {
           authority: { listIssueComments },
-          git: { run, fetchExactCommit },
-          admittedAt: performance.now(),
+          git: { run },
         },
       ),
     ).rejects.toMatchObject({ code });
     expect(listIssueComments).toHaveBeenCalledTimes(calls);
     expect(run).not.toHaveBeenCalled();
-    expect(fetchExactCommit).not.toHaveBeenCalled();
   });
   it.each([1, 2, 3, 4])(
     "ignores all v%s state and collects a full baseline",
@@ -201,7 +195,6 @@ describe("trusted review scope admission", { timeout: 20_000 }, () => {
             truncated: false,
           }),
           git: fixture.git,
-          admittedAt: performance.now(),
         },
       );
       expect(result.classification.kind).toBe("legacy");
@@ -259,12 +252,11 @@ describe("trusted review scope admission", { timeout: 20_000 }, () => {
       {
         authority: { listIssueComments },
         git: fixture.git,
-        admittedAt: performance.now(),
       },
     );
     expect(listIssueComments.mock.calls).toEqual([
-      [112, 1],
-      [112, 1],
+      [112, 1, expect.any(AbortSignal)],
+      [112, 1, expect.any(AbortSignal)],
     ]);
     expect(result.scopeIdentity).toMatchObject({
       mode: "incremental",
@@ -279,6 +271,57 @@ describe("trusted review scope admission", { timeout: 20_000 }, () => {
     );
     expect(result.evidence.validationBatches[0]?.patch).toContain("+new edit");
   });
+  it.each(["sha1", "sha256"] as const)(
+    "fails closed for a missing %s checkpoint without modifying the checkout",
+    async (objectFormat) => {
+      const fixture = await createReviewGitFixture(objectFormat);
+      fixtures.push(fixture);
+      await fixture.write("first.ts", "base\n");
+      const baseRevision = await fixture.commit();
+      await fixture.write("first.ts", "head\n");
+      const headRevision = await fixture.commit();
+      // Preserve both staged and unstaged operator changes.
+      await fixture.write("first.ts", "staged\n");
+      await fixture.run("add", "first.ts");
+      await fixture.write("first.ts", "unstaged\n");
+      const before = {
+        head: await fixture.run("rev-parse", "HEAD"),
+        index: await fixture.run("diff", "--cached", "--binary"),
+        worktree: await fixture.run("diff", "--binary"),
+      };
+      const checkpoint = "a".repeat(objectFormat === "sha1" ? 40 : 64);
+      const state = createReviewStateFixture(baseRevision, checkpoint);
+      const body = encodeReviewStateV5(state);
+      await expect(
+        admitReviewScope(
+          { pullRequest: { ...frozenPullRequest, baseRevision, headRevision } },
+          {
+            authority: authorityFixture({
+              comments: [reviewReportFixture(body)],
+              truncated: false,
+            }),
+            git: fixture.git,
+          },
+        ),
+      ).rejects.toMatchObject({ code: "CHECKPOINT_UNAVAILABLE" });
+      expect(fixture.commands.at(-1)?.argv).toEqual([
+        "--no-replace-objects",
+        "cat-file",
+        "-t",
+        checkpoint,
+      ]);
+      expect(
+        fixture.commands.some(
+          ({ argv }) => argv.includes("fetch") || argv.includes("diff"),
+        ),
+      ).toBe(false);
+      expect({
+        head: await fixture.run("rev-parse", "HEAD"),
+        index: await fixture.run("diff", "--cached", "--binary"),
+        worktree: await fixture.run("diff", "--binary"),
+      }).toEqual(before);
+    },
+  );
   it("same-head admission uses the published checkpoint and makes no patch command", async () => {
     const fixture = await createReviewGitFixture();
     fixtures.push(fixture);
@@ -303,7 +346,6 @@ describe("trusted review scope admission", { timeout: 20_000 }, () => {
           truncated: false,
         }),
         git: fixture.git,
-        admittedAt: performance.now(),
       },
     );
     expect(result.scopeIdentity.mode).toBe("no-change");
@@ -345,7 +387,6 @@ describe("trusted review scope admission", { timeout: 20_000 }, () => {
           truncated: false,
         }),
         git: fixture.git,
-        admittedAt: performance.now(),
       },
     );
     expect(result.evidence.batches[0]?.patch).toContain("+new changed cause");
@@ -383,7 +424,6 @@ describe("trusted review scope admission", { timeout: 20_000 }, () => {
           truncated: false,
         }),
         git: fixture.git,
-        admittedAt: performance.now(),
       },
     );
     expect(result.classification.kind).toBe("current");
@@ -415,7 +455,6 @@ describe("trusted review scope admission", { timeout: 20_000 }, () => {
       {
         authority: authorityFixture(),
         git: fixture.git,
-        admittedAt: performance.now(),
       },
     );
     expect(result.scopeIdentity.mode).toBe("new-baseline");
@@ -470,7 +509,7 @@ describe("trusted review scope admission", { timeout: 20_000 }, () => {
     { comments: [], truncated: true },
   ])("rejects unsafe report input before Git work", async (history) => {
     const run = vi.fn();
-    const fetchExactCommit = vi.fn();
+
     await expect(
       admitReviewScope(
         {
@@ -484,13 +523,11 @@ describe("trusted review scope admission", { timeout: 20_000 }, () => {
         },
         {
           authority: authorityFixture(history),
-          git: { run, fetchExactCommit },
-          admittedAt: performance.now(),
+          git: { run },
         },
       ),
     ).rejects.toThrow();
     expect(run).not.toHaveBeenCalled();
-    expect(fetchExactCommit).not.toHaveBeenCalled();
   });
   it("rejects a foreign repository and cancellation before Git work", async () => {
     const run = vi.fn();
@@ -513,7 +550,6 @@ describe("trusted review scope admission", { timeout: 20_000 }, () => {
       admitReviewScope(input, {
         authority,
         git: { run },
-        admittedAt: performance.now(),
       }),
     ).rejects.toMatchObject({ code: "REVIEW_REPORT_INVALID" });
     const controller = new AbortController();
@@ -522,7 +558,7 @@ describe("trusted review scope admission", { timeout: 20_000 }, () => {
       admitReviewScope(input, {
         authority,
         git: { run },
-        admittedAt: performance.now(),
+
         signal: controller.signal,
       }),
     ).rejects.toMatchObject({ code: "REVIEW_ADMISSION_CANCELLED" });
