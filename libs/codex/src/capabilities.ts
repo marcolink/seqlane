@@ -9,4 +9,5 @@ export const CODEX_AGENT_CAPABILITIES = {
   fork: true,
   activity: true,
   sessionUi: false,
+  userInput: true,
 } as const satisfies AgentAdapterCapabilities;

@@ -8,6 +8,7 @@ import {
 } from "@seqlane/core";
 import { openai } from "@seqlane/core/models";
 import { z } from "zod";
+import { existsSync, writeFileSync } from "node:fs";
 
 const input = z.strictObject({ value: z.string() });
 const output = z.strictObject({
@@ -56,6 +57,36 @@ export const effectNativeSingleWorkflow = createFlow({
 })
   .task("single", nativeTask("native-single"), ({ input }) => input)
   .output(({ tasks }) => tasks.single.output)
+  .define();
+
+const holdIndependentTask = defineTask({
+  id: "native-independent-hold",
+  input,
+  output: z.null(),
+  execute: async ({ input: { value: releasePath } }) => {
+    writeFileSync(`${releasePath}.started`, "started");
+    const deadline = Date.now() + 20_000;
+    while (!existsSync(releasePath)) {
+      if (Date.now() >= deadline)
+        throw new Error("Input test release timed out");
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    return null;
+  },
+});
+
+export const effectNativeUnansweredWorkflow = createFlow({
+  id: "effect-native-unanswered-fixture",
+  input,
+  output: z.null(),
+})
+  .task("agent", nativeTask("native-unanswered"), ({ input }) => input, {
+    workspace: "shared",
+  })
+  .task("independent", holdIndependentTask, ({ input }) => input, {
+    workspace: "shared",
+  })
+  .output(() => null)
   .define();
 
 export const effectNativeMixedWorkflow = createFlow({

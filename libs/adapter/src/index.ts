@@ -5,9 +5,16 @@ import type {
   SeqlaneInvocationMetrics,
 } from "@seqlane/core";
 import type { SeqlaneObservation } from "@seqlane/protocol";
+import type { UserInputAnswer, UserInputRequest } from "@seqlane/protocol";
 import { z } from "zod";
 
 export type { SeqlaneObservation } from "@seqlane/protocol";
+export {
+  userInputAnswerSchema,
+  userInputRequestSchema,
+  userInputAnswersForRequestSchema,
+} from "@seqlane/protocol";
+export type { UserInputAnswer, UserInputRequest } from "@seqlane/protocol";
 
 const agentActivityStateSchema = z.enum([
   "started",
@@ -62,6 +69,8 @@ export interface AgentAdapterCapabilities {
   readonly fork: boolean;
   readonly activity: boolean;
   readonly sessionUi: boolean;
+  /** Missing means that this adapter cannot collect live user input. */
+  readonly userInput?: boolean;
 }
 
 export interface AgentAdapterRequest {
@@ -84,6 +93,9 @@ export interface AgentAdapterRequest {
   readonly onBackgroundProcess?: (process: AgentBackgroundProcess) => void;
   /** Registers an owned SDK/service process before its protocol I/O starts. */
   readonly onOwnedProcessAcquired?: (pid: number) => Promise<void>;
+  readonly requestUserInput?: (
+    request: UserInputRequest,
+  ) => Promise<UserInputAnswer>;
 }
 
 export interface AgentAdapter {
@@ -149,9 +161,10 @@ export function assertAgentRuntimeCapabilities(
     "fork",
     "activity",
     "sessionUi",
+    "userInput",
   ] as const;
   for (const key of capabilityKeys) {
-    if (adapter.capabilities[key] !== expected[key]) {
+    if ((adapter.capabilities[key] ?? false) !== (expected[key] ?? false)) {
       throw new Error(`Agent runtime capability "${key}" changed after setup`);
     }
   }

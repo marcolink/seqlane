@@ -1,3 +1,4 @@
+// @test-scope ./event-bridge.ts
 import {
   ExecutorError,
   ValidationFailedError,
@@ -27,6 +28,35 @@ const metadata = {
 };
 
 describe("execution event bridge", () => {
+  it("sends async interaction controls through canonical event sequencing", async () => {
+    const events: SeqlaneExecutionEvent[] = [];
+    const bridge = createExecutionEventBridge(async (event) => {
+      events.push(event);
+    });
+
+    await bridge.emitAsync({
+      type: "interaction.requested",
+      workId: "work-1",
+      runId: "run-1",
+      invocationId: "task:1",
+      subject: { type: "task", taskId: "task-1" },
+      taskId: "task-1",
+      requestId: "question-1",
+      kind: "user-input",
+      questions: [{ id: "region", prompt: "Region?", allowFreeText: true }],
+      expiresAt: "2026-10-24T00:00:00.000Z",
+    });
+    await bridge.flush();
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      type: "interaction.requested",
+      requestId: "question-1",
+      metadata: { sequence: 1 },
+    });
+    expect(events[0]?.metadata.eventId).toBeTruthy();
+  });
+
   it("projects events into canonical events with required metadata", async () => {
     const events: SeqlaneExecutionEvent[] = [];
     const bridge = createExecutionEventBridge(

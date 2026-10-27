@@ -5,6 +5,7 @@ import type {
   TaskDefinitionRegistry,
 } from "@seqlane/core";
 import type { RuntimeProfileReference } from "@seqlane/protocol";
+import type { InteractionPolicy } from "@seqlane/protocol";
 import { randomUUID } from "node:crypto";
 import {
   agentTaskTimeoutMsSchema,
@@ -45,6 +46,7 @@ import type {
   PrivateClassifierConnection,
 } from "../../classifier/types.js";
 import { createClassifierTaskRunnerOption } from "../../classifier/system-one-client.js";
+import { createAdapterUserInput } from "./adapter-user-input.js";
 
 const fixtureInputSchema = plainRecordSchema.pipe(
   z.looseObject({ dependency: z.string().optional() }),
@@ -163,6 +165,11 @@ export async function executeAgentAdapterRequest(
     agentTaskTimeoutMsSchema.parse(request.agent?.timeoutMs),
     request.nativeContext,
   );
+  const userInput =
+    request.requestUserInput === undefined
+      ? undefined
+      : createAdapterUserInput(request.requestUserInput, deadline.signal);
+  let failure: unknown;
   try {
     deadline.signal.throwIfAborted();
     const result = await awaitWithAbortPrecedence(
@@ -185,13 +192,23 @@ export async function executeAgentAdapterRequest(
         onUncertainActivity: request.onUncertainActivity,
         onBackgroundProcess: request.onBackgroundProcess,
         onOwnedProcessAcquired: request.onOwnedProcessAcquired,
+        ...(userInput === undefined
+          ? {}
+          : { requestUserInput: userInput.request }),
       }),
       deadline.signal,
     );
     if (!deadline.started) throw new RuntimeAdapterExecutionStartError();
     return result;
+  } catch (cause) {
+    failure = cause;
+    throw cause;
   } finally {
-    await deadline.dispose();
+    try {
+      await userInput?.close(failure);
+    } finally {
+      await deadline.dispose();
+    }
   }
 }
 
@@ -336,6 +353,14 @@ export interface RuntimeProfileResolutionOptions {
   readonly runId?: RunId;
   readonly classifierConnection?: PrivateClassifierConnection;
   readonly onOwnedProcessAcquired?: (pid: number) => Promise<void>;
+  readonly interactionPolicy?: InteractionPolicy;
+}
+
+export class RuntimeUserInputUnsupportedError extends Error {
+  constructor() {
+    super("Interactive execution requires an adapter that supports user input");
+    this.name = "RuntimeUserInputUnsupportedError";
+  }
 }
 
 /** Resolves private adapter state after the generic profile crosses IPC. */
@@ -419,6 +444,13 @@ export async function resolveRuntimeProfile(
       : { onOwnedProcessAcquired: options.onOwnedProcessAcquired },
   );
   const capabilities = agentRuntime.capabilities;
+  if (
+    options.interactionPolicy?.mode === "user-input" &&
+    capabilities.userInput !== true
+  ) {
+    await agentRuntime.close?.();
+    throw new RuntimeUserInputUnsupportedError();
+  }
   const checkpointBinding: SessionCheckpointBinding = {
     adapter: agentRuntime.identity,
     runId: options.runId ?? randomUUID(),

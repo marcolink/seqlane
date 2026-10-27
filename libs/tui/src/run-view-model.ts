@@ -153,6 +153,8 @@ export interface RunNode {
   /** Logical activity identities already counted for this invocation. */
   readonly seenActivityIds: ReadonlySet<string>;
   readonly waitingReason?: string;
+  /** Canonical input wait, independent of activity retention and admission. */
+  readonly pendingInputRequestId?: string;
   readonly aggregate: RunAggregate;
   readonly output: RunOutputState;
   readonly validation?: RunValidationState;
@@ -912,6 +914,17 @@ export function reduceRunViewModel(
   const timestamp = eventTimestamp(event.metadata, view.now);
 
   switch (event.type) {
+    case "interaction.requested":
+      return updateNode(next, event.invocationId, (node) => ({
+        ...node,
+        pendingInputRequestId: event.requestId,
+      }));
+    case "interaction.resolved":
+      return updateNode(next, event.invocationId, (node) =>
+        node.pendingInputRequestId === event.requestId
+          ? { ...node, pendingInputRequestId: undefined }
+          : node,
+      );
     case "run.started":
       return { ...setRunState(next, "active", event), runError: undefined };
     case "run.plan":

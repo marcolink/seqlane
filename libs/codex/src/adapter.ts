@@ -2,6 +2,11 @@ import { codexEffect } from "./effect-boundary.js";
 import { randomUUID } from "node:crypto";
 import { Clock, Effect, Semaphore, type Scope } from "effect";
 import { InteractionRequiredError, jsonValueSchema } from "@seqlane/core";
+import {
+  userInputAnswerSchema,
+  userInputAnswersForRequestSchema,
+  userInputRequestSchema,
+} from "@seqlane/agent-adapter";
 import type {
   AgentAdapter,
   AgentAdapterRequest,
@@ -11,6 +16,7 @@ import type { ModelSelection, SeqlaneInvocationMetrics } from "@seqlane/core";
 import { z } from "zod";
 import { CodexAdapterError, CodexStructuredOutputError } from "./errors.js";
 import { CODEX_AGENT_CAPABILITIES } from "./capabilities.js";
+import { askUserDynamicTool, askUserInstructions } from "./user-input-tool.js";
 import { createCodexObservationLifecycle } from "./observation-lifecycle.js";
 import {
   parseCodexLaunchConfiguration,
@@ -122,6 +128,9 @@ function buildPrompt(request: AgentAdapterRequest): string {
       "agent goal",
     ),
     ...(instructions ?? []),
+    ...(request.requestUserInput === undefined
+      ? []
+      : [component(askUserInstructions, "user input instruction")]),
     `Task input JSON: ${boundedInput}`,
     "Return only the JSON value required by the task output schema.",
   ].join("\n");
@@ -357,6 +366,7 @@ function createAdapterForTransport(
   const ensureThread = async (
     signal: AbortSignal,
     selection: ModelSelection | undefined,
+    userInputEnabled: boolean,
   ): Promise<string> => {
     assertUsable();
     if (threadId !== undefined) return threadId;
@@ -367,6 +377,11 @@ function createAdapterForTransport(
         approvalPolicy: "never",
         sandbox: "workspace-write",
         ...(model === undefined ? {} : { model }),
+        ...(userInputEnabled
+          ? {
+              dynamicTools: [askUserDynamicTool],
+            }
+          : {}),
       };
       let result: unknown;
       try {
@@ -403,7 +418,7 @@ function createAdapterForTransport(
         transport.request("turn/interrupt", { threadId, turnId: id }, signal),
       ).pipe(confirmWithin(TURN_INTERRUPT_REQUEST_TIMEOUT_MS));
       yield* Effect.raceAllFirst(
-        tracker.sinkFailure().failed
+        tracker.userInputFailed() || tracker.sinkFailure().failed
           ? [Effect.asVoid(tracker.completion), tracker.stopped]
           : [
               Effect.asVoid(tracker.completion),
@@ -498,7 +513,11 @@ function createAdapterForTransport(
         const selection = await resolveSelection(requestedSelection, signal);
         observation.setSelection(selection);
         const model = modelParams(selection);
-        const id = await ensureThread(signal, selection);
+        const id = await ensureThread(
+          signal,
+          selection,
+          request.requestUserInput !== undefined,
+        );
         const registration = dispatcher.begin(id);
         let turnParameters: unknown;
         try {
@@ -554,6 +573,7 @@ function createAdapterForTransport(
               Effect.try({
                 try: () => {
                   const turn = parseTurnStartResult(value);
+                  const requestUserInput = request.requestUserInput;
                   tracker = createTurnTracker(
                     registration,
                     turn.id,
@@ -561,7 +581,32 @@ function createAdapterForTransport(
                     transport.respond,
                     {
                       startedTurn: turn,
+                      threadId,
+                      signal,
                       onSnapshot: (snapshot) => observation.exchange(snapshot),
+                      ...(requestUserInput === undefined
+                        ? {}
+                        : {
+                            onUserInput: async (rawRequest) => {
+                              const userRequest =
+                                userInputRequestSchema.parse(rawRequest);
+                              const answer = userInputAnswerSchema.parse(
+                                await requestUserInput(userRequest),
+                              );
+                              const answers = userInputAnswersForRequestSchema(
+                                userRequest,
+                              ).parse(answer.answers);
+                              if (signal.aborted) {
+                                throw (
+                                  signal.reason ?? new Error("Input cancelled")
+                                );
+                              }
+                              return JSON.stringify({
+                                status: answer.status,
+                                answers,
+                              });
+                            },
+                          }),
                     },
                   );
                   observation.exchange(tracker.snapshot());
@@ -646,11 +691,15 @@ function createAdapterForTransport(
           ).pipe(
             Effect.catch((cause) => {
               const shouldInterrupt =
-                tracker.sinkFailure().failed ||
-                cause instanceof InteractionRequiredError ||
-                signal.aborted ||
-                (cause instanceof CodexAdapterError &&
-                  ["cancellation", "limit", "protocol"].includes(cause.code));
+                !tracker.isStopped() &&
+                (tracker.sinkFailure().failed ||
+                  tracker.userInputFailed() ||
+                  cause instanceof InteractionRequiredError ||
+                  signal.aborted ||
+                  (cause instanceof CodexAdapterError &&
+                    ["cancellation", "limit", "protocol"].includes(
+                      cause.code,
+                    )));
               if (!shouldInterrupt) return Effect.fail(cause);
               return interruptAndConfirm(turn.id, tracker, request).pipe(
                 Effect.catch((cleanupCause) =>

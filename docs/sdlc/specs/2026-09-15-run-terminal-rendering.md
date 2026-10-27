@@ -5,7 +5,7 @@ status: active
 owners:
   - core
 created: 2026-09-15
-updated: 2026-10-22
+updated: 2026-10-24
 upstream:
   - prd.seqlane-runtime
   - rfc.execution-observability-and-debugging
@@ -192,8 +192,12 @@ sum child durations because parallel intervals overlap.
 
 ### requirement-human-interaction
 
-Human output is passive. It does not subscribe to keyboard input or enable raw
-mode. The CLI owns ordinary SIGINT/SIGTERM cancellation.
+Default human output is passive. It does not subscribe to keyboard input or
+enable raw mode. Explicit interactive mode follows
+[spec.runtime-user-input](./2026-10-23-runtime-user-input.md).
+The CLI owns ordinary SIGINT/SIGTERM cancellation and input-consumer lifetime.
+The renderer shows one question at a time with the pending count. It derives
+input waiting from interaction events, separately from workspace admission.
 Ink renders inline and leaves a final frame in terminal scrollback.
 
 ### requirement-human-details

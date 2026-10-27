@@ -5,6 +5,10 @@ import {
   plainRecordSchema,
 } from "@seqlane/core";
 import { z } from "zod";
+import {
+  boundedUserInputSchema,
+  userInputQuestionsSchema,
+} from "./user-input.js";
 
 function strictRecord<T extends z.ZodRawShape>(shape: T) {
   const objectSchema = z.strictObject(shape);
@@ -438,6 +442,54 @@ const invocationActivitySchema = eventSchema("invocation.activity", {
   iteration: iterationSchema.optional(),
 });
 
+const interactionIdentity = {
+  workId: nonEmptyStringSchema,
+  runId: nonEmptyStringSchema,
+  invocationId: nonEmptyStringSchema,
+  requestId: nonEmptyStringSchema,
+};
+
+const interactionInvocation = {
+  ...interactionIdentity,
+  subject: subjectSchema,
+  taskId: nonEmptyStringSchema.optional(),
+  iteration: iterationSchema.optional(),
+};
+
+const interactionRequestedSchema = boundedUserInputSchema(
+  eventSchema("interaction.requested", {
+    ...interactionInvocation,
+    kind: z.literal("user-input"),
+    questions: userInputQuestionsSchema,
+    expiresAt: isoUtcTimestampSchema,
+  }),
+);
+
+const interactionResponseSchema = z.union([
+  eventSchema("interaction.response", {
+    ...interactionIdentity,
+    status: z.literal("accepted"),
+  }),
+  eventSchema("interaction.response", {
+    ...interactionIdentity,
+    status: z.literal("rejected"),
+    code: z.enum([
+      "INVALID_ANSWER",
+      "UNKNOWN_REQUEST",
+      "WRONG_INVOCATION",
+      "WRONG_RUN",
+      "REQUEST_CLOSED",
+      "RESPONSE_CONFLICT",
+    ]),
+  }),
+]);
+
+const interactionResolvedSchema = eventSchema("interaction.resolved", {
+  ...interactionInvocation,
+  status: z.enum(["answered", "cancelled", "expired", "failed"]),
+  code: nonEmptyStringSchema.optional(),
+});
+
 const observationStateSchema = z.enum([
   "started",
   "updated",
@@ -577,6 +629,9 @@ export const seqlaneExecutionEventSchema = z.union([
   invocationProgressSchema,
   invocationOutputSchema,
   invocationActivitySchema,
+  interactionRequestedSchema,
+  interactionResponseSchema,
+  interactionResolvedSchema,
   invocationObservationSchema,
   invocationInputSchema,
   invocationResultSchema,
@@ -633,6 +688,9 @@ export type InvocationCreatedEvent = EventOf<"invocation.created">;
 export type InvocationProgressEvent = EventOf<"invocation.progress">;
 export type InvocationOutputEvent = EventOf<"invocation.output">;
 export type InvocationActivityEvent = EventOf<"invocation.activity">;
+export type InteractionRequestedEvent = EventOf<"interaction.requested">;
+export type InteractionResponseEvent = EventOf<"interaction.response">;
+export type InteractionResolvedEvent = EventOf<"interaction.resolved">;
 export type InvocationObservationEvent = EventOf<"invocation.observation">;
 /** Canonical observation record emitted by an adapter before runtime envelope projection. */
 export type SeqlaneObservation = Omit<

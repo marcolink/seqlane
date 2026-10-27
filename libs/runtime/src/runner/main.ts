@@ -200,10 +200,24 @@ export function startRunnerProcess(options: RunnerProcessOptions = {}): void {
 
     try {
       const command = decodeRunnerCommand(message as string);
-      if (command.type !== "run.cancel") {
-        throw new TypeError("Expected run.cancel");
+      if (command.type === "run.cancel") {
+        requestRunnerCancellation(control);
+        return;
       }
-      requestRunnerCancellation(control);
+      if (command.type === "interaction.respond") {
+        const broker = control.userInputBroker;
+        if (broker === undefined) {
+          requestRunnerCancellation(control);
+          throw new TypeError(
+            "User input response is unsupported for this run",
+          );
+        }
+        void broker
+          .respond(command)
+          .catch(() => requestRunnerCancellation(control));
+        return;
+      }
+      throw new TypeError("Expected run.cancel or interaction.respond");
     } catch {
       host.exit(1);
     }

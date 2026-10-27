@@ -45,3 +45,4 @@
 | [spec.effect-v4-execution-and-operations](./2026-10-21-effect-v4-execution-and-operations.md)                           | Effect v4 Execution and Operations                     | active     | 2026-10-21 | core   |
 | [spec.adapter-observation-projection](./2026-10-22-adapter-observation-projection.md)                                   | Adapter Observation Lifecycle and Projection           | active     | 2026-10-22 | core   |
 | [spec.workflow-execution-semantics](./2026-10-22-workflow-execution-semantics.md)                                       | Workflow Authoring and Execution Semantics             | active     | 2026-10-22 | core   |
+| [spec.runtime-user-input](./2026-10-23-runtime-user-input.md) | Structured Runtime User Input | active | 2026-10-23 | core, runtime |

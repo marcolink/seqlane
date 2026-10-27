@@ -1,4 +1,7 @@
-import type { SeqlaneExecutionEvent } from "@seqlane/protocol";
+import type {
+  SeqlaneExecutionEvent,
+  UserInputRequest,
+} from "@seqlane/protocol";
 import { CIRenderer } from "./ci-renderer.js";
 import { HumanTTYRenderer } from "./human-renderer.js";
 
@@ -46,11 +49,24 @@ export interface RendererFailure {
   readonly message: string;
 }
 
+/** CLI-owned interaction state. Renderers never send runner commands. */
+export interface UserInputView {
+  readonly requestId: string;
+  readonly invocationId: string;
+  readonly questions: UserInputRequest["questions"];
+  readonly pendingCount: number;
+  readonly submitting: boolean;
+  readonly error?: string;
+  readonly onSubmit: (answers: Record<string, string>) => void;
+  readonly onCancel: () => void;
+}
+
 export interface ExecutionRenderer {
   readonly mode: RendererMode;
   handle(event: SeqlaneExecutionEvent): void;
   handleRunnerFailure?(failure: RendererFailure): void;
   handleRuntimeSessionUi?(notification: RuntimeSessionUi): void;
+  handleUserInput?(input: UserInputView | undefined): void;
   finish(): Promise<void>;
 }
 

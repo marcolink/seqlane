@@ -11,6 +11,10 @@
 // @test-scope ../../../libs/opencode/src/runtime.ts
 // @test-scope ../../../libs/codex/src/adapter.ts
 // @test-scope ../../../libs/codex/src/runtime.ts
+// @test-scope ../../../libs/runtime/src/runner/user-input-broker.ts
+// @test-scope ../../../libs/runtime/src/runner/profile/adapter-user-input.ts
+// @test-scope ../../../libs/codex/src/user-input-handler.ts
+// @test-scope ../../../libs/codex/src/turn-tracker.ts
 
 import {
   existsSync,
@@ -23,7 +27,7 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import {
   isRunRequest,
@@ -105,14 +109,16 @@ afterAll(() => rmSync(temporaryRoot, { recursive: true, force: true }));
 
 async function nativePeer(
   adapter: "opencode" | "codex",
-  mode: "success" | "hold" = "success",
+  mode: "success" | "hold" | "unanswered" = "success",
 ) {
   const trace = join(
     mkdtempSync(join(temporaryRoot, `${adapter}-`)),
     "requests.jsonl",
   );
   const server =
-    adapter === "opencode" ? await startNativeOpenCodeServer(mode) : undefined;
+    adapter === "opencode"
+      ? await startNativeOpenCodeServer(mode === "hold" ? "hold" : "success")
+      : undefined;
   const requests = () =>
     server === undefined
       ? existsSync(trace)
@@ -185,6 +191,87 @@ async function runCli(
     result: runCommandResultSchema.parse(JSON.parse(result.stdout)),
   };
 }
+
+it("closes unanswered Codex input before invocation failure while other work remains active", async () => {
+  const peer = await nativePeer("codex", "unanswered");
+  const releasePath = join(temporaryRoot, "unanswered.release");
+  const events: SeqlaneExecutionEvent[] = [];
+  let respondLate: (() => Promise<void>) | undefined;
+  const client = launchRunner(
+    {
+      ...request("effectNativeUnansweredWorkflow"),
+      input: { value: releasePath },
+      interactionPolicy: { mode: "user-input", timeoutMs: 60_000 },
+    },
+    {
+      runnerPath,
+      cwd: consumerRoot,
+      environment: peer.environment,
+      signalSource: null,
+      onExecutionEvent: (event) => events.push(event),
+      onInteractionRequested: (event, respond) => {
+        respondLate = () =>
+          respond({
+            type: "interaction.respond",
+            runId: event.runId,
+            invocationId: event.invocationId,
+            requestId: event.requestId,
+            answers: { note: "too late" },
+          });
+      },
+    },
+  );
+  const cancelTimeout = setTimeout(() => client.cancel(), 15_000);
+  try {
+    await vi.waitFor(
+      () => {
+        expect(events.some((event) => event.type === "invocation.failed")).toBe(
+          true,
+        );
+        expect(existsSync(`${releasePath}.started`)).toBe(true);
+      },
+      { timeout: 10_000 },
+    );
+    expect(
+      events.filter((event) => event.type === "interaction.resolved"),
+    ).toEqual([
+      expect.objectContaining({
+        status: "failed",
+        code: "USER_INPUT_PROTOCOL_ERROR",
+      }),
+    ]);
+    expect(
+      events.findIndex((event) => event.type === "interaction.resolved"),
+    ).toBeLessThan(
+      events.findIndex((event) => event.type === "invocation.failed"),
+    );
+    expect(events.some((event) => event.type === "run.failed")).toBe(false);
+    expect(respondLate).toBeDefined();
+    await respondLate?.();
+    await vi.waitFor(() =>
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "interaction.response",
+          status: "rejected",
+          code: "REQUEST_CLOSED",
+        }),
+      ),
+    );
+    expect(
+      peer.requests().some(({ method }) => method === "input.response"),
+    ).toBe(false);
+    writeFileSync(releasePath, "release");
+    expect((await client.result).status).toBe(1);
+    expect(
+      events.filter((event) => event.type === "interaction.resolved"),
+    ).toHaveLength(1);
+  } finally {
+    clearTimeout(cancelTimeout);
+    writeFileSync(releasePath, "release");
+    await closeRunnerWorker(client);
+    await peer.close();
+  }
+}, 30_000);
 
 describe.each(["opencode", "codex"] as const)(
   "Effect native %s worker",

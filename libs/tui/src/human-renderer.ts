@@ -8,6 +8,7 @@ import type {
   ExecutionRenderer,
   OutputCapabilities,
   RendererFailure,
+  UserInputView,
 } from "./renderer-contract.js";
 import type { HumanAppProps, MountedHumanApp } from "./human/app.js";
 
@@ -20,6 +21,13 @@ export class HumanTTYRenderer implements ExecutionRenderer {
   private renderError: unknown;
   private pendingEvents: SeqlaneExecutionEvent[] = [];
   private flushScheduled = false;
+  private userInput: UserInputView | undefined;
+
+  handleUserInput(input: UserInputView | undefined): void {
+    if (this.finished) return;
+    this.userInput = input;
+    this.render();
+  }
 
   constructor(private readonly capabilities: OutputCapabilities) {
     if (
@@ -64,6 +72,7 @@ export class HumanTTYRenderer implements ExecutionRenderer {
     if (this.finished) return;
     this.flushEvents();
     this.finished = true;
+    this.userInput = undefined;
     const app = await this.app;
     try {
       app.rerender(this.props());
@@ -80,6 +89,7 @@ export class HumanTTYRenderer implements ExecutionRenderer {
       view: this.view,
       capabilities: this.capabilities,
       spinnerFrame: 0,
+      userInput: this.userInput,
     };
   }
 

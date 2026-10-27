@@ -1,5 +1,10 @@
 import { z } from "zod";
 import { jsonValueSchema, plainRecordSchema } from "@seqlane/core";
+import {
+  boundedUserInputSchema,
+  interactionPolicySchema,
+  userInputAnswersSchema,
+} from "./user-input.js";
 
 const workflowReferenceSchema = plainRecordSchema.pipe(
   z.strictObject({
@@ -23,6 +28,7 @@ const runRequestSchema = plainRecordSchema.pipe(
     input: jsonValueSchema,
     runtime: runtimeProfileReferenceSchema,
     dryRun: z.boolean().optional(),
+    interactionPolicy: interactionPolicySchema.optional(),
   }),
 );
 
@@ -30,7 +36,23 @@ const cancelRunSchema = plainRecordSchema.pipe(
   z.strictObject({ type: z.literal("run.cancel") }),
 );
 
-const runnerCommandSchema = z.union([runRequestSchema, cancelRunSchema]);
+const respondToInteractionSchema = boundedUserInputSchema(
+  plainRecordSchema.pipe(
+    z.strictObject({
+      type: z.literal("interaction.respond"),
+      runId: z.string().min(1),
+      invocationId: z.string().min(1),
+      requestId: z.string().min(1),
+      answers: userInputAnswersSchema,
+    }),
+  ),
+);
+
+const runnerCommandSchema = z.union([
+  runRequestSchema,
+  cancelRunSchema,
+  respondToInteractionSchema,
+]);
 
 export type WorkflowReference = Readonly<
   z.output<typeof workflowReferenceSchema>
@@ -45,6 +67,9 @@ export type RunRequest = Readonly<
   readonly runtime: RuntimeProfileReference;
 };
 export type CancelRun = Readonly<z.output<typeof cancelRunSchema>>;
+export type RespondToInteraction = Readonly<
+  z.output<typeof respondToInteractionSchema>
+>;
 export type RunnerCommand = z.output<typeof runnerCommandSchema>;
 
 export function isWorkflowReference(

@@ -57,6 +57,19 @@ unavailable. Tool activity retains its native ID, name, input, and timestamps.
 An open activity ends as failed only after turn interruption or process
 termination is confirmed; no output is added when the server did not provide it.
 
+## Live user input
+
+With the run's input policy enabled, the adapter registers `ask_user` through
+Codex dynamic tools. The shared protocol schema defines its question format.
+The runtime owns request identity, validation, deadlines, and canonical events.
+Answers return to the existing native tool call and turn. They do not replace
+or bypass the task's final output schema.
+
+Default execution does not register this tool. Unsupported question formats,
+permission requests, and turn completion with unanswered input fail explicitly.
+Cancellation suppresses late answers. An uncertain native write is never retried.
+Activity truncation cannot discard a pending input request.
+
 ## Protocol compatibility probe
 
 Run the live probe only when Codex authentication and an external model call are
