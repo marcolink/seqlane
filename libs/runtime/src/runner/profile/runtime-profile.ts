@@ -46,6 +46,7 @@ import type {
   PrivateClassifierConnection,
 } from "../../classifier/types.js";
 import { createClassifierTaskRunnerOption } from "../../classifier/system-one-client.js";
+import { createAdapterUserInput } from "./adapter-user-input.js";
 
 const fixtureInputSchema = plainRecordSchema.pipe(
   z.looseObject({ dependency: z.string().optional() }),
@@ -164,7 +165,11 @@ export async function executeAgentAdapterRequest(
     agentTaskTimeoutMsSchema.parse(request.agent?.timeoutMs),
     request.nativeContext,
   );
-  const requestUserInput = request.requestUserInput;
+  const userInput =
+    request.requestUserInput === undefined
+      ? undefined
+      : createAdapterUserInput(request.requestUserInput, deadline.signal);
+  let failure: unknown;
   try {
     deadline.signal.throwIfAborted();
     const result = await awaitWithAbortPrecedence(
@@ -187,19 +192,23 @@ export async function executeAgentAdapterRequest(
         onUncertainActivity: request.onUncertainActivity,
         onBackgroundProcess: request.onBackgroundProcess,
         onOwnedProcessAcquired: request.onOwnedProcessAcquired,
-        ...(requestUserInput === undefined
+        ...(userInput === undefined
           ? {}
-          : {
-              requestUserInput: (inputRequest) =>
-                requestUserInput(inputRequest, deadline.signal),
-            }),
+          : { requestUserInput: userInput.request }),
       }),
       deadline.signal,
     );
     if (!deadline.started) throw new RuntimeAdapterExecutionStartError();
     return result;
+  } catch (cause) {
+    failure = cause;
+    throw cause;
   } finally {
-    await deadline.dispose();
+    try {
+      await userInput?.close(failure);
+    } finally {
+      await deadline.dispose();
+    }
   }
 }
 

@@ -201,6 +201,13 @@ export function createUserInputBroker(options: {
     // Terminal callbacks can settle during event publication.
     void result.promise.catch(() => undefined);
     const onAbort = () => {
+      if (
+        !options.signal.aborted &&
+        signal.reason instanceof UserInputProtocolError
+      ) {
+        void terminate(requestId, "failed", signal.reason, signal.reason.code);
+        return;
+      }
       const expired =
         !options.signal.aborted &&
         signal.reason instanceof DOMException &&

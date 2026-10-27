@@ -1,4 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
+// @test-scope ./profile/runtime-profile.ts
+// @test-scope ./profile/adapter-user-input.ts
+import type { AgentAdapter } from "@seqlane/agent-adapter";
+import { z } from "zod";
+import { executeAgentAdapterRequest } from "./profile/runtime-profile.js";
 import type { RespondToInteraction, UserInputRequest } from "@seqlane/protocol";
 import type { ExecutionEventSink } from "../runtime/execution/context.js";
 import {
@@ -71,6 +76,95 @@ function fixture(
 }
 
 describe("runtime user input broker", () => {
+  it("fails unanswered input before adapter failure escapes and rejects late answers", async () => {
+    const resolutionDelivery = deferred<void>();
+    const f = fixture(async (event) => {
+      if (
+        event.type === "interaction.resolved" &&
+        event.invocationId === "invocation"
+      ) {
+        await resolutionDelivery.promise;
+      }
+    }, 60_000);
+    const failure = new Error("Native turn ended with unanswered input");
+    let pending: Promise<unknown> | undefined;
+    const other = f.broker.requestUserInput("other", "task", question);
+    const task = {
+      id: "task",
+      input: z.unknown(),
+      output: z.unknown(),
+      execute: async () => undefined,
+    };
+    const adapter: AgentAdapter = {
+      capabilities: {
+        execute: true,
+        modelSelection: false,
+        structuredOutput: true,
+        sessionReuse: false,
+        checkpoint: false,
+        fork: false,
+        activity: false,
+        sessionUi: false,
+        userInput: true,
+      },
+      execute: async (request) => {
+        request.onExecutionStarted();
+        pending = request.requestUserInput!(question);
+        void pending.catch(() => undefined);
+        throw failure;
+      },
+    };
+    try {
+      const execution = executeAgentAdapterRequest(
+        adapter,
+        new Map([[task.id, task]]),
+        undefined,
+        {
+          invocationId: "invocation",
+          taskId: task.id,
+          executor: "agent",
+          input: null,
+          signal: f.controller.signal,
+          requestUserInput: (request, signal) =>
+            f.broker.requestUserInput("invocation", task.id, request, signal),
+        },
+      );
+      const rejected = expect(execution).rejects.toBe(failure);
+      const settled = vi.fn();
+      void execution.then(settled, settled);
+      await vi.waitFor(() =>
+        expect(f.events).toContainEqual(
+          expect.objectContaining({
+            type: "interaction.resolved",
+            invocationId: "invocation",
+          }),
+        ),
+      );
+      expect(settled).not.toHaveBeenCalled();
+      resolutionDelivery.resolve();
+      await rejected;
+      expect(
+        f.events.filter((event) => event.type === "interaction.resolved"),
+      ).toEqual([
+        expect.objectContaining({
+          invocationId: "invocation",
+          status: "failed",
+          code: "USER_INPUT_PROTOCOL_ERROR",
+        }),
+      ]);
+      await expect(pending).rejects.toMatchObject({ cause: failure });
+      await f.broker.respond(f.response());
+      expect(f.events.at(-1)).toMatchObject({ code: "REQUEST_CLOSED" });
+      expect(f.controller.signal.aborted).toBe(false);
+      await f.broker.respond(f.response("other"));
+      await expect(other).resolves.toMatchObject({ status: "answered" });
+    } finally {
+      resolutionDelivery.resolve();
+      void other.catch(() => undefined);
+      await f.broker.close();
+    }
+  });
+
   it("rejects an invalid answer without consuming the request", async () => {
     const f = fixture();
     const answer = f.broker.requestUserInput("invocation", "task", question);

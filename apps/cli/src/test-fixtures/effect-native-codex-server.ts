@@ -32,7 +32,10 @@ if (process.argv.includes("--version")) {
     const message = messageSchema.parse(JSON.parse(line));
     const respond = (result: unknown): void =>
       write({ id: message.id, result });
-    if (message.method === undefined) return;
+    if (message.method === undefined) {
+      if (message.id === "question") record("input.response");
+      return;
+    }
     record(message.method, message.params);
     if (message.method === "initialize") {
       respond({
@@ -63,6 +66,27 @@ if (process.argv.includes("--version")) {
       respond({ turn: { id: turnId, status: "inProgress", items: [] } });
       const notify = (method: string, params: unknown): void =>
         write({ method, params });
+      if (process.env.SEQLANE_NATIVE_FIXTURE_MODE === "unanswered") {
+        write({
+          id: "question",
+          method: "item/tool/call",
+          params: {
+            threadId,
+            turnId,
+            callId: "question",
+            namespace: null,
+            tool: "ask_user",
+            arguments: {
+              questions: [{ id: "note", prompt: "Note?", allowFreeText: true }],
+            },
+          },
+        });
+        notify("turn/completed", {
+          threadId,
+          turn: { id: turnId, status: "completed", items: [] },
+        });
+        return;
+      }
       const item = {
         id: `tool-${turnId}`,
         type: "mcpToolCall",

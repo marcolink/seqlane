@@ -6,7 +6,7 @@ owners:
   - core
   - runtime
 created: 2026-10-23
-updated: 2026-10-24
+updated: 2026-10-27
 upstream:
   - spec.runtime-user-input
 supersedes: []
@@ -113,6 +113,25 @@ broker, the Codex `ask_user` tool, and a terminal question queue. Shared schemas
 validate choices, text, identities, complete answer sets, and byte limits.
 Canonical events drive waiting state. Cancellation and deadlines stop native
 waits before resource cleanup completes.
+
+### Review follow-up: unanswered native completion
+
+The SEQ-PR183-005 follow-up in [PR #183](https://github.com/marcolink/seqlane/pull/183)
+closes pending input when adapter execution settles. The runtime publishes the
+failed input resolution before invocation failure. Late answers receive
+`REQUEST_CLOSED`. The original adapter error remains the invocation failure.
+Cancellation and execution deadlines retain their existing resolution states.
+
+The broker regression verifies asynchronous resolution delivery and isolation
+from another pending invocation. A compiled runner test uses the real Codex
+adapter with a local protocol fixture. Codex completes with unanswered input
+while independent work keeps the run active. The test verifies one failed
+resolution, rejection of a late answer, and no native answer write.
+This test does not invoke a live model.
+
+Static quality analysis flags recent-edit churn in `executeAgentAdapterRequest`.
+The lifecycle fix must touch this boundary. Input ownership stays in a separate
+module; the follow-up does not refactor unrelated runner supervision.
 
 ### Native acceptance evidence
 
