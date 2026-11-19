@@ -236,22 +236,11 @@ jobs:
         env:
           OPENCODE_DISABLE_PROJECT_CONFIG: "true"
           OPENCODE_DISABLE_EXTERNAL_SKILLS: "true"
-          OPENCODE_CONFIG_CONTENT: >-
-            {"model":"openai/gpt-6-luna","permission":{"*":"deny","StructuredOutput":"allow"}}
 
       - name: Verify pinned OpenCode health
         env:
           OPENCODE_URL: ${{ steps.real-opencode.outputs.url }}
-        run: |
-          node --input-type=module <<'NODE'
-          import { z } from "zod";
-          const response = await fetch(`${process.env.OPENCODE_URL}/global/health`, {
-            signal: AbortSignal.timeout(5_000),
-          });
-          if (!response.ok) throw new Error(`OpenCode health returned HTTP ${response.status}`);
-          const health = z.object({ healthy: z.literal(true), version: z.literal("1.18.27") });
-          health.parse(JSON.parse(await response.text()));
-          NODE
+        run: node scripts/action-hosted-smoke.mjs opencode-health
 
       - name: Start OpenCode executable fixture
         id: opencode
