@@ -80,6 +80,10 @@ unsupported capability fails before that agent work starts.
 The adapter requests one JSON value and validates it with the task output
 schema. Invalid output fails without a repair prompt or task replay.
 
+The prompt includes task input under `Task input:`. Input must be a JSON value
+whose serialized form is at most 1 MiB in UTF-8. Non-JSON values and oversized
+input fail before native session creation.
+
 Finite message reads correlate completion with the admitted input. Parent idle
 is insufficient while owned child sessions or background shells remain active.
 Cancellation interrupts owned sessions, removes owned shells, and checks their
