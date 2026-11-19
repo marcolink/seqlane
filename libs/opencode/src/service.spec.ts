@@ -1,6 +1,7 @@
 // @test-scope ./service.ts
 // @test-scope ./service-process.ts
 import { spawn, type ChildProcess } from "node:child_process";
+import { createServer } from "node:http";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as ownership from "@seqlane/agent-adapter/private/owned-process";
 import { startOpenCodeService } from "./service.js";
@@ -117,6 +118,49 @@ describe("owned OpenCode startup", () => {
     await assertStopped(child.pid());
   });
 
+  it("recovers from a dropped first request through authenticated native startup", async () => {
+    const server = createServer();
+    let handlerTimer: ReturnType<typeof setTimeout> | undefined;
+    let connections = 0;
+    server.on("connection", () => connections++);
+    server.once("connection", () => {
+      handlerTimer = setTimeout(() => {
+        server.on("request", (request, response) => {
+          expect(request.url).toBe("/global/health");
+          expect(request.headers.authorization).toMatch(/^Basic /);
+          response.end("healthy");
+        });
+      }, 100);
+    });
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", resolve),
+    );
+    const address = server.address();
+    if (!address || typeof address === "string")
+      throw new Error("no test port");
+    const child = fixture(
+      `opencode server listening on http://127.0.0.1:${address.port}\n`,
+    );
+    try {
+      const service = await startOpenCodeService({
+        ...child.options,
+        startupTimeoutMs: 5_000,
+        fetch: globalThis.fetch,
+      });
+      try {
+        expect(connections).toBeGreaterThanOrEqual(2);
+        expect(service.url).toBe(`http://127.0.0.1:${address.port}`);
+      } finally {
+        await service.close();
+      }
+      await assertStopped(child.pid());
+    } finally {
+      clearTimeout(handlerTimer);
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  }, 10_000);
+
   it.each([
     ["127.0.0.1", 80, "http://127.0.0.1:80", "http://127.0.0.1"],
     ["::1", 0, "http://[::1]:4173", "http://[::1]:4173"],
@@ -178,6 +222,37 @@ describe("owned OpenCode startup", () => {
     await expect(startOpenCodeService(child.options)).rejects.toThrow(
       "startup was cancelled",
     );
+    await assertStopped(child.pid());
+  });
+
+  it("aborts a stalled health request and joins its owned service on cancellation", async () => {
+    const child = fixture();
+    let reachedProbe: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => {
+      reachedProbe = resolve;
+    });
+    let aborted = false;
+    const running = startOpenCodeService({
+      ...child.options,
+      fetch: vi.fn(
+        (_url, init) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener(
+              "abort",
+              () => {
+                aborted = true;
+                reject(init.signal?.reason);
+              },
+              { once: true },
+            );
+            reachedProbe?.();
+          }),
+      ),
+    });
+    await started;
+    child.controller.abort();
+    await expect(running).rejects.toThrow("startup was cancelled");
+    expect(aborted).toBe(true);
     await assertStopped(child.pid());
   });
 

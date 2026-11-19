@@ -284,6 +284,9 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENCODE_DISABLE_PROJECT_CONFIG: "true"
           OPENCODE_DISABLE_EXTERNAL_SKILLS: "true"
+          SEQLANE_REDACT_VALUES: |-
+            ${{ secrets.OPENAI_API_KEY }}
+            ${{ steps.ripwire.outputs.mcp-token }}
           # Only base-unchanged skills staged by the resolver are visible here.
           OPENCODE_CONFIG_CONTENT: |
             {

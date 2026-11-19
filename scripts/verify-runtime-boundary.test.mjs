@@ -7,6 +7,7 @@ import { test } from "node:test";
 import {
   auditArchive,
   auditGenerated,
+  auditProduction,
   auditSource,
 } from "./verify-runtime-boundary.mjs";
 
@@ -20,6 +21,35 @@ function fixture(run) {
     rmSync(root, { recursive: true, force: true });
   }
 }
+
+test("production audit follows workspace growth and still rejects missing packages", () => {
+  fixture((root) => {
+    for (const family of ["actions", "apps", "libs", "workflows"])
+      mkdirSync(join(root, family));
+    writeFileSync(
+      join(root, "package.json"),
+      '{"name":"audit-fixture","private":true}',
+    );
+    writeFileSync(
+      join(root, "pnpm-workspace.yaml"),
+      'packages:\n  - "libs/*"\n',
+    );
+    const addPackage = (family, name) => {
+      const directory = join(root, family, name);
+      mkdirSync(directory);
+      writeFileSync(join(directory, "package.json"), JSON.stringify({ name }));
+    };
+    addPackage("libs", "first");
+    assert.equal(auditProduction(root).workspacePackages, 1);
+    addPackage("libs", "second");
+    assert.equal(auditProduction(root).workspacePackages, 2);
+    addPackage("actions", "missing-from-workspace");
+    assert.throws(
+      () => auditProduction(root),
+      /does not cover every workspace package/,
+    );
+  });
+});
 
 test("source audit rejects mixed-case names and content, including new files", () => {
   fixture((root) => {

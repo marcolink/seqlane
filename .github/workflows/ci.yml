@@ -225,6 +225,23 @@ jobs:
           EXECUTABLE: ${{ steps.setup.outputs.executable }}
         run: 'test "$("$EXECUTABLE" --version)" = "1.18.27"'
 
+      - name: Start pinned OpenCode without a model call
+        id: real-opencode
+        uses: ./actions/opencode-server
+        with:
+          working-directory: ${{ env.SMOKE_TARGET }}
+          executable: ${{ steps.setup.outputs.executable }}
+          port: "4096"
+          startup-timeout-seconds: "30"
+        env:
+          OPENCODE_DISABLE_PROJECT_CONFIG: "true"
+          OPENCODE_DISABLE_EXTERNAL_SKILLS: "true"
+
+      - name: Verify pinned OpenCode health
+        env:
+          OPENCODE_URL: ${{ steps.real-opencode.outputs.url }}
+        run: node scripts/action-hosted-smoke.mjs opencode-health
+
       - name: Start OpenCode executable fixture
         id: opencode
         uses: ./actions/opencode-server

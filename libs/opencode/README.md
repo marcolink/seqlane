@@ -66,6 +66,9 @@ Authentication and transport failures retain their original error meaning.
 It generates one HTTP Basic credential per owned process and uses it for all
 private SDK requests. It preserves native configuration, bounds startup and
 shutdown with Effect timeouts, and closes only the process group it creates.
+HTTP startup readiness uses the shared private process infrastructure. Each
+request has a two-second deadline, and interrupted requests release their
+connection. The overall startup deadline remains 30 seconds.
 Its caller must close the returned service. The Effect scope drains native log
 streams and verifies process birth identity before cleanup. Unconfirmed shutdown
 remains an error. This helper writes no Seqlane

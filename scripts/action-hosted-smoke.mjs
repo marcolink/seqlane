@@ -1,5 +1,6 @@
 // Hosted-runner fixtures: no model calls, publication writes, or remote Git writes.
 import assert from "node:assert/strict";
+import { z } from "zod";
 import { execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
 import {
@@ -65,6 +66,16 @@ if (mode === "api") {
   const port = await listen(server);
   process.send({ port });
   process.disconnect();
+} else if (mode === "opencode-health") {
+  const url = z.url().parse(process.env.OPENCODE_URL);
+  const response = await fetch(`${url}/global/health`, {
+    signal: AbortSignal.timeout(5_000),
+  });
+  assert.equal(response.status, 200, "OpenCode health request failed");
+  z.object({ healthy: z.literal(true), version: z.literal("1.18.27") }).parse(
+    JSON.parse(await response.text()),
+  );
+  console.log("Pinned OpenCode health and version confirmed.");
 } else if (mode === "service") {
   const args = process.argv.slice(3);
   if (args.includes("status")) {
@@ -216,5 +227,5 @@ if (mode === "api") {
   );
   process.kill(Number(process.env.SMOKE_API_PID), "SIGTERM");
 } else {
-  throw new Error("Expected prepare, api, service, or verify");
+  throw new Error("Expected prepare, api, opencode-health, service, or verify");
 }

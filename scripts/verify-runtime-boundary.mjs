@@ -184,7 +184,6 @@ export function auditProduction(root) {
     ),
   );
   if (
-    expected.size !== 24 ||
     graph.length !== expected.size ||
     new Set(graph.map((entry) => entry.name)).size !== expected.size ||
     graph.some((entry) => !expected.has(entry.name))

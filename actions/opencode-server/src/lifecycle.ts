@@ -8,7 +8,7 @@ import {
   type DetachedProcess,
   type SpawnDetachedOptions,
 } from "@seqlane/action-service-lifecycle";
-import { waitForHttpHealth } from "./readiness.js";
+import { waitForHttpHealth } from "@seqlane/agent-adapter/private/owned-process";
 
 export interface OpenCodeLifecycleInput {
   readonly workingDirectory: string;
@@ -102,10 +102,10 @@ export function startOpenCodeEffect(
       const service = yield* spawnDetached(options);
       yield* persistOwnership(service, hooks);
       yield* adoptDetachedProcess(service);
-      yield* waitForHttpHealth(
-        `${url}/global/health`,
-        input.startupTimeoutMilliseconds,
-      );
+      yield* waitForHttpHealth({
+        url: `${url}/global/health`,
+        timeoutMs: input.startupTimeoutMilliseconds,
+      });
       yield* completeDetachedProcessHandoff(service);
     }),
   );
