@@ -181,7 +181,7 @@ console.log(JSON.stringify({ installedPackages: names.length, cli: true, plan: t
 `,
   );
   const result = capture(process.execPath, ["smoke.mjs"], consumer);
-  assert(result.includes('"installedPackages":8'));
+  assert(result.includes(`"installedPackages":${expectedReleases.size}`));
   console.log(result);
 } finally {
   rmSync(consumer, { recursive: true, force: true });
