@@ -15,6 +15,10 @@ responses with Zod and returns one locally validated JSON value. It never
 repairs output by replaying task instructions. Native configuration controls
 tools and permissions. Pending forms or permissions fail without a reply.
 
+Each prompt includes task input under `Task input:`. Input must be a JSON value.
+Cyclic values, `undefined`, BigInt, and non-finite numbers fail before native
+session creation. Serialized input has a 1 MiB UTF-8 limit.
+
 Ordered reuse, model and variant validation, activity, and per-invocation usage
 are supported. Checkpoint, fork, and session UI remain disabled. Native V2
 fork boundaries require separate compatibility proof.
@@ -24,6 +28,23 @@ metadata identifies an owned session, and confirms termination. Unknown shell
 ownership fails closed. It never kills unrelated external work. Managed mode
 owns one authenticated foreground process group on macOS or Linux. External
 mode never stops the supplied service.
+
+Managed version probing and server startup inherit only `PATH`, `HOME`,
+temporary-directory variables, `LANG`, `LC_ALL`, `TZ`, the four XDG directory
+variables, and `OPENCODE_DISABLE_PROJECT_CONFIG`. To pass provider credentials
+or other required runtime settings, list their names in the private
+`SEQLANE_OPENCODE_V2_ENV` variable:
+
+```sh
+export SEQLANE_OPENCODE_V2_ENV=OPENAI_API_KEY,HTTPS_PROXY
+```
+
+The list accepts at most 128 comma-separated variable names. It does not accept
+wildcards. Unlisted credentials and process hooks do not enter the server or
+its inherited shell environment. Explicitly selected values and the generated
+server password remain available to native tools. This policy does not restrict
+access to credential files under `HOME` or the XDG directories. External mode
+uses the environment of the existing service.
 
 Responses are bounded to 1 MiB before client JSON decoding. One invocation
 read covers at most 1000 messages. A session tree contains at most 128 sessions.
