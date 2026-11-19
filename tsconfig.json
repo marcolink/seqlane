@@ -68,6 +68,9 @@
     },
     {
       "path": "./libs/codex"
+    },
+    {
+      "path": "./libs/opencode-v2"
     }
   ]
 }

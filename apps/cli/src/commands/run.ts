@@ -11,7 +11,10 @@ import {
   runCommandResultSchema,
   type RunCommandResult,
 } from "../cli-contracts.js";
-import { createDirectRunAdapterConfiguration } from "../agent-runtime.js";
+import {
+  openCodeV2Flags,
+  createRunAdapterConfiguration,
+} from "../adapter-flags.js";
 import {
   contextualizeCommandError,
   errorMessage,
@@ -76,8 +79,9 @@ export default class RunCommand extends SeqlaneCommand {
     }),
     adapter: Flags.string({
       description: "Concrete adapter for agent tasks",
-      options: ["codex", "opencode"],
+      options: ["codex", "opencode", "opencode-v2"],
     }),
+    ...openCodeV2Flags,
     "opencode-mode": Flags.string({
       description: "OpenCode connection mode. Defaults to managed.",
       options: ["managed", "external"],
@@ -219,22 +223,7 @@ export default class RunCommand extends SeqlaneCommand {
     }
     let adapterConfiguration: string | undefined;
     try {
-      if (flags.adapter !== undefined) {
-        adapterConfiguration = createDirectRunAdapterConfiguration(
-          flags.adapter === "opencode"
-            ? {
-                adapter: "opencode",
-                mode: flags["opencode-mode"] ?? "managed",
-                ...(flags["opencode-host"] === undefined
-                  ? {}
-                  : { host: flags["opencode-host"] }),
-                ...(flags["opencode-port"] === undefined
-                  ? {}
-                  : { port: flags["opencode-port"] }),
-              }
-            : { adapter: "codex" },
-        );
-      }
+      adapterConfiguration = createRunAdapterConfiguration(flags);
     } catch (error) {
       this.error(contextualizeCommandError(errorMessage(error), error), {
         exit: 1,

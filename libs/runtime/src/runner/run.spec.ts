@@ -275,6 +275,23 @@ describe("seqlane runner entry point", () => {
     expect(agentRuntimeFactory).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps demand-driven direct composition idle for deterministic work", async () => {
+    const start = vi.fn(async () => {
+      throw new Error("must not acquire a service");
+    });
+    const resolver = createRunnerExecutionResolver({
+      standaloneAdapter: { identity: "fixture", start },
+    });
+    const execution = await resolver(
+      { id: "direct", workspace: process.cwd() },
+      new Map(),
+      new AbortController().signal,
+      {},
+    );
+    await execution.close?.();
+    expect(start).not.toHaveBeenCalled();
+  });
+
   it("cancels the active run when the runner receives a termination signal", async () => {
     const signals = new FakeRunnerSignalSource();
     const controller = new AbortController();

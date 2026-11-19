@@ -42,7 +42,8 @@
     "effect": "4.1.4",
     "get-tsconfig": "4.14.3",
     "tsx": "4.23.13",
-    "zod": "4.6.6"
+    "zod": "4.6.6",
+    "@seqlane/opencode-v2-adapter": "workspace:*"
   },
   "devDependencies": {
     "@seqlane/acp-adapter": "workspace:*",

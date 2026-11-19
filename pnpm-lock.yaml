@@ -278,6 +278,9 @@ importers:
       '@seqlane/opencode-adapter':
         specifier: workspace:*
         version: link:../../libs/opencode
+      '@seqlane/opencode-v2-adapter':
+        specifier: workspace:*
+        version: link:../../libs/opencode-v2
       '@seqlane/protocol':
         specifier: workspace:*
         version: link:../../libs/protocol
@@ -459,6 +462,21 @@ importers:
       effect:
         specifier: 4.1.4
         version: 4.1.4
+      zod:
+        specifier: 4.6.6
+        version: 4.6.6
+
+  libs/opencode-v2:
+    dependencies:
+      '@opencode/client':
+        specifier: 2.1.2
+        version: 2.1.2(effect@4.0.1)
+      '@seqlane/agent-adapter':
+        specifier: workspace:*
+        version: link:../adapter
+      '@seqlane/core':
+        specifier: workspace:*
+        version: link:../core
       zod:
         specifier: 4.6.6
         version: 4.6.6
@@ -1916,6 +1934,23 @@ packages:
   '@opencode-ai/sdk@1.18.27':
     resolution: {integrity: sha512-VTfAB9SWaGiMtI2L9rf2xl+0fTYDMHB2pHYKCquWG5OIX3rHvth9oM915d9Z38IuPZUZkmdNMVz2iAdxG4IR+A==, tarball: https://registry.npmjs.org/@opencode-ai/sdk/-/sdk-1.18.27.tgz}
 
+  '@opencode/client@2.1.2':
+    resolution: {integrity: sha512-c7FqI/zMy6HrdVGHynzouiz3y1smokGuimh2+Is2iVWz8I8VzJEty9eTrvQkQzXG1Hj5K2FL1K5fytQ7yJEd9w==, tarball: https://registry.npmjs.org/@opencode/client/-/client-2.1.2.tgz}
+    peerDependencies:
+      effect: 4.0.1
+      solid-js: '>=1.9.0'
+    peerDependenciesMeta:
+      effect:
+        optional: true
+      solid-js:
+        optional: true
+
+  '@opencode/protocol@2.1.2':
+    resolution: {integrity: sha512-dNJuZrJlcUnc3mP7GFoawXECpUoUA+1TEbXvXkFKteq9tpZbO5Qsi1AWqocRJH2cIfG8v5rddyBTyX4+0ax9Yw==, tarball: https://registry.npmjs.org/@opencode/protocol/-/protocol-2.1.2.tgz}
+
+  '@opencode/schema@2.1.2':
+    resolution: {integrity: sha512-gYbneOINd0Tt41krlC79OWjcXMPlW9EjIR+tmG3EYD8SEA4xCdZh0WhZLrFDlLMKDcb6d9xeHTFwhqGACt0IRg==, tarball: https://registry.npmjs.org/@opencode/schema/-/schema-2.1.2.tgz}
+
   '@oxc-project/types@0.144.0':
     resolution: {integrity: sha512-nuhZIOLuI6TFQ32I/WnUx+SCPY7SdSKwgnFHydAuoS1+Z4BRcaP+RRJmGzl9lw+0OFF7UmaESf7KQRXaNLHypg==, tarball: https://registry.npmjs.org/@oxc-project/types/-/types-0.144.0.tgz}
 
@@ -3132,6 +3167,9 @@ packages:
 
   eastasianwidth@0.2.0:
     resolution: {integrity: sha512-I88TYZWc9XiYHRQ4/3c5rjjfgkjhLyW2luGIheGERbNQ6OY7yTybanSpDXZa8y7VUP9YmDcYa+eyq4ca7iLqWA==, tarball: https://registry.npmjs.org/eastasianwidth/-/eastasianwidth-0.2.0.tgz}
+
+  effect@4.0.1:
+    resolution: {integrity: sha512-b1VlQG9g8fwxE5QnIZuPoOP/0MsqHJSRKxUijjoM80E5q95FXrX5yWtY5XI8G+GJsBQAVSDbLS458z9a++uVvw==, tarball: https://registry.npmjs.org/effect/-/effect-4.0.1.tgz}
 
   effect@4.1.4:
     resolution: {integrity: sha512-Tgrv/9FN+TZYyOn8XSli+fVqAfwDrDAkiX5Uu9vztINb675VTQdhD0gWI5Kzvhlh9QqzjZvw72iugqw5pwoghQ==, tarball: https://registry.npmjs.org/effect/-/effect-4.1.4.tgz}
@@ -6635,6 +6673,23 @@ snapshots:
     dependencies:
       cross-spawn: 7.0.6
 
+  '@opencode/client@2.1.2(effect@4.0.1)':
+    dependencies:
+      '@opencode/protocol': 2.1.2
+      '@opencode/schema': 2.1.2
+    optionalDependencies:
+      effect: 4.0.1
+
+  '@opencode/protocol@2.1.2':
+    dependencies:
+      '@opencode/schema': 2.1.2
+      effect: 4.0.1
+
+  '@opencode/schema@2.1.2':
+    dependencies:
+      '@standard-schema/spec': 1.1.0
+      effect: 4.0.1
+
   '@oxc-project/types@0.144.0': {}
 
   '@oxc-resolver/binding-android-arm-eabi@11.24.2':
@@ -7731,6 +7786,8 @@ snapshots:
       gopd: 1.2.0
 
   eastasianwidth@0.2.0: {}
+
+  effect@4.0.1: {}
 
   effect@4.1.4: {}
 

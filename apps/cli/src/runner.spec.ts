@@ -45,6 +45,18 @@ describe("CLI runner composition", () => {
     expect(options.createAgentRuntimeFactory?.()).toEqual(expect.any(Function));
   });
 
+  it("selects demand-driven acquisition only for the V2 direct adapter", () => {
+    const options = createRunnerProcessOptions({
+      [directRunAdapterConfigurationEnvironment]: JSON.stringify({
+        adapter: "opencode-v2",
+        mode: "managed",
+      }),
+    });
+    expect(options.standaloneAdapter?.identity).toBe("opencode-v2");
+    expect(options.standaloneAdapter?.start).toEqual(expect.any(Function));
+    expect(options.createAgentRuntimeFactory).toBeUndefined();
+  });
+
   it("captures and removes classifier startup values before workflow loading", () => {
     const environment: NodeJS.ProcessEnv = {
       [classifierUrlEnvironment]: "https://classifier.example/v1/systemone",

@@ -58,6 +58,13 @@ External mode requires `--opencode-host` and `--opencode-port`. Its port must
 be from `1` through `65535`. The run never starts or stops that service. Codex
 uses its native discovery defaults.
 
+Use `--adapter opencode-v2` for OpenCode 2.1.2. Its separate flags are
+`--opencode-v2-mode`, `--opencode-v2-host`, `--opencode-v2-port`, and
+`--opencode-v2-executable`. The executable must be absolute and applies only
+to managed mode. External V2 mode reads `OPENCODE_SERVER_PASSWORD` for Basic
+authentication. V2 supports ordered reuse, but not checkpoint, fork, or session
+UI. See [OpenCode 2](../docs/adapters/opencode-v2.md) for setup.
+
 Use `--input-file <path>` for JSON input from a file. The CLI accepts one input
 source per run, and input files have a 1 MiB limit.
 

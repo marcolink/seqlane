@@ -1,3 +1,5 @@
+// @test-scope ./adapter-flags.ts
+// @test-scope ./opencode-v2-runtime.ts
 // @test-scope ./commands/run.ts
 // @test-scope ./run-input.ts
 // @test-scope ./run-execution.ts
@@ -207,6 +209,36 @@ async function startExternalOpenCodeFixture(): Promise<{
 }
 
 describe("seqlane CLI entrypoints", () => {
+  it("runs deterministic and dry workflows with V2 without acquiring a binary", async () => {
+    for (const mode of ["--json", "--dry"]) {
+      const result = await runCli(productionEntry, [
+        "run",
+        localOnlyWorkflowReference,
+        "--input",
+        '{"value":"local"}',
+        "--adapter",
+        "opencode-v2",
+        "--opencode-v2-executable",
+        "/does/not/exist/opencode",
+        mode,
+      ]);
+      expect(result.code, result.stdout + result.stderr).toBe(0);
+    }
+  });
+  it.each([
+    ["--adapter", "opencode", "--opencode-v2-host", "127.0.0.1"],
+    ["--adapter", "opencode-v2", "--opencode-host", "127.0.0.1"],
+    ["--adapter", "codex", "--opencode-v2-port", "4096"],
+    ["--opencode-v2-executable", "/opt/opencode"],
+  ])("rejects mixed native adapter flags %j", async (...flags) => {
+    const result = await runCli(productionEntry, [
+      "run",
+      localOnlyWorkflowReference,
+      ...flags,
+    ]);
+    expect(result.code).toBe(2);
+  });
+
   it.each([false, true])(
     "preserves classifier configuration with agent work=%s",
     async (withAgent) => {
@@ -952,7 +984,7 @@ export default createFlow({ id: "stdout", input: z.object({}), output: z.boolean
     expect(help.stdout).toContain("--opencode-port");
     expect(help.stdout).not.toContain("--input-param");
     expect(help.stdout).toMatch(
-      /--opencode-mode[\s\S]*OpenCode connection mode\. Defaults to managed\./,
+      /--opencode-mode[\s\S]*OpenCode connection mode\. Defaults to\s+managed\./,
     );
     expect(help.stdout).not.toContain("--adapter-host");
     expect(help.stdout).not.toContain("--adapter-port");

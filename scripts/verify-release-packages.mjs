@@ -15,6 +15,7 @@ export const expectedReleases = new Map([
   ["codex-adapter", "@seqlane/codex-adapter"],
   ["core", "@seqlane/core"],
   ["opencode", "@seqlane/opencode-adapter"],
+  ["opencode-v2", "@seqlane/opencode-v2-adapter"],
   ["protocol", "@seqlane/protocol"],
   ["runtime", "@seqlane/runtime"],
   ["tui", "@seqlane/tui"],
