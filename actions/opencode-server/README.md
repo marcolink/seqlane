@@ -6,6 +6,7 @@ and stops the process group in the action post handler.
 If startup fails, the Action reports the last 16 KiB of the server log as a
 warning. It removes `OPENAI_API_KEY`, `OPENCODE_SERVER_PASSWORD`, and newline-separated
 values from `SEQLANE_REDACT_VALUES`. The `log-path` output is available on failure.
+The timeout error includes the last health-probe failure and preserves its cause.
 
 The Action keeps startup cleanup ownership until it saves validated process
 and sentinel identities, receives the resident process's adoption

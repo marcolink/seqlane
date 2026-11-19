@@ -27,11 +27,28 @@ export function waitForHttpHealth(
   url: string,
   timeoutMilliseconds: number,
 ): Effect.Effect<void, Error | Cause.TimeoutError> {
-  const polling = Effect.retry(probe(url), Schedule.spaced("1 second"));
+  return Effect.suspend(() => {
+    let lastFailure: Error | undefined;
+    const polling = Effect.retry(
+      probe(url).pipe(
+        Effect.tapError((error) =>
+          Effect.sync(() => {
+            lastFailure = error;
+          }),
+        ),
+      ),
+      Schedule.spaced("1 second"),
+    );
 
-  return Effect.timeout(polling, timeoutMilliseconds).pipe(
-    Effect.catchTag("TimeoutError", () =>
-      Effect.fail(new Error(`Service did not become ready: ${url}`)),
-    ),
-  );
+    return Effect.timeout(polling, timeoutMilliseconds).pipe(
+      Effect.catchTag("TimeoutError", () =>
+        Effect.fail(
+          new Error(
+            `Service did not become ready: ${url}. ${lastFailure?.message ?? "The health request did not complete"}`,
+            { cause: lastFailure },
+          ),
+        ),
+      ),
+    );
+  });
 }
