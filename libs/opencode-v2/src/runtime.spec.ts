@@ -62,6 +62,16 @@ async function fixture() {
   const state = {
     version: "2.1.2",
     changedModel: false,
+    changedResponseModel: false,
+    childSessions: [] as string[],
+    pendingRequests: 0,
+    maxPendingRequests: 0,
+    createChildOnRootInterrupt: false,
+    activeChildSessions: [] as string[],
+    interruptedSessions: [] as string[],
+    removedOwnedShell: false,
+    sessionListCalls: 0,
+    nonAdvancingCursor: false,
     usage: true,
     text: '{"answer":"ok"}',
     pending: "",
@@ -81,7 +91,8 @@ async function fixture() {
   const server = createServer(async (req, res) => {
     let body = "";
     for await (const chunk of req) body += chunk;
-    const path = new URL(req.url ?? "/", "http://fixture").pathname;
+    const url = new URL(req.url ?? "/", "http://fixture");
+    const path = url.pathname;
     const value: unknown = body.length === 0 ? undefined : JSON.parse(body);
     calls.push({
       method: req.method ?? "GET",
@@ -98,6 +109,9 @@ async function fixture() {
       const wrapped =
         path === "/api/session/active" ||
         path === "/api/session/ses_owned" ||
+        (path.startsWith("/api/session/") &&
+          !path.slice("/api/session/".length).includes("/") &&
+          req.method === "GET") ||
         (path === "/api/session" && req.method === "POST") ||
         path.endsWith("/prompt") ||
         path.endsWith("/permission") ||
@@ -110,7 +124,10 @@ async function fixture() {
     if (path === "/api/model") return send({ data: [model] });
     if (path === "/api/model/default") return send({ data: model });
     if (path === "/api/session/active")
-      return send(state.active && !state.removed ? { ses_owned: {} } : {});
+      return send({
+        ...(state.active && !state.removed ? { ses_owned: {} } : {}),
+        ...Object.fromEntries(state.activeChildSessions.map((id) => [id, {}])),
+      });
     if (path === "/api/shell")
       return send({
         data:
@@ -127,6 +144,7 @@ async function fixture() {
       });
     if (path === "/api/shell/sh_owned" && req.method === "DELETE") {
       state.shell = "";
+      state.removedOwnedShell = true;
       return send({});
     }
     if (path === "/api/session" && req.method === "POST") {
@@ -137,7 +155,26 @@ async function fixture() {
         model: { ...model, variant: "high" },
       });
     }
-    if (path === "/api/session") return send({ data: [], cursor: {} });
+    if (path === "/api/session") {
+      state.sessionListCalls += 1;
+      if (
+        state.nonAdvancingCursor &&
+        url.searchParams.get("parentID") === "ses_owned"
+      )
+        return send({
+          data: [],
+          cursor: { next: `cursor-${state.sessionListCalls}` },
+        });
+      const children =
+        url.searchParams.get("parentID") === "ses_owned"
+          ? state.childSessions.map((id) => ({
+              id,
+              parentID: "ses_owned",
+              location: { directory: workspace },
+            }))
+          : [];
+      return send({ data: children, cursor: {} });
+    }
     if (path.endsWith("/prompt")) {
       state.prompts++;
       return send({
@@ -145,6 +182,15 @@ async function fixture() {
         sessionID: "ses_owned",
         type: "user",
       });
+    }
+    if (path.endsWith("/permission") || path.endsWith("/form")) {
+      state.pendingRequests += 1;
+      state.maxPendingRequests = Math.max(
+        state.maxPendingRequests,
+        state.pendingRequests,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      state.pendingRequests -= 1;
     }
     if (path.endsWith("/permission"))
       return send(
@@ -164,7 +210,10 @@ async function fixture() {
       const assistant = {
         id: `msg_${state.prompts}`,
         type: "assistant",
-        model,
+        model: {
+          ...model,
+          id: state.changedResponseModel ? "changed" : model.id,
+        },
         time: { created: 1, completed: 2 },
         ...(state.usage
           ? {
@@ -206,23 +255,45 @@ async function fixture() {
         res.end("unavailable");
         return;
       }
-      state.active = false;
+      const sessionID = path.split("/").at(-2);
+      if (sessionID === "ses_owned") {
+        state.active = false;
+        if (state.createChildOnRootInterrupt) {
+          state.createChildOnRootInterrupt = false;
+          state.childSessions.push("ses_child");
+          state.activeChildSessions.push("ses_child");
+          state.shell = "ses_child";
+        }
+      } else if (sessionID !== undefined) {
+        state.activeChildSessions = state.activeChildSessions.filter(
+          (id) => id !== sessionID,
+        );
+      }
+      if (sessionID !== undefined) state.interruptedSessions.push(sessionID);
       return send({});
     }
-    if (path === "/api/session/ses_owned") {
-      if (req.method === "DELETE") {
+    if (path.startsWith("/api/session/")) {
+      const sessionID = path.slice("/api/session/".length);
+      if (req.method === "DELETE" && sessionID === "ses_owned") {
         state.removed = true;
         return send({});
       }
-      return send({
-        id: "ses_owned",
-        location: { directory: workspace },
-        model: {
-          ...model,
-          id: state.changedModel ? "changed" : model.id,
-          variant: "high",
-        },
-      });
+      if (sessionID === "ses_owned")
+        return send({
+          id: "ses_owned",
+          location: { directory: workspace },
+          model: {
+            ...model,
+            id: state.changedModel ? "changed" : model.id,
+            variant: "high",
+          },
+        });
+      if (state.childSessions.includes(sessionID))
+        return send({
+          id: sessionID,
+          parentID: "ses_owned",
+          location: { directory: workspace },
+        });
     }
     res.writeHead(404);
     res.end(path);
@@ -318,6 +389,45 @@ describe("OpenCode V2 real-client execution", () => {
       await h.close();
     }
   });
+  it("caps concurrent pending checks for a large session tree", async () => {
+    const h = await fixture();
+    try {
+      h.state.childSessions = Array.from(
+        { length: 39 },
+        (_, index) => `ses_child_${index}`,
+      );
+      await expect(h.adapter.execute(request())).resolves.toEqual({
+        answer: "ok",
+      });
+      expect(h.state.maxPendingRequests).toBeLessThanOrEqual(32);
+    } finally {
+      await h.close();
+    }
+  });
+  it("rejects an assistant response from a different model", async () => {
+    const h = await fixture();
+    try {
+      h.state.changedResponseModel = true;
+      await expect(h.adapter.execute(request())).rejects.toMatchObject({
+        code: "protocol",
+      });
+      expect(h.state.removed).toBe(true);
+    } finally {
+      await h.close();
+    }
+  });
+  it("rejects a child cursor that advances without adding sessions", async () => {
+    const h = await fixture();
+    try {
+      h.state.nonAdvancingCursor = true;
+      await expect(h.adapter.execute(request())).rejects.toMatchObject({
+        code: "termination",
+      });
+      expect(h.state.sessionListCalls).toBe(2);
+    } finally {
+      await h.close();
+    }
+  });
   it("deduplicates repeated snapshots and isolates consumer callback failures", async () => {
     const h = await fixture();
     try {
@@ -332,7 +442,9 @@ describe("OpenCode V2 real-client execution", () => {
       const pending = h.adapter.execute(
         request({ onObservation, onActivity, onMetrics }),
       );
-      await vi.waitFor(() => expect(h.state.reads).toBeGreaterThan(1));
+      await vi.waitFor(() => expect(h.state.reads).toBeGreaterThan(1), {
+        timeout: 4_000,
+      });
       h.state.active = false;
       await expect(pending).resolves.toEqual({ answer: "ok" });
       expect(onObservation).toHaveBeenCalledTimes(1);
@@ -456,6 +568,23 @@ describe("OpenCode V2 real-client execution", () => {
             call.path === "/api/shell/sh_owned" && call.method === "DELETE",
         ),
       ).toBe(true);
+      expect(h.state.removed).toBe(true);
+    } finally {
+      await h.close();
+    }
+  });
+  it("finds and stops a child session created during cancellation", async () => {
+    const h = await fixture();
+    try {
+      h.state.active = true;
+      h.state.createChildOnRootInterrupt = true;
+      const controller = new AbortController();
+      const pending = h.adapter.execute(request({ signal: controller.signal }));
+      await vi.waitFor(() => expect(h.state.reads).toBeGreaterThan(0));
+      controller.abort();
+      await expect(pending).rejects.toThrow();
+      expect(h.state.interruptedSessions).toContain("ses_child");
+      expect(h.state.removedOwnedShell).toBe(true);
       expect(h.state.removed).toBe(true);
     } finally {
       await h.close();

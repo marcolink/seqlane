@@ -36,12 +36,14 @@ export async function ownedSessions(
           requestOptions(signal),
         ),
       );
+      let addedSession = false;
       for (const child of result.data) {
         if (
           child.parentID !== parentID ||
           child.location.directory !== workspace
         )
           throw new OpenCodeV2Error("protocol", "invalid native child session");
+        if (!ids.has(child.id)) addedSession = true;
         ids.add(child.id);
       }
       if (ids.size > 128)
@@ -50,6 +52,11 @@ export async function ownedSessions(
           "native session tree exceeded 128 sessions",
         );
       cursor = result.cursor.next ?? undefined;
+      if (cursor !== undefined && !addedSession)
+        throw new OpenCodeV2Error(
+          "protocol",
+          "child session page did not add a session",
+        );
       if (cursor !== undefined && cursors.has(cursor))
         throw new OpenCodeV2Error(
           "protocol",
@@ -97,28 +104,33 @@ export async function terminateOwnedSession(
   workspace: string,
 ): Promise<void> {
   const signal = AbortSignal.timeout(5_000);
-  const ids = await ownedSessions(client, root, workspace, signal);
-  await Promise.all(
-    [...ids].map((sessionID) =>
-      client.session.interrupt(
-        { sessionID, resume: false },
-        requestOptions(signal),
-      ),
-    ),
-  );
-  const work = await runningWork(client, ids, workspace, signal);
-  await Promise.all(
-    work.shells.map((id) =>
-      client.shell.remove(
-        { id, location: { directory: workspace } },
-        requestOptions(signal),
-      ),
-    ),
-  );
-  await client.session.remove({ sessionID: root }, requestOptions(signal));
+  const ids = new Set<string>();
   while (true) {
-    const remaining = await runningWork(client, ids, workspace, signal);
-    if (!remaining.active && remaining.shells.length === 0) return;
+    const discovered = await ownedSessions(client, root, workspace, signal);
+    const added = [...discovered].filter((id) => !ids.has(id));
+    for (const id of added) ids.add(id);
+    await Promise.all(
+      added.map((sessionID) =>
+        client.session.interrupt(
+          { sessionID, resume: false },
+          requestOptions(signal),
+        ),
+      ),
+    );
+    const work = await runningWork(client, ids, workspace, signal);
+    await Promise.all(
+      work.shells.map((id) =>
+        client.shell.remove(
+          { id, location: { directory: workspace } },
+          requestOptions(signal),
+        ),
+      ),
+    );
+    if (!work.active && work.shells.length === 0) {
+      const latest = await ownedSessions(client, root, workspace, signal);
+      if (![...latest].some((id) => !ids.has(id))) break;
+    }
     await setTimeout(50, undefined, { signal });
   }
+  await client.session.remove({ sessionID: root }, requestOptions(signal));
 }

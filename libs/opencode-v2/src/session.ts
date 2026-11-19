@@ -6,7 +6,7 @@ import type {
 } from "@seqlane/agent-adapter";
 import { requestOptions, type V2Client } from "./client.js";
 import { admissionSchema, sessionSchema } from "./schemas.js";
-import { assertSessionModel } from "./session-model.js";
+import { assertSessionModel, type PinnedNativeModel } from "./session-model.js";
 import { nativeModel } from "./models.js";
 import { createPrompt } from "./prompt.js";
 import { terminateOwnedSession } from "./owned-work.js";
@@ -43,7 +43,7 @@ export function createSessionAdapter({
   let sessionID: string | undefined;
   let busy = false;
   let pinnedSelection: ModelSelection | undefined;
-  let pinnedNativeModel: ReturnType<typeof assertSessionModel>;
+  let pinnedNativeModel: PinnedNativeModel | undefined;
   let inFlight: Promise<unknown> | undefined;
   const stopped = new AbortController();
   let unusable = false;
@@ -127,7 +127,9 @@ export function createSessionAdapter({
         await client.session.get({ sessionID }, requestOptions(request.signal)),
       );
       const currentModel = assertSessionModel(current, selection);
-      if (currentModel.variant !== pinnedNativeModel?.variant)
+      if (pinnedNativeModel === undefined)
+        throw new OpenCodeV2Error("protocol", "session model was not pinned");
+      if (currentModel.variant !== pinnedNativeModel.variant)
         throw new OpenCodeV2Error(
           "protocol",
           "native session changed the selected model",
@@ -152,6 +154,7 @@ export function createSessionAdapter({
         request,
         sessionID,
         admitted.id,
+        pinnedNativeModel,
       );
     } catch (cause) {
       try {

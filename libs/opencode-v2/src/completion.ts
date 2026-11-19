@@ -8,6 +8,10 @@ import { invocationMessages } from "./messages.js";
 import { ownedSessions, runningWork } from "./owned-work.js";
 import { createObserver } from "./observations.js";
 import { OpenCodeV2Error } from "./errors.js";
+import {
+  assertAssistantModel,
+  type PinnedNativeModel,
+} from "./session-model.js";
 export async function waitForResult(
   client: V2Client,
   workspace: string,
@@ -15,38 +19,45 @@ export async function waitForResult(
   request: AgentAdapterRequest,
   id: string,
   inputID: string,
+  expectedModel: PinnedNativeModel,
 ): Promise<unknown> {
   const observer = createObserver(request, redact);
   try {
     while (true) {
       request.signal.throwIfAborted();
       const ids = await ownedSessions(client, id, workspace, request.signal);
-      const pending = await Promise.all(
-        [...ids].map(async (sessionID) => {
-          const [permissions, forms] = await Promise.all([
-            client.permission.list(
-              { sessionID },
-              requestOptions(request.signal),
-            ),
-            client.session.form.list(
-              { sessionID },
-              requestOptions(request.signal),
-            ),
-          ]);
-          return (
-            pendingSchema.parse(permissions).length +
-            pendingSchema.parse(forms).length
-          );
-        }),
-      );
-      if (pending.some((count) => count > 0))
-        throw new InteractionRequiredError("user-input");
+      const sessionIDs = [...ids];
+      for (let offset = 0; offset < sessionIDs.length; offset += 16) {
+        const pending = await Promise.all(
+          sessionIDs.slice(offset, offset + 16).map(async (sessionID) => {
+            const [permissions, forms] = await Promise.all([
+              client.permission.list(
+                { sessionID },
+                requestOptions(request.signal),
+              ),
+              client.session.form.list(
+                { sessionID },
+                requestOptions(request.signal),
+              ),
+            ]);
+            return (
+              pendingSchema.parse(permissions).length +
+              pendingSchema.parse(forms).length
+            );
+          }),
+        );
+        if (pending.some((count) => count > 0))
+          throw new InteractionRequiredError("user-input");
+      }
       const messages = await invocationMessages(
         client,
         id,
         inputID,
         request.signal,
       );
+      for (const message of messages)
+        if (message.type === "assistant")
+          assertAssistantModel(message.model, expectedModel);
       observer.observe(messages);
       const idle =
         messages.at(-1)?.type === "idle" ? messages.at(-1) : undefined;
@@ -77,7 +88,7 @@ export async function waitForResult(
           return parseOutput(text, request);
         }
       }
-      await setTimeout(250, undefined, { signal: request.signal });
+      await setTimeout(1_000, undefined, { signal: request.signal });
     }
   } finally {
     observer.finish();

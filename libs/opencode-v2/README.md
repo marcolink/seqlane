@@ -4,9 +4,10 @@ Private OpenCode 2 adapter used by the Seqlane CLI. This package is published
 so `seqlane` can install it. Its exports are not a supported authoring API.
 Workflow authors use `@seqlane/core`.
 
-The package pins `@opencode/client` and the supported native server to 2.1.2.
-It implements the existing generic adapter contract. The generic runtime has
-no concrete adapter dependency. The OpenCode 1 adapter remains separate.
+The adapter uses the OpenCode 2 API and checks server compatibility before
+submitting work. It implements the existing generic adapter contract. The
+generic runtime has no concrete adapter dependency. The OpenCode 1 adapter
+remains separate.
 
 Execution creates a native session with the selected model, admits one input,
 then polls bounded message pages through that exact input. It validates native
@@ -26,7 +27,10 @@ mode never stops the supplied service.
 
 Responses are bounded to 1 MiB before client JSON decoding. One invocation
 read covers at most 1000 messages. A session tree contains at most 128 sessions.
-Requests have a 10-second bound; task cancellation also bounds monitoring.
+Child session pages must add a session while a cursor remains. Pending permission
+and form checks cover at most 16 sessions at once. Status polling waits one
+second between reads. Requests have a 10-second bound; task cancellation also
+bounds monitoring.
 Cleanup has a separate 5-second bound. Monitoring uses finite message reads,
 not the experimental native session log or live-only global event stream.
 
