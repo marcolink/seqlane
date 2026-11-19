@@ -337,7 +337,10 @@ console.log(JSON.stringify({ credentialPresent: password !== undefined, serviceS
         error: z.object({ message: z.string() }),
       })
       .parse(JSON.parse(failed.stdout));
-    assert(value.error.message.includes(message));
+    assert(
+      value.error.message.includes(message),
+      `Expected native failure containing ${JSON.stringify(message)}; received ${JSON.stringify(value.error.message)}`,
+    );
     assert.equal(
       agentCalls,
       before + 1,
