@@ -30,7 +30,7 @@
   "dependencies": {
     "@seqlane/core": "workspace:*",
     "@seqlane/protocol": "workspace:*",
-    "effect": "4.0.5",
+    "effect": "4.1.4",
     "zod": "4.6.6"
   },
   "files": [

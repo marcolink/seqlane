@@ -26,9 +26,9 @@
     "@seqlane/opencode-adapter": "workspace:*",
     "@seqlane/resolve-merge-conflicts-workflow": "workspace:*",
     "@seqlane/runtime": "workspace:*",
-    "effect": "4.0.5",
+    "effect": "4.1.4",
     "zod": "4.6.6",
-    "@effect/platform-node": "4.0.5"
+    "@effect/platform-node": "4.1.4"
   },
   "files": [
     "dist"

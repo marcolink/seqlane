@@ -31,6 +31,9 @@ identity. Accepted history must flush before terminal inspection is complete.
 Storage failures and omitted inspection records are explicit. A completed task
 outcome stays separate from inspection completeness.
 
+Hosted request bodies have a 1 MiB limit. Oversized MCP requests return HTTP
+`200` with JSON-RPC parse error `-32700`; they do not invoke a tool.
+
 After restart, unfinished runs become interrupted. The host never repeats their
 external actions. MCP uses the same admitted run program and cancellation path.
 A cancelled or timed-out request must drain its run before its capacity is
@@ -54,7 +57,7 @@ The private `exportTelemetryEffect` composes into the hosted manager and CLI
 programs. Export inherits their native clock and scope; each execution owns its
 failure counters. Native JSON serialization and scoped HTTP retain byte-bounded
 batches, 64 KiB acknowledgements, rejection checks, and one total shutdown deadline.
-The pinned Effect 4.0.5 `OtlpExporter` uses item-count batches, reads complete
+The pinned Effect 4.1.4 `OtlpExporter` uses item-count batches, reads complete
 response buffers, retries transport errors, and hides export failures. Its flusher
 waits only for exports it starts. These gaps require the bounded export boundary.
 
@@ -65,9 +68,9 @@ all attempts and retry waits. Raw response bytes have a 1 MiB limit. Strict
 UTF-8 decoding rejects incomplete characters at EOF. The monotonic budget check
 also rejects success after synchronous observation delivery exhausts the budget.
 
-The Effect 4.0.5 TypeSafe client parses only declared response fields and does
-not return the complete raw provider response. Its decision model rescales
-rounded probabilities and derives rating labels. The existing Zod boundary
+The TypeSafe client evaluated with Effect 4.0.5 parses only declared response
+fields and does not return the complete raw provider response. Its decision model
+rescales rounded probabilities and derives rating labels. The existing Zod boundary
 retains provider extensions, exact scores, choices, legends, and probabilities.
 These compatibility gaps prevent replacing it with that client. Native
 `Stream.decodeText` also lacks fatal UTF-8 decoding and final decoder flushing.
