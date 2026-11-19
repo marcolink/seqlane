@@ -15,7 +15,7 @@ export function assertAssistantModel(
   if (
     actual.providerID !== expected.providerID ||
     actual.id !== expected.id ||
-    (actual.variant !== undefined && actual.variant !== expected.variant)
+    actual.variant !== expected.variant
   )
     throw new OpenCodeV2Error(
       "protocol",

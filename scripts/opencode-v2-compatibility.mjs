@@ -149,6 +149,7 @@ try {
             fixture: {
               name: "Fixture",
               capabilities: { tools: true },
+              variants: [{ id: "high" }],
               limit: { context: 100000, output: 10000 },
             },
           },
@@ -162,7 +163,7 @@ try {
     `import { createFlow, defineAgentTask, isolated, reuse } from '@seqlane/core'; import { z } from 'zod';
 const output = z.object({answer:z.string()});
 const task = defineAgentTask({id:'probe',input:z.object({}),output,goal:()=> 'Return exactly {"answer":"ok"}'});
-export default createFlow({id:'v2-probe',input:z.object({}),output,model:{model:{provider:'fixture',model:'fixture'}}})
+export default createFlow({id:'v2-probe',input:z.object({}),output,model:{model:{provider:'fixture',model:'fixture'},reasoning:'high'}})
 .task('first',task,()=>({}),{session:isolated()})
 .task('second',task,()=>({}),{session:({tasks})=>reuse(tasks.first.session)})
 .output(({tasks})=>tasks.second.output).define();`,

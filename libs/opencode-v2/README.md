@@ -20,7 +20,9 @@ Cyclic values, `undefined`, BigInt, and non-finite numbers fail before native
 session creation. Serialized input has a 1 MiB UTF-8 limit.
 
 Ordered reuse, model and variant validation, activity, and per-invocation usage
-are supported. Checkpoint, fork, and session UI remain disabled. Native V2
+are supported. Assistant responses must match the session's provider, model,
+and reasoning variant. An omitted selected variant fails the invocation.
+Checkpoint, fork, and session UI remain disabled. Native V2
 fork boundaries require separate compatibility proof.
 
 Cancellation interrupts the owned session tree, removes shells whose native
@@ -72,6 +74,7 @@ SEQLANE_OPENCODE_V2_EXECUTABLE=/absolute/path/to/opencode node scripts/opencode-
 ```
 
 The probe covers managed and external compiled CLI execution, ordered reuse,
-typed output, Basic authentication, server password isolation from native shells,
+typed output, and selected reasoning variants.
+It also covers Basic authentication, server password isolation from native shells,
 native parent/child background-shell ownership, and cancellation cleanup.
 The separate CI job runs it on the pinned Linux binary.

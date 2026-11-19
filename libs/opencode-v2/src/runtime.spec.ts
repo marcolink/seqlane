@@ -63,6 +63,8 @@ async function fixture() {
     version: "2.1.2",
     changedModel: false,
     changedResponseModel: false,
+    responseVariant: "high",
+    omitResponseVariant: false,
     childSessions: [] as string[],
     pendingRequests: 0,
     maxPendingRequests: 0,
@@ -214,6 +216,9 @@ async function fixture() {
         model: {
           ...model,
           id: state.changedResponseModel ? "changed" : model.id,
+          ...(state.omitResponseVariant
+            ? {}
+            : { variant: state.responseVariant }),
         },
         time: { created: 1, completed: 2 },
         ...(state.usage
@@ -492,6 +497,23 @@ describe("OpenCode V2 real-client execution", () => {
       await h.close();
     }
   });
+  it.each(["omitted", "mismatched"])(
+    "rejects %s reasoning variants in assistant responses",
+    async (variant) => {
+      const h = await fixture();
+      try {
+        h.state.omitResponseVariant = variant === "omitted";
+        h.state.responseVariant = "low";
+        await expect(h.adapter.execute(request())).rejects.toMatchObject({
+          code: "protocol",
+        });
+        expect(h.state.prompts).toBe(1);
+        expect(h.state.removed).toBe(true);
+      } finally {
+        await h.close();
+      }
+    },
+  );
   it("rejects a child cursor that advances without adding sessions", async () => {
     const h = await fixture();
     try {

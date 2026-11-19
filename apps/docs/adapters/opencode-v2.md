@@ -70,8 +70,9 @@ permissions and forms fail the task. Seqlane never answers them.
 
 Authored provider, model, and reasoning selections must exist in the native
 catalog. The model must support tools. Ordered session reuse preserves the
-native session and model. Responses from another provider or model fail the
-task. Failed sessions cannot be reused.
+native session and model. Responses from another provider, model, or reasoning
+variant fail the task. If a response omits a selected variant, the task fails.
+Failed sessions cannot be reused.
 
 Checkpoint, fork, and session UI are unavailable. A workflow that requires an
 unsupported capability fails before that agent work starts.
