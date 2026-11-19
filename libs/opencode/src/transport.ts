@@ -1,5 +1,6 @@
 import type { OpencodeClient } from "@opencode-ai/sdk/v2";
 import type { ModelSelection } from "@seqlane/core";
+import { Effect, Option } from "effect";
 import { z } from "zod";
 import { createOpenCodeClient } from "./client.js";
 import { OpenCodeExecutorError } from "./errors.js";
@@ -267,17 +268,10 @@ async function readPendingRequests(
 }
 
 function waitForPoll(signal: AbortSignal, delayMs: number): Promise<void> {
-  return new Promise((resolve) => {
-    const timer = setTimeout(finish, delayMs);
-    const onAbort = (): void => finish();
-    function finish(): void {
-      clearTimeout(timer);
-      signal.removeEventListener("abort", onAbort);
-      resolve();
-    }
-    signal.addEventListener("abort", onAbort, { once: true });
-    if (signal.aborted) finish();
-  });
+  if (signal.aborted) return Promise.resolve();
+  return Effect.runPromise(Effect.sleep(`${delayMs} millis`), { signal }).catch(
+    () => undefined,
+  );
 }
 
 function hasPendingRequests(
@@ -293,17 +287,19 @@ async function readFinalHistory(
   sessionId: string,
   state: SessionMonitorState,
 ): Promise<unknown[]> {
-  const signal = AbortSignal.timeout(finalPollTimeoutMs);
-  try {
-    return await drainSessionHistory(client, sessionId, state, signal, {
-      collect: true,
-      maxPages: maxHistoryPagesPerCycle,
-    });
-  } catch (cause) {
-    if (!signal.aborted) throw cause;
-    state.initialized = false;
-    return [];
-  }
+  const result = await Effect.runPromise(
+    Effect.tryPromise({
+      try: (signal) =>
+        drainSessionHistory(client, sessionId, state, signal, {
+          collect: true,
+          maxPages: maxHistoryPagesPerCycle,
+        }),
+      catch: (cause) => cause,
+    }).pipe(Effect.timeoutOption(finalPollTimeoutMs)),
+  );
+  if (Option.isSome(result)) return result.value;
+  state.initialized = false;
+  return [];
 }
 
 /**
@@ -407,34 +403,35 @@ function createOpenCodeTransportFromClient(
     },
 
     async prompt(sessionId, request, signal) {
-      const response = await client.session.prompt(
-        {
-          sessionID: sessionId,
-          parts: [{ type: "text", text: request.text }],
-          ...(request.selection === undefined
-            ? {}
-            : {
-                model: {
-                  providerID: request.selection.model.provider,
-                  modelID: request.selection.model.model,
-                },
-              }),
-          ...(request.variant === undefined
-            ? {}
-            : { variant: request.variant }),
-          ...(request.tools === undefined ? {} : { tools: request.tools }),
-          ...(request.strategy === "prompt"
-            ? {}
-            : {
-                format: {
-                  type: "json_schema" as const,
-                  schema: request.schema,
-                  retryCount: request.retryCount ?? 2,
-                },
-              }),
-        },
-        { throwOnError: true, signal },
-      );
+      const schema = structuredClone(request.schema);
+      const sdkRequest = {
+        sessionID: sessionId,
+        parts: [{ type: "text" as const, text: request.text }],
+        ...(request.selection === undefined
+          ? {}
+          : {
+              model: {
+                providerID: request.selection.model.provider,
+                modelID: request.selection.model.model,
+              },
+            }),
+        ...(request.variant === undefined ? {} : { variant: request.variant }),
+        ...(request.tools === undefined ? {} : { tools: request.tools }),
+        ...(request.strategy === "prompt"
+          ? {}
+          : {
+              format: {
+                type: "json_schema" as const,
+                schema,
+                retryCount: request.retryCount ?? 2,
+              },
+            }),
+      };
+      request.onNativeRequest?.(sdkRequest);
+      const response = await client.session.prompt(sdkRequest, {
+        throwOnError: true,
+        signal,
+      });
       return response.data;
     },
 

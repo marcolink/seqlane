@@ -13,6 +13,7 @@ export default defineConfig({
       { text: "Home", link: "/" },
       { text: "Introduction", link: "/introduction/what-is-seqlane" },
       { text: "Authoring workflows", link: "/authoring-workflows/overview" },
+      { text: "Interactivity", link: "/interactivity" },
       { text: "Adapters", link: "/adapters/overview" },
       { text: "CLI Commands", link: "/cli/run" },
     ],
@@ -54,6 +55,10 @@ export default defineConfig({
           { text: "Workspaces", link: "/authoring-workflows/workspaces" },
           { text: "Model selection", link: "/authoring-workflows/models" },
         ],
+      },
+      {
+        text: "Interactivity",
+        link: "/interactivity",
       },
       {
         text: "Adapters",

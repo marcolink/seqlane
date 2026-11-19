@@ -51,7 +51,7 @@ describe("OpenCode action process anchor", () => {
 
     expect(basename(anchorPath)).toBe("process-anchor.js");
     expect(anchorPath).toBe(
-      fileURLToPath(new URL("../process-anchor.js", import.meta.url)),
+      fileURLToPath(new URL("../dist/process-anchor.js", import.meta.url)),
     );
     expect(existsSync(anchorPath)).toBe(true);
   });

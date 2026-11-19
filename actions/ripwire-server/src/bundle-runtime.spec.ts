@@ -28,9 +28,9 @@ describe("Ripwire action bundle", () => {
   );
 
   it("ships the process anchor beside the action", () => {
-    expect(existsSync(new URL("../process-anchor.js", import.meta.url))).toBe(
-      true,
-    );
+    expect(
+      existsSync(new URL("../dist/process-anchor.js", import.meta.url)),
+    ).toBe(true);
   });
 
   it("does not let NODE_ENV disable the directly executed main bundle", async () => {

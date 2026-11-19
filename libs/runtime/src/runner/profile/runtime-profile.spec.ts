@@ -1,13 +1,17 @@
+import { Effect, Fiber } from "effect";
+import { TestClock } from "effect/testing";
 // @test-scope ./runtime-profile.ts
 // @test-scope ../../runtime/execution/abortable.ts
 // @test-scope ../../runtime/session/session-lock.ts
 import type { AgentAdapter, AgentRuntimeFactory } from "@seqlane/agent-adapter";
 import type { TaskDefinition, TaskDefinitionRegistry } from "@seqlane/core";
-import { describe, expect, it, vi } from "vitest";
+import type { InteractionPolicy } from "@seqlane/protocol";
+import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import {
   executeAgentAdapterRequest,
   RuntimeAdapterExecutionStartError,
+  RuntimeUserInputUnsupportedError,
   resolveRuntimeProfile,
 } from "./runtime-profile.js";
 import type { ExecutorRequest } from "../../runtime/execution/executor.js";
@@ -36,7 +40,6 @@ function task(): TaskDefinition {
 function request(taskId: string): ExecutorRequest {
   return {
     invocationId: "fixture:1",
-    observability: {},
     taskId,
     executor: "agent",
     input: null,
@@ -45,6 +48,142 @@ function request(taskId: string): ExecutorRequest {
 }
 
 describe("runtime profile agent runtime boundary", () => {
+  it("admits user input only when the runtime declares support", async () => {
+    const definition = task();
+    let closed = 0;
+    await expect(
+      resolveRuntimeProfile(
+        { id: "custom", workspace: process.cwd() },
+        new Map([[definition.id, definition]]),
+        new AbortController().signal,
+        null,
+        undefined,
+        {
+          interactionPolicy: { mode: "user-input", timeoutMs: 10_000 },
+          agentRuntime: async () => ({
+            identity: "fixture",
+            capabilities,
+            createAdapter: () => {
+              throw new Error("Unsupported adapter must not be created");
+            },
+            redactAdapter: (adapter) => adapter,
+            close: async () => {
+              closed += 1;
+            },
+          }),
+        },
+      ),
+    ).rejects.toBeInstanceOf(RuntimeUserInputUnsupportedError);
+    expect(closed).toBe(1);
+  });
+
+  it("keeps unsupported input disabled by default and forwards enabled requests", async () => {
+    const definition = task();
+    const definitions = new Map([[definition.id, definition]]);
+    const answer = {
+      status: "answered" as const,
+      answers: { choice: "yes" },
+    };
+    let received: unknown;
+    const adapter: AgentAdapter = {
+      capabilities: { ...capabilities, userInput: true },
+      execute: async (value) => {
+        value.onExecutionStarted();
+        received = await value.requestUserInput?.({
+          questions: [
+            {
+              id: "choice",
+              prompt: "Choose",
+              allowFreeText: false,
+              options: [{ value: "yes", label: "Yes" }],
+            },
+          ],
+        });
+        return received;
+      },
+      captureCheckpoint: async () => "checkpoint",
+      fork: async () => adapter,
+    };
+    let runtimeClosed = 0;
+    const resolve = (interactionPolicy?: InteractionPolicy) =>
+      resolveRuntimeProfile(
+        { id: "custom", workspace: process.cwd() },
+        definitions,
+        new AbortController().signal,
+        null,
+        undefined,
+        {
+          ...(interactionPolicy === undefined ? {} : { interactionPolicy }),
+          agentRuntime: async () => ({
+            identity: "fixture",
+            capabilities: adapter.capabilities,
+            createAdapter: () => adapter,
+            redactAdapter: (value) => value,
+            close: async () => {
+              runtimeClosed += 1;
+            },
+          }),
+        },
+      );
+    const disabled = await resolve();
+    const disabledSession = await disabled.sessionResolver.resolve({
+      invocationId: "fixture:disabled",
+      task: definition,
+    });
+    await disabledSession.executor.execute(request(definition.id));
+    await disabled.close?.();
+
+    const enabled = await resolve({ mode: "user-input", timeoutMs: 10_000 });
+    const enabledSession = await enabled.sessionResolver.resolve({
+      invocationId: "fixture:enabled",
+      task: definition,
+    });
+    const result = await enabledSession.executor.execute({
+      ...request(definition.id),
+      requestUserInput: async () => answer,
+    });
+    await enabled.close?.();
+
+    expect(received).toEqual(answer);
+    expect(result).toEqual(answer);
+    expect(runtimeClosed).toBe(2);
+  });
+
+  it("cancels a pending input callback at the invocation deadline", async () => {
+    const definition = task();
+    const definitions = new Map([[definition.id, definition]]);
+    let inputSignal: AbortSignal | undefined;
+    const adapter: AgentAdapter = {
+      capabilities,
+      execute: async (value) => {
+        value.onExecutionStarted();
+        inputSignal = value.signal;
+        return value.requestUserInput!({
+          questions: [{ id: "note", prompt: "Note", allowFreeText: true }],
+        });
+      },
+      captureCheckpoint: async () => "checkpoint",
+      fork: async () => adapter,
+    };
+    const execution = executeAgentAdapterRequest(
+      adapter,
+      definitions,
+      undefined,
+      {
+        ...request(definition.id),
+        agent: { goal: "complete task", timeoutMs: 1 },
+        requestUserInput: (_input, signal) =>
+          new Promise((_resolve, reject) =>
+            signal.addEventListener("abort", () => reject(signal.reason), {
+              once: true,
+            }),
+          ),
+      },
+    );
+    await expect(execution).rejects.toMatchObject({ name: "TimeoutError" });
+    expect(inputSignal?.aborted).toBe(true);
+  });
+
   it("omits the classifier runner when no connection is configured", async () => {
     const definition = task();
     const execution = await resolveRuntimeProfile(
@@ -260,72 +399,117 @@ describe("runtime profile agent runtime boundary", () => {
     expect(completedAfterAbort).toBe(true);
   });
 
+  it.each([
+    ["a frozen Error", Object.freeze(new Error("caller cancelled"))],
+    ["a primitive reason", "caller cancelled"],
+  ])("preserves a late adapter failure with %s", async (_label, reason) => {
+    const definition = task();
+    const definitions = new Map([[definition.id, definition]]);
+    const controller = new AbortController();
+    const sdkFailure = new Error("late adapter rejection");
+    const adapter: AgentAdapter = {
+      capabilities,
+      execute: async (value) => {
+        value.onExecutionStarted();
+        return new Promise((_resolve, reject) =>
+          value.signal.addEventListener("abort", () => reject(sdkFailure), {
+            once: true,
+          }),
+        );
+      },
+      captureCheckpoint: async () => "checkpoint",
+      fork: async () => adapter,
+    };
+    const execution = executeAgentAdapterRequest(
+      adapter,
+      definitions,
+      undefined,
+      { ...request(definition.id), signal: controller.signal },
+    );
+
+    controller.abort(reason);
+    await expect(execution).rejects.toMatchObject({
+      name: reason instanceof Error ? reason.name : "AbortError",
+      cause: sdkFailure,
+      reason,
+    });
+    expect(reason instanceof Error ? reason.cause : undefined).toBeUndefined();
+  });
+
   it("keeps a timed-out session unavailable until adapter termination confirms", async () => {
-    vi.useFakeTimers();
-    try {
-      const definition = task();
-      const definitions = new Map([[definition.id, definition]]);
-      let confirmTermination!: () => void;
-      let terminationStarted = false;
-      const adapter: AgentAdapter = {
-        capabilities,
-        execute: async (value) => {
-          value.onExecutionStarted();
-          return new Promise((_resolve, reject) => {
-            value.signal.addEventListener(
-              "abort",
-              () => {
-                terminationStarted = true;
-                confirmTermination = () =>
-                  reject(new Error("adapter termination confirmed"));
-              },
-              { once: true },
-            );
-          });
-        },
-        captureCheckpoint: async () => "checkpoint",
-        fork: async () => adapter,
-      };
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const nativeContext = yield* Effect.context<never>();
+        const definition = task();
+        const definitions = new Map([[definition.id, definition]]);
+        let confirmTermination!: () => void;
+        let terminationStarted = false;
+        const adapter: AgentAdapter = {
+          capabilities,
+          execute: async (value) => {
+            value.onExecutionStarted();
+            return new Promise((_resolve, reject) => {
+              value.signal.addEventListener(
+                "abort",
+                () => {
+                  terminationStarted = true;
+                  confirmTermination = () =>
+                    reject(new Error("adapter termination confirmed"));
+                },
+                { once: true },
+              );
+            });
+          },
+          captureCheckpoint: async () => "checkpoint",
+          fork: async () => adapter,
+        };
 
-      const execution = executeAgentAdapterRequest(
-        adapter,
-        definitions,
-        undefined,
-        {
-          ...request(definition.id),
-          agent: { goal: "complete task", timeoutMs: 1 },
-        },
-      );
-      const outcome = execution.then(
-        () => undefined,
-        (error: unknown) => error,
-      );
-      const locks = new SessionLockRegistry();
-      const session = {
-        key: Symbol("timed-out-agent-session"),
-        executor: { execute: async () => undefined },
-      };
-      const active = await locks.acquire(session);
-      void outcome.finally(() => active.release());
+        const execution = executeAgentAdapterRequest(
+          adapter,
+          definitions,
+          undefined,
+          {
+            ...request(definition.id),
+            nativeContext,
+            agent: { goal: "complete task", timeoutMs: 1 },
+          },
+        );
+        const outcome = execution.then(
+          () => undefined,
+          (error: unknown) => error,
+        );
+        const locks = new SessionLockRegistry();
+        const session = {
+          key: Symbol("timed-out-agent-session"),
+          executor: { execute: async () => undefined },
+        };
+        const active = yield* locks.acquireEffect(session);
+        void outcome.finally(() => active.release());
 
-      await vi.advanceTimersByTimeAsync(1);
-      expect(terminationStarted).toBe(true);
+        yield* TestClock.adjust(1);
+        expect(terminationStarted).toBe(true);
 
-      let reuseAdmitted = false;
-      const reuse = locks.acquire(session).then((lease) => {
-        reuseAdmitted = true;
-        lease.release();
-      });
-      await Promise.resolve();
-      expect(reuseAdmitted).toBe(false);
+        let reuseAdmitted = false;
+        const reuse = yield* locks.acquireEffect(session).pipe(
+          Effect.tap((lease) =>
+            Effect.sync(() => {
+              reuseAdmitted = true;
+              lease.release();
+            }),
+          ),
+          Effect.forkChild,
+        );
+        yield* Effect.yieldNow;
+        expect(reuseAdmitted).toBe(false);
 
-      confirmTermination();
-      await expect(outcome).resolves.toMatchObject({ name: "TimeoutError" });
-      await reuse;
-      expect(reuseAdmitted).toBe(true);
-    } finally {
-      vi.useRealTimers();
-    }
+        confirmTermination();
+        expect(yield* Effect.promise(() => outcome)).toMatchObject({
+          name: "TimeoutError",
+        });
+        yield* Fiber.join(reuse);
+        expect(reuseAdmitted).toBe(true);
+      }).pipe(Effect.provide(TestClock.layer())),
+    );
   });
 
   it("rejects an adapter that completes without starting execution", async () => {
@@ -349,55 +533,56 @@ describe("runtime profile agent runtime boundary", () => {
   });
 
   it("starts the deadline after adapter queueing", async () => {
-    vi.useFakeTimers();
-    try {
-      const definition = task();
-      const definitions = new Map([[definition.id, definition]]);
-      let signal: AbortSignal | undefined;
-      let startExecution: (() => void) | undefined;
-      const adapter: AgentAdapter = {
-        capabilities,
-        execute: async (value) => {
-          signal = value.signal;
-          startExecution = value.onExecutionStarted;
-          return new Promise((_resolve, reject) => {
-            value.signal.addEventListener(
-              "abort",
-              () => reject(value.signal.reason),
-              {
-                once: true,
-              },
-            );
-          });
-        },
-        captureCheckpoint: async () => "checkpoint",
-        fork: async () => adapter,
-      };
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const nativeContext = yield* Effect.context<never>();
+        const definition = task();
+        const definitions = new Map([[definition.id, definition]]);
+        let signal: AbortSignal | undefined;
+        let startExecution: (() => void) | undefined;
+        const adapter: AgentAdapter = {
+          capabilities,
+          execute: async (value) => {
+            signal = value.signal;
+            startExecution = value.onExecutionStarted;
+            return new Promise((_resolve, reject) => {
+              value.signal.addEventListener(
+                "abort",
+                () => reject(value.signal.reason),
+                {
+                  once: true,
+                },
+              );
+            });
+          },
+          captureCheckpoint: async () => "checkpoint",
+          fork: async () => adapter,
+        };
 
-      const execution = executeAgentAdapterRequest(
-        adapter,
-        definitions,
-        undefined,
-        {
-          ...request(definition.id),
-          agent: { goal: "complete task", timeoutMs: 1 },
-        },
-      );
-      const executionFailure = execution.then(
-        () => undefined,
-        (error: unknown) => error,
-      );
-      await Promise.resolve();
-      await vi.advanceTimersByTimeAsync(120_000);
-      expect(signal?.aborted).toBe(false);
+        const execution = executeAgentAdapterRequest(
+          adapter,
+          definitions,
+          undefined,
+          {
+            ...request(definition.id),
+            nativeContext,
+            agent: { goal: "complete task", timeoutMs: 1 },
+          },
+        );
+        const executionFailure = execution.then(
+          () => undefined,
+          (error: unknown) => error,
+        );
+        yield* Effect.yieldNow;
+        yield* TestClock.adjust(120_000);
+        expect(signal?.aborted).toBe(false);
 
-      startExecution?.();
-      await vi.advanceTimersByTimeAsync(1);
-      await expect(executionFailure).resolves.toMatchObject({
-        name: "TimeoutError",
-      });
-    } finally {
-      vi.useRealTimers();
-    }
+        startExecution?.();
+        yield* TestClock.adjust(1);
+        expect(yield* Effect.promise(() => executionFailure)).toMatchObject({
+          name: "TimeoutError",
+        });
+      }).pipe(Effect.provide(TestClock.layer())),
+    );
   });
 });

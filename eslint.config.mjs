@@ -6,8 +6,6 @@ export const JsonDependencyCheckRuleOptions = {
     "tslib",
     "vitest",
     "@seqlane/runtime",
-    // The CLI resolves the pinned Community Studio entrypoint through createRequire.
-    "mastra",
     // Vite copies Geist font assets from its package without importing code.
     "geist",
   ],
@@ -16,6 +14,7 @@ export const JsonDependencyCheckRuleOptions = {
     "{projectRoot}/vite.config.{js,ts,mjs,mts}",
     "{projectRoot}/vitest.config.{js,ts,mjs,mts}",
     "{projectRoot}/src/**/*.{spec,test}.{ts,tsx}",
+    "{projectRoot}/src/test-fixtures/**",
   ],
 };
 

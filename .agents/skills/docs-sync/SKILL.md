@@ -14,9 +14,9 @@ For each meaningful change, either:
 - update the nearest relevant docs, or
 - state briefly why no doc update is needed
 
-Use `sdlc-impact` for pre-implementation impact analysis and `sdlc-sync` for
-canonical `docs/sdlc/` reconciliation. This skill covers nearby README,
-AGENTS.md, runbook, and workflow documentation.
+This skill covers nearby README, AGENTS.md, runbook, and workflow documentation.
+Keep planning records, architecture decisions, specifications, and task tracking
+outside this repository.
 
 ## Check Changed Files First
 
@@ -55,22 +55,10 @@ Check nearby docs in this order:
 
 When the task needs more concrete mapping cues, read [references/heuristics.md](references/heuristics.md).
 
-## Decision Records Are Historical
+## Delivery Evidence
 
-ADR files or decision records with status `accepted` are historical records.
-
-For accepted ADRs:
-
-- read them for context
-- report drift or contradictions
-- suggest a new ADR, superseding ADR, or non-ADR doc update
-- do not edit the historical ADR as part of routine doc-sync work
-
-Keep ADR lifecycle state separate from implementation delivery state. Use
-current target-branch source, tests, configuration, and reachable Git history
-to assess delivery. A task or spec status does not prove delivery.
-
-Only edit ADRs when the user explicitly asks for ADR lifecycle work.
+Use current target-branch source, tests, configuration, and reachable Git history
+to assess delivery. A planning document or task status does not prove delivery.
 
 ## When Docs Usually Need Updates
 
@@ -101,7 +89,7 @@ When skipping docs, end with one short reason.
 ## Update Style
 
 - Prefer editing existing docs over creating new docs.
-- Create a new doc only when no relevant doc exists and the change clearly needs one. For a new ADR, suggest it instead of creating it directly, and hand off to the dedicated ADR-authoring skill only when the user explicitly asks for ADR lifecycle work.
+- Create a new usage or implementation guide only when no relevant doc exists and the change clearly needs one.
 - Keep edits minimal, concrete, and local to the current change.
 - Follow the target repo's existing doc structure, naming, and tone.
 - Update commands, paths, defaults, and examples together.

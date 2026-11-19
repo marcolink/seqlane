@@ -1,22 +1,78 @@
 import * as core from "@actions/core";
-import { terminateProcessGroup } from "@seqlane/action-service-lifecycle";
+import { Effect } from "effect";
+import {
+  detachedProcessOwnershipSchema,
+  terminateProcessGroup,
+} from "@seqlane/action-service-lifecycle";
+import { z } from "zod";
+
+const positiveIntegerStateSchema = z
+  .string()
+  .regex(/^[1-9]\d*$/)
+  .transform(Number);
+
+const savedOwnershipStateSchema = z.object({
+  pid: positiveIntegerStateSchema,
+  processGroupId: positiveIntegerStateSchema,
+  processStartTime: z.string().trim().min(1),
+  sentinelPid: positiveIntegerStateSchema,
+  sentinelProcessGroupId: positiveIntegerStateSchema,
+  sentinelProcessStartTime: z.string().trim().min(1),
+});
 
 export async function run(): Promise<void> {
-  const pid = core.getState("pid");
-  if (!pid) return;
-  const identity = {
+  const raw = {
+    pid: core.getState("pid"),
     processGroupId: core.getState("process-group-id"),
     processStartTime: core.getState("process-start-time"),
+    sentinelPid: core.getState("sentinel-pid"),
+    sentinelProcessGroupId: core.getState("sentinel-process-group-id"),
+    sentinelProcessStartTime: core.getState("sentinel-process-start-time"),
   };
-  const sentinel = {
-    pid: core.getState("sentinel-pid"),
+  if (Object.values(raw).every((value) => value === "")) return;
+
+  const fields = savedOwnershipStateSchema.safeParse(raw);
+  if (!fields.success) {
+    core.warning(
+      "zvec-grep service state is malformed; skipping process cleanup",
+    );
+    return;
+  }
+
+  const ownership = detachedProcessOwnershipSchema.safeParse({
+    pid: fields.data.pid,
     identity: {
-      processGroupId: core.getState("sentinel-process-group-id"),
-      processStartTime: core.getState("sentinel-process-start-time"),
+      processGroupId: fields.data.processGroupId,
+      processStartTime: fields.data.processStartTime,
     },
-  };
-  if (!(await terminateProcessGroup(pid, identity, sentinel))) {
-    core.warning(`zvec-grep process group ${pid} did not stop cleanly`);
+    sentinel: {
+      pid: fields.data.sentinelPid,
+      identity: {
+        processGroupId: fields.data.sentinelProcessGroupId,
+        processStartTime: fields.data.sentinelProcessStartTime,
+      },
+    },
+  });
+  if (!ownership.success || !ownership.data.sentinel) {
+    core.warning(
+      "zvec-grep service ownership is invalid; skipping process cleanup",
+    );
+    return;
+  }
+
+  const stopped = await Effect.runPromise(
+    terminateProcessGroup(
+      ownership.data.pid,
+      ownership.data.identity,
+      ownership.data.sentinel,
+    ),
+  );
+  if (stopped) {
+    core.info(`zvec-grep process group ${ownership.data.pid} stopped cleanly`);
+  } else {
+    core.warning(
+      `zvec-grep process group ${ownership.data.pid} did not stop cleanly`,
+    );
   }
 }
 

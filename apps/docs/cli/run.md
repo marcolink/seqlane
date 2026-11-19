@@ -29,12 +29,12 @@ export default createFlow({ id: "review", input, output })
 The module can contain task definitions or import them from other modules. No
 special Seqlane bundle format is required.
 
-| Artifact | Example reference | Supported |
-| --- | --- | --- |
-| Local TypeScript or JavaScript module | `./workflows/review.ts` | Yes (`.ts`, `.mts`, `.js`, or `.mjs`) |
-| Named export from a local module | `./workflows/review.ts#review` | Yes |
-| Installed package module | `@acme/workflows/review#review` | Yes |
-| Raw serialized Plan, Plan factory, JSON file, or descriptor name | — | No |
+| Artifact                                                         | Example reference               | Supported                             |
+| ---------------------------------------------------------------- | ------------------------------- | ------------------------------------- |
+| Local TypeScript or JavaScript module                            | `./workflows/review.ts`         | Yes (`.ts`, `.mts`, `.js`, or `.mjs`) |
+| Named export from a local module                                 | `./workflows/review.ts#review`  | Yes                                   |
+| Installed package module                                         | `@acme/workflows/review#review` | Yes                                   |
+| Raw serialized Plan, Plan factory, JSON file, or descriptor name | —                               | No                                    |
 
 Use a package module when you distribute workflows. The package must expose an
 importable module. The selected export still must be an authored workflow.
@@ -62,12 +62,39 @@ not grant filesystem permissions.
 The run validates workflow inputs, task outputs, and the workflow result. It
 returns a failure when a boundary or task fails.
 
+Each standalone run uses memory only. It creates no Seqlane listener, history
+database, recording, or export file. Adapter data and intentional workflow
+outputs keep their existing ownership.
+
+## Optional OTLP export
+
+Runs deliver complete canonical events locally. Remote telemetry is disabled
+by default. To collect and export traces, logs, and low-cardinality metrics, set
+`SEQLANE_TELEMETRY` to a JSON object with an HTTP(S) `endpoint` and an explicit
+`payloadPolicy`:
+
+```sh
+SEQLANE_TELEMETRY='{"endpoint":"http://localhost:4318","payloadPolicy":"metadata"}' seqlane run ./workflow.ts
+```
+
+Use `metadata` to export operation names, timings, outcomes, and correlation
+IDs. Use `full` only when the destination may receive complete model, tool, and
+skill observations, including request, response, input, and output values. The
+optional `headers`, `maxPendingBytes`, and `shutdownTimeoutMs` fields set
+authentication and bounded exporter limits. Invalid configuration fails
+before the workflow is imported. An exporter outage does not change the run
+result.
+
 ## Execution convention
 
-Seqlane runs are non-interactive. A workflow must be self-contained: it cannot
-ask the user questions or wait for approval, and it must include all required
-input and permissions before the run starts. If a task needs unavailable input
-or approval, the task fails and the run stops.
+Runs are non-interactive by default. Supply required workflow input and
+permissions before starting. Missing input or approval fails the task.
+
+Use `--interactive` with [Codex](../adapters/codex.md) to let an agent ask
+questions during a run. A skill can trigger a question without a predefined
+workflow schema. Answers resume the same invocation; the task's final output
+still follows its declared schema. Permission approvals remain unavailable.
+See [Interactivity](../interactivity.md) for the question flow and skill examples.
 
 ## General flags
 
@@ -143,11 +170,35 @@ seqlane run ./workflow.ts \
   --workspace ./repository
 ```
 
+### `--interactive` and `--input-timeout`
+
+Enable questions from Codex agent tasks:
+
+```sh
+seqlane run ./workflow.ts \
+  --input '{}' \
+  --adapter codex \
+  --workspace . \
+  --interactive \
+  --input-timeout 300
+```
+
+Interactive execution requires human output and terminal input. It rejects CI,
+`--json`, redirected streams, and `--input-file -`. Other adapters currently
+reject this policy. A dry run validates the flags without opening an input
+consumer or starting an adapter.
+
+`--input-timeout` accepts 1–86400 seconds and defaults to 300 seconds.
+It requires `--interactive`. Task and run deadlines continue during input waits.
+
+See [Interactivity](../interactivity.md) for question formats, terminal controls,
+queue behavior, cancellation, and the limits of live input.
+
 ### `--output`
 
 Select terminal output: `auto`, `human`, or `ci`. The default is `auto`.
-Human output requires a terminal with input and output. It does not ask the
-user questions.
+Human output requires a terminal with input and output. It accepts answers
+only when `--interactive` is enabled.
 
 ```sh
 seqlane run ./workflow.ts \
@@ -163,8 +214,8 @@ notice appears when this happens. Retained values are not redacted or
 truncated. They can contain sensitive task data. Completed tasks also show four
 compact summary lines: fixed metadata; total tokens and cost;
 input/output/reasoning/cache-read/cache-write token counts; and
-  per-tool/per-skill counts. Cache counts remain separate from the total when
-  the source does not provide a total.
+per-tool/per-skill counts. Cache counts remain separate from the total when
+the source does not provide a total.
 Duration stays right-aligned with the task title. ANSI colors mute keys and
 separators while giving values stronger contrast.
 

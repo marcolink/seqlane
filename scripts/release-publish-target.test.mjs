@@ -226,10 +226,10 @@ test("publish target forwards the beta dist-tag to npm", () => {
   assert.match(calls.at(-1), /--tag=next --dry-run=true$/);
 });
 
-test("CI delegates release state after its quality gate", () => {
+test("CI delegates release state after quality and hosted Action gates", () => {
   assert.match(
     ciWorkflow,
-    /publish:\n {4}name: Publish npm packages\n {4}needs: quality/,
+    /publish:\n {4}name: Publish npm packages\n {4}needs: \[quality, action-smoke\]/,
   );
   assert.match(ciWorkflow, /uses: \.\/\.github\/workflows\/publish\.yml/);
   assert.doesNotMatch(ciWorkflow, /secrets: inherit/);

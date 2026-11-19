@@ -1,4 +1,8 @@
+import { awaitAbort } from "../runtime/execution/await-abort.js";
 import { randomUUID } from "node:crypto";
+import { Cause, Effect, Layer } from "effect";
+import * as FetchHttpClient from "effect/http/FetchHttpClient";
+import * as HttpClient from "effect/http/HttpClient";
 import type {
   ClassifierRequest,
   ClassifierRequestInput,
@@ -6,17 +10,14 @@ import type {
   JsonValue,
 } from "@seqlane/core";
 import { classifierRequestSchema, plainRecordSchema } from "@seqlane/core";
-import type { SeqlaneObservation } from "@seqlane/protocol";
 import { z } from "zod";
 import {
   parseBoundedJson,
-  parseBoundedJsonDocument,
   CLASSIFIER_MAX_BODY_BYTES,
   CLASSIFIER_MAX_STATE_BYTES,
   serializeBoundedJson,
   serializeBoundedJsonDocument,
 } from "./payload-limits.js";
-import { mapSystemOneResponse } from "./system-one-response.js";
 import {
   ClassifierFailure,
   type ClassifierObservationSink,
@@ -27,12 +28,12 @@ import {
   privateClassifierConnectionSchema,
   type ValidatedClassifierConnection,
 } from "./connection.js";
-import { emitFailedSystemOneObservation } from "./system-one-observation.js";
+import { runSystemOneOperation } from "./system-one-operation.js";
+import { RetryableSystemOneAttempt } from "./system-one-retry.js";
 import {
-  isRetryableHttpStatus,
-  RetryableSystemOneAttempt,
-  runSystemOneAttempts,
-} from "./system-one-retry.js";
+  executeSystemOneAttempt,
+  safeTransportCause,
+} from "./system-one-http-attempt.js";
 
 export const CLASSIFIER_TRANSPORT_BUDGET_MS = 20_000;
 const classifierRequestEnvelopeSchema = z
@@ -74,28 +75,6 @@ const classifierStateSizeSchema = z.custom<unknown>((value) => {
   }
 }, "Classifier state exceeds the 768 KiB limit");
 
-const responseTextSchema = z.string().superRefine((text, context) => {
-  if (Buffer.byteLength(text, "utf8") > CLASSIFIER_MAX_BODY_BYTES) {
-    context.addIssue({
-      code: "custom",
-      message: "Classifier response is too large",
-    });
-  }
-});
-
-const responseJsonSchema = z.string().transform((text, context): unknown => {
-  try {
-    const parsed: unknown = JSON.parse(text);
-    return parsed;
-  } catch {
-    context.addIssue({
-      code: "custom",
-      message: "Classifier response is not valid JSON",
-    });
-    return z.NEVER;
-  }
-});
-
 function validateConnection(
   connection: PrivateClassifierConnection | undefined,
 ): ValidatedClassifierConnection {
@@ -126,63 +105,6 @@ function requestModelFor(
   return connection.model.trim();
 }
 
-function safeTransportCause(
-  cause: unknown,
-  apiKey?: string,
-  seen = new Set<Error>(),
-): unknown {
-  if (cause instanceof Error) {
-    if (seen.has(cause))
-      return new Error("Classifier transport cause redacted");
-    seen.add(cause);
-    const messageDescriptor = Object.getOwnPropertyDescriptor(cause, "message");
-    const nameDescriptor = Object.getOwnPropertyDescriptor(cause, "name");
-    const message =
-      messageDescriptor &&
-      "value" in messageDescriptor &&
-      typeof messageDescriptor.value === "string"
-        ? messageDescriptor.value
-        : "Classifier transport failed";
-    const name =
-      nameDescriptor &&
-      "value" in nameDescriptor &&
-      typeof nameDescriptor.value === "string"
-        ? nameDescriptor.value
-        : "Error";
-    if (
-      apiKey !== undefined &&
-      apiKey.length > 0 &&
-      (message.includes(apiKey) || name.includes(apiKey))
-    ) {
-      return new Error("Classifier transport cause redacted");
-    }
-    const causeDescriptor = Object.getOwnPropertyDescriptor(cause, "cause");
-    const nested =
-      causeDescriptor && "value" in causeDescriptor
-        ? safeTransportCause(causeDescriptor.value, apiKey, seen)
-        : undefined;
-    const retained =
-      nested === undefined
-        ? new Error(message)
-        : new Error(message, { cause: nested });
-    retained.name = name;
-    return retained;
-  }
-  if (typeof cause === "string") {
-    return apiKey !== undefined && apiKey.length > 0 && cause.includes(apiKey)
-      ? new Error("Classifier transport cause redacted")
-      : cause;
-  }
-  if (
-    cause === null ||
-    typeof cause === "number" ||
-    typeof cause === "boolean"
-  ) {
-    return cause;
-  }
-  return new Error("Classifier transport cause redacted");
-}
-
 function providerRequestFor(
   request: z.output<typeof classifierRequestEnvelopeSchema>,
   model: string,
@@ -194,69 +116,6 @@ function providerRequestFor(
     }),
   );
   return { model, state: request.state, questions };
-}
-
-function validateResponseText(text: string): string {
-  const parsed = responseTextSchema.safeParse(text);
-  if (!parsed.success) {
-    throw new ClassifierFailure("response", "Classifier response is too large");
-  }
-  return parsed.data;
-}
-
-async function readResponseText(response: Response): Promise<string> {
-  const reader = response.body?.getReader();
-  if (reader === undefined) {
-    return validateResponseText(await response.text());
-  }
-  const chunks: Uint8Array[] = [];
-  let bytes = 0;
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (value === undefined) continue;
-      bytes += value.byteLength;
-      if (bytes > CLASSIFIER_MAX_BODY_BYTES) {
-        await reader.cancel();
-        throw new ClassifierFailure(
-          "response",
-          "Classifier response is too large",
-        );
-      }
-      chunks.push(value);
-    }
-  } finally {
-    reader.releaseLock();
-  }
-  const body = new Uint8Array(bytes);
-  let offset = 0;
-  for (const chunk of chunks) {
-    body.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  try {
-    return validateResponseText(
-      new TextDecoder("utf-8", { fatal: true }).decode(body),
-    );
-  } catch (cause) {
-    throw new ClassifierFailure(
-      "response",
-      "Classifier response is not valid UTF-8",
-      { cause },
-    );
-  }
-}
-
-function parseResponseJson(text: string): unknown {
-  const parsed = responseJsonSchema.safeParse(text);
-  if (parsed.success) {
-    return parseBoundedJsonDocument(parsed.data, "response", "response").value;
-  }
-  throw new ClassifierFailure(
-    "response",
-    "Classifier response is not valid JSON",
-  );
 }
 
 function prepareRequest(
@@ -300,230 +159,99 @@ function prepareRequest(
   }
 }
 
-interface SystemOneAttemptOptions {
-  readonly attemptIndex: number;
-  readonly observationId: string;
-  readonly connection: ValidatedClassifierConnection;
-  readonly credential?: string;
-  readonly fetchImplementation: typeof fetch;
-  readonly request: ClassifierRequest;
-  readonly requestData: JsonValue;
-  readonly body: string;
-  readonly signal: AbortSignal;
-  readonly callerSignal: AbortSignal;
-  readonly assertActive: (lastCause?: unknown) => void;
-  readonly onObservation: ClassifierObservationSink;
-}
-
-async function fetchSystemOneResponse(
-  options: SystemOneAttemptOptions,
-): Promise<Response> {
-  const headers = new Headers({ "content-type": "application/json" });
-  if (options.credential !== undefined) {
-    headers.set("authorization", `Bearer ${options.credential}`);
-  }
-  let response: Response;
-  try {
-    response = await options.fetchImplementation(options.connection.url, {
-      method: "POST",
-      headers,
-      body: options.body,
-      redirect: "error",
-      signal: options.signal,
-    });
-  } catch (cause) {
-    options.assertActive(cause);
-    throw new RetryableSystemOneAttempt(
-      new ClassifierFailure(
-        "transport",
-        "Classifier request could not be completed",
-        { cause: safeTransportCause(cause, options.credential) },
-      ),
-    );
-  }
-  options.assertActive();
-  if (response.ok) return response;
-
-  const retryAfter = response.headers.get("retry-after");
-  const status = response.status;
-  await response.body?.cancel().catch(() => undefined);
-  options.assertActive();
-  const failure = new ClassifierFailure(
-    "transport",
-    `Classifier endpoint returned HTTP ${status}`,
-  );
-  if (isRetryableHttpStatus(status)) {
-    throw new RetryableSystemOneAttempt(failure, retryAfter ?? undefined);
-  }
-  throw failure;
-}
-
-async function readMappedSystemOneResponse(
-  response: Response,
-  options: SystemOneAttemptOptions,
-): Promise<ReturnType<typeof mapSystemOneResponse>> {
-  let responseText: string;
-  try {
-    responseText = await readResponseText(response);
-  } catch (cause) {
-    options.assertActive(cause);
-    if (cause instanceof ClassifierFailure) throw cause;
-    throw new RetryableSystemOneAttempt(
-      new ClassifierFailure(
-        "transport",
-        "Classifier response could not be read",
-        { cause: safeTransportCause(cause, options.credential) },
-      ),
-    );
-  }
-  options.assertActive();
-  const rawResponse = parseResponseJson(responseText);
-  options.assertActive();
-  try {
-    return mapSystemOneResponse(
-      rawResponse,
-      options.request,
-      options.credential,
-    );
-  } catch (cause) {
-    throw new ClassifierFailure(
-      "response",
-      "Classifier response does not match the declared questions",
-      { cause },
-    );
-  }
-}
-
-async function executeSystemOneAttempt(
-  options: SystemOneAttemptOptions,
-): Promise<ClassifierResult> {
-  const startedAt = Date.now();
-  let finalized = false;
-  try {
-    options.assertActive();
-    const response = await fetchSystemOneResponse(options);
-    const mapped = await readMappedSystemOneResponse(response, options);
-    options.assertActive();
-    const observation: SeqlaneObservation = {
-      observationId: options.observationId,
-      kind: "model",
-      state: "succeeded",
-      attemptIndex: options.attemptIndex,
-      model: {
-        operation: "classifier",
-        provider: "typesafe",
-        model: mapped.result.model,
-        request: options.requestData,
-        response: mapped.rawResponse,
-        usage: mapped.rawUsage,
-        startedAt,
-        endedAt: Date.now(),
-      },
-    };
-    options.assertActive();
-    finalized = true;
-    options.onObservation(observation);
-    options.assertActive();
-    return mapped.result;
-  } catch (cause) {
-    if (!finalized) {
-      finalized = true;
-      emitFailedSystemOneObservation({
-        observationId: options.observationId,
-        attemptIndex: options.attemptIndex,
-        model: options.connection.model,
-        request: options.requestData,
-        startedAt,
-        cause:
-          cause instanceof RetryableSystemOneAttempt ? cause.failure : cause,
-        cancelled: options.callerSignal.aborted,
-        onObservation: options.onObservation,
-      });
-    }
-    throw cause;
-  }
-}
-
 export class SystemOneClient {
+  private readonly httpLayer: Layer.Layer<HttpClient.HttpClient>;
+
   constructor(
     private readonly connection?: PrivateClassifierConnection,
-    private readonly fetchImplementation: typeof fetch = fetch,
-    private readonly monotonicNow: () => number = () => performance.now(),
-  ) {}
+    fetchImplementation: typeof fetch = fetch,
+  ) {
+    const httpLayer = Layer.mergeAll(
+      FetchHttpClient.layer,
+      Layer.succeed(FetchHttpClient.Fetch, fetchImplementation),
+      Layer.succeed(FetchHttpClient.RequestInit, { redirect: "error" }),
+    );
+    this.httpLayer = httpLayer;
+  }
 
-  async classify(
+  classify(
     input: ClassifierRequestInput,
     signal: AbortSignal,
     onObservation: ClassifierObservationSink,
-  ): Promise<ClassifierResult> {
-    signal.throwIfAborted();
-    const preparedRequest = prepareRequest(
-      input,
-      requestModelFor(this.connection),
-    );
-    const request = preparedRequest.request;
-    const connection = validateConnection(this.connection);
-    const credential =
-      connection.apiKey === undefined || connection.apiKey.length === 0
-        ? undefined
-        : connection.apiKey;
-    const observationId = randomUUID();
-    const deadline = this.monotonicNow() + CLASSIFIER_TRANSPORT_BUDGET_MS;
-    let timedOut = false;
-    const timeoutController = new AbortController();
-    const timer = setTimeout(() => {
-      timedOut = true;
-      timeoutController.abort();
-    }, CLASSIFIER_TRANSPORT_BUDGET_MS);
-    const abort = (): void => timeoutController.abort(signal.reason);
-    const assertActive = (lastCause?: unknown): void => {
-      if (signal.aborted) signal.throwIfAborted();
-      if (timedOut || this.monotonicNow() >= deadline) {
-        const previousCause =
-          lastCause instanceof RetryableSystemOneAttempt
-            ? lastCause.failure
-            : lastCause;
-        throw new ClassifierFailure(
-          "deadline",
-          "Classifier request exceeded the 20-second transport budget",
-          previousCause === undefined
-            ? undefined
-            : {
-                cause:
-                  previousCause instanceof ClassifierFailure
-                    ? previousCause
-                    : safeTransportCause(previousCause, credential),
-              },
+  ): Effect.Effect<ClassifierResult, unknown> {
+    return Effect.suspend(() => {
+      let sinkFailure: { readonly value: unknown } | undefined;
+      let credential: string | undefined;
+      const httpLayer = this.httpLayer;
+      const connectionInput = this.connection;
+      const operation = Effect.gen(function* () {
+        signal.throwIfAborted();
+        const preparedRequest = prepareRequest(
+          input,
+          requestModelFor(connectionInput),
         );
-      }
-    };
-    signal.addEventListener("abort", abort, { once: true });
-    try {
-      return await runSystemOneAttempts({
-        attempt: (attemptIndex) =>
-          executeSystemOneAttempt({
-            attemptIndex,
-            observationId,
-            connection,
-            credential,
-            fetchImplementation: this.fetchImplementation,
-            request,
-            requestData: preparedRequest.requestData,
-            body: preparedRequest.body,
-            signal: timeoutController.signal,
-            callerSignal: signal,
-            assertActive,
-            onObservation,
-          }),
-        signal: timeoutController.signal,
-        deadline,
-        monotonicNow: this.monotonicNow,
-        assertActive,
+        const request = preparedRequest.request;
+        const connection = validateConnection(connectionInput);
+        credential =
+          connection.apiKey === undefined || connection.apiKey.length === 0
+            ? undefined
+            : connection.apiKey;
+        const observationId = randomUUID();
+        const observationSink: ClassifierObservationSink = (observation) => {
+          try {
+            onObservation(observation);
+          } catch (cause) {
+            sinkFailure = { value: cause };
+            throw cause;
+          }
+        };
+
+        const program = runSystemOneOperation({
+          budgetMs: CLASSIFIER_TRANSPORT_BUDGET_MS,
+          maxAttempts: 4,
+          attempt: (attemptIndex) =>
+            executeSystemOneAttempt({
+              attemptIndex,
+              observationId,
+              connection,
+              credential,
+              request,
+              requestData: preparedRequest.requestData,
+              body: preparedRequest.body,
+              callerSignal: signal,
+              onObservation: observationSink,
+            }),
+        });
+
+        return yield* Effect.provide(program, httpLayer);
       });
-    } finally {
-      clearTimeout(timer);
-      signal.removeEventListener("abort", abort);
-    }
+      return operation.pipe(
+        Effect.raceFirst(awaitAbort(signal, "Classifier cancelled")),
+        Effect.catchCause((cause) => {
+          const original = Cause.squash(cause);
+          if (sinkFailure !== undefined) return Effect.fail(sinkFailure.value);
+          if (signal.aborted) return Effect.fail(signal.reason);
+          if (Cause.hasInterrupts(cause)) return Effect.failCause(cause);
+          if (
+            original instanceof ClassifierFailure ||
+            original instanceof RetryableSystemOneAttempt
+          ) {
+            return Effect.fail(
+              original instanceof RetryableSystemOneAttempt
+                ? original.failure
+                : original,
+            );
+          }
+          return Effect.fail(
+            new ClassifierFailure(
+              "transport",
+              "Classifier request could not be completed",
+              { cause: safeTransportCause(original, credential) },
+            ),
+          );
+        }),
+      );
+    });
   }
 }
 

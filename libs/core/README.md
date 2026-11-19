@@ -2,7 +2,8 @@
 
 Public Seqlane contracts and serializable Plan IR.
 
-This package is intentionally independent of Mastra. Runtime integration belongs in `@seqlane/runtime` and must not leak into this public boundary.
+This package owns public authoring contracts without runtime-engine types.
+Private execution and Effect integration belong in `@seqlane/runtime`.
 
 ### Workflow discovery descriptors
 
@@ -26,7 +27,7 @@ The module reference is relative to the descriptor file. The CLI qualifies
 discovered names with `repository:` or `user:`. It rejects an ambiguous
 unqualified name instead of choosing a scope silently.
 
-`SeqlaneSchema` is a Mastra-independent Zod schema used by the runtime to
+`SeqlaneSchema` is an engine-independent Zod schema used by the runtime to
 validate external workflow and task inputs and outputs.
 
 ### Model catalog
@@ -80,11 +81,6 @@ import { z } from "zod";
 const gitStatus = defineShellTask({
   id: "git-status",
   input: z.object({}),
-  output: z.object({
-    exitCode: z.number(),
-    stdout: z.string(),
-    stderr: z.string(),
-  }),
   executable: "git",
   argv: () => ["status", "--porcelain=v1"],
 });

@@ -1,7 +1,7 @@
-export {
-  createOperationalHost,
-  createOperationalWorkflow,
-} from "./runtime/mastra/operational-host.js";
+import type { OperationalHostOptions } from "./runtime/operations/types.js";
+import { createOperationalWorkflow } from "./runtime/operations/registration.js";
+
+export { createOperationalWorkflow };
 export type {
   OperationalHost,
   OperationalHostOptions,
@@ -9,4 +9,11 @@ export type {
   OperationalSessionUiNotifier,
   OperationalWorkflowRegistration,
   OperationalWorkflowSource,
-} from "./runtime/mastra/operational-host.js";
+} from "./runtime/operations/types.js";
+
+/** Loads Node HTTP and SQLite only when hosted execution is requested. */
+export async function createOperationalHost(options: OperationalHostOptions) {
+  const { createNativeOperationalHost } =
+    await import("./runtime/operations/host.js");
+  return createNativeOperationalHost(options);
+}

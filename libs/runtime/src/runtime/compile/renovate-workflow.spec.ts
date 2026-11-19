@@ -8,11 +8,8 @@ import {
   renovateValidatorDefinitions,
 } from "@seqlane/fixtures/renovate-workflow";
 import { describe, expect, it } from "vitest";
-import {
-  ExecutorError,
-  startCompiledWorkflow,
-  type SeqlaneEvent,
-} from "../../index.js";
+import { ExecutorError, type SeqlaneEvent } from "../../index.js";
+import { startCompiledWorkflow } from "../execution/workflow-run.test-support.js";
 import { PlanCompiler } from "./compile-plan.js";
 import type {
   ExecutorRequest,

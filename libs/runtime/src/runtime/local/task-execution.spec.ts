@@ -1,6 +1,14 @@
+import { Clock, Deferred, Duration, Effect, Fiber } from "effect";
+import { TestClock } from "effect/testing";
+// @test-scope ../../runner/profile/runtime-profile.ts
+// @test-scope ../execution/abortable.ts
+// @test-scope ../../classifier/system-one-client.ts
+// @test-scope ../../classifier/system-one-operation.ts
 // @test-scope ./task-execution.ts
-// @test-scope ./mastra-process.ts
+// @test-scope ./effect-process.ts
 // @test-scope ../invocation/invocation-execution.ts
+// @test-scope ../invocation/task-admission.ts
+// @test-scope ../invocation/invocation-support.ts
 // @test-scope ../compile/compile-plan.ts
 // @test-scope ../execution/model-preflight.ts
 // @test-scope ../session/session-preflight.ts
@@ -17,17 +25,27 @@ import type {
   TaskDefinitionRegistry,
   TaskNode,
 } from "@seqlane/core";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { OutputValidationError } from "../../index.js";
 import {
-  OutputValidationError,
   runCompiledWorkflow,
   startCompiledWorkflow,
-} from "../../index.js";
+} from "../execution/workflow-run.test-support.js";
 import { PlanCompiler } from "../compile/compile-plan.js";
 import type { ExecutorResolvers } from "../execution/executor.js";
 import { preflightCompiledWorkflowModels } from "../execution/model-preflight.js";
 import { resolveCompiledWorkflowSessions } from "../session/session-preflight.js";
 import type { SessionResolver } from "../session/session-resolution.js";
+import { runCompiledGraphProgram } from "../execution/effect-plan.js";
+import { executeAgentAdapterRequest } from "../../runner/profile/runtime-profile.js";
+import type { AgentAdapter } from "@seqlane/agent-adapter";
+import type { ClassifierTaskRunner } from "../../classifier/types.js";
+import { SystemOneClient } from "../../classifier/system-one-client.js";
+import {
+  classifierRequest,
+  classifierResponseBody,
+} from "../../classifier/system-one-client-test-support.js";
+import { LocalProcessTimeoutError } from "./effect-process.js";
 
 const identitySchema: SeqlaneSchema = z.unknown();
 
@@ -61,11 +79,13 @@ function compileLocal(
   plan: Plan,
   definition: TaskDefinition<unknown, unknown>,
   options: {
+    readonly classifier?: ClassifierTaskRunner;
     readonly workspace?: string;
     readonly events?: { emit(event: SeqlaneEvent): void };
     readonly executors?: ExecutorResolvers;
     readonly sessionResolver?: SessionResolver;
     readonly taskDefinitions?: TaskDefinitionRegistry;
+    readonly onOwnedProcessAcquired?: (pid: number) => Promise<void>;
   } = {},
 ) {
   const workspace = options.workspace ?? process.cwd();
@@ -82,6 +102,8 @@ function compileLocal(
     taskDefinitions:
       options.taskDefinitions ?? new Map([[definition.id, definition]]),
     events: options.events,
+    classifier: options.classifier,
+    onOwnedProcessAcquired: options.onOwnedProcessAcquired,
   });
 }
 
@@ -235,6 +257,251 @@ describe("local task execution", () => {
     },
   );
 
+  it("inherits the Plan clock across a task callback into context.exec", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "seqlane-local-"));
+    const controller = new AbortController();
+    let acquired!: () => void;
+    const registration = new Promise<void>((resolve) => {
+      acquired = resolve;
+    });
+    let pending: ReturnType<typeof Effect.runPromise> | undefined;
+    try {
+      const readyPath = join(workspace, "ready");
+      let timeout: unknown;
+      const definition: TaskDefinition = {
+        id: "local-inherited-clock",
+        input: identitySchema,
+        output: identitySchema,
+        execute: async ({ context }) => {
+          try {
+            return await context.exec({
+              executable: process.execPath,
+              argv: [
+                "-e",
+                "process.stdout.write('partial', () => require('node:fs').writeFileSync(process.argv[1], String(process.pid))); setInterval(() => undefined, 1000)",
+                readyPath,
+              ],
+              timeoutMs: 100,
+            });
+          } catch (cause) {
+            timeout = cause;
+            throw cause;
+          }
+        },
+      };
+      const compiled = compileLocal(
+        localPlan(localTaskNode(definition.id)),
+        definition,
+        {
+          workspace,
+          onOwnedProcessAcquired: async () => {
+            acquired();
+          },
+        },
+      );
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const nativeContext = yield* Effect.context<never>();
+          const sleep = vi.spyOn(yield* Clock.Clock, "sleep");
+          pending = Effect.runPromiseWith(nativeContext)(
+            runCompiledGraphProgram(
+              compiled,
+              compiled.plan.workflow.id,
+              controller.signal,
+              undefined,
+              0,
+            ),
+          );
+          const pid = yield* Effect.promise(async () => {
+            await registration;
+            const value = Number(await waitForFile(readyPath));
+            await new Promise<void>((resolve) => setImmediate(resolve));
+            return value;
+          });
+          yield* Effect.yieldNow;
+          expect(sleep).toHaveBeenCalledWith(Duration.millis(100));
+          yield* TestClock.adjust(99);
+          expect(timeout).toBeUndefined();
+          yield* TestClock.adjust(1);
+          const outcome = yield* Effect.promise(() => pending!);
+          expect(outcome).toMatchObject({ status: "failed" });
+          expect(timeout).toBeInstanceOf(LocalProcessTimeoutError);
+          expect(timeout).toMatchObject({
+            result: {
+              stdout: "partial",
+              stderr: "",
+              stdoutTruncated: false,
+              timedOut: true,
+              cancelled: false,
+            },
+          });
+          yield* Effect.promise(() => waitForProcessExit(pid));
+        }).pipe(Effect.provide(TestClock.layer())),
+      );
+    } finally {
+      controller.abort("test cleanup");
+      await pending?.catch(() => undefined);
+      await rm(workspace, { recursive: true, force: true });
+    }
+  });
+
+  it("inherits policy Clock through Plan, authored callback, agent queueing and actual adapter settlement", async () => {
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const queued = yield* Deferred.make<void>();
+        const admission = yield* Deferred.make<void>();
+        const started = yield* Deferred.make<void>();
+        const aborted = yield* Deferred.make<void>();
+        const settlement = yield* Deferred.make<void>();
+        let signal: AbortSignal | undefined;
+        let settled = false;
+        let completed = false;
+        const definition: TaskDefinition = {
+          id: "inherited-agent-clock",
+          input: identitySchema,
+          output: identitySchema,
+          execute: async ({ context }) =>
+            context.runAgent({ goal: "controlled fixture", timeoutMs: 100 }),
+        };
+        const adapter: AgentAdapter = {
+          capabilities: {
+            execute: true,
+            modelSelection: false,
+            structuredOutput: true,
+            sessionReuse: false,
+            checkpoint: false,
+            fork: false,
+            activity: false,
+            sessionUi: false,
+          },
+          execute: async (request) => {
+            signal = request.signal;
+            Deferred.doneUnsafe(queued, Effect.void);
+            await Effect.runPromise(Deferred.await(admission));
+            request.signal.addEventListener(
+              "abort",
+              () => Deferred.doneUnsafe(aborted, Effect.void),
+              { once: true },
+            );
+            request.onExecutionStarted();
+            Deferred.doneUnsafe(started, Effect.void);
+            await Effect.runPromise(Deferred.await(settlement));
+            settled = true;
+            return "late completion";
+          },
+        };
+        return yield* Effect.gen(function* () {
+          const compiled = compileLocal(
+            localPlan(localTaskNode(definition.id)),
+            definition,
+            {
+              executors: {
+                agent: () => ({
+                  execute: (request) =>
+                    executeAgentAdapterRequest(
+                      adapter,
+                      new Map([[definition.id, definition]]),
+                      undefined,
+                      request,
+                    ),
+                }),
+              },
+            },
+          );
+          const fiber = yield* runCompiledGraphProgram(
+            compiled,
+            compiled.plan.workflow.id,
+            new AbortController().signal,
+            undefined,
+            0,
+          ).pipe(
+            Effect.tap(() =>
+              Effect.sync(() => {
+                completed = true;
+              }),
+            ),
+            Effect.forkChild,
+          );
+          yield* Deferred.await(queued);
+          yield* TestClock.adjust(1_000);
+          expect(signal?.aborted).toBe(false);
+          yield* Deferred.succeed(admission, undefined);
+          yield* Deferred.await(started);
+          yield* TestClock.adjust(99);
+          expect(signal?.aborted).toBe(false);
+          yield* TestClock.adjust(1);
+          expect(signal?.aborted).toBe(true);
+          yield* Deferred.await(aborted);
+          expect(signal?.reason).toMatchObject({ name: "TimeoutError" });
+          expect(completed).toBe(false);
+          expect(settled).toBe(false);
+          yield* Deferred.succeed(settlement, undefined);
+          expect(yield* Fiber.join(fiber)).toMatchObject({ status: "failed" });
+          expect(settled).toBe(true);
+        }).pipe(Effect.ensuring(Deferred.succeed(settlement, undefined)));
+      }).pipe(Effect.provide(TestClock.layer())),
+    );
+  });
+
+  it("inherits policy Clock through Plan and authored classifier callback", async () => {
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        let requests = 0;
+        const started = yield* Deferred.make<void>();
+        const client = new SystemOneClient(
+          { url: "https://localhost/v1/systemone", model: "fixture" },
+          async () => {
+            Deferred.doneUnsafe(started, Effect.void);
+            return ++requests === 1
+              ? new Response("busy", { status: 429 })
+              : new Response(JSON.stringify(classifierResponseBody));
+          },
+        );
+        const definition: TaskDefinition = {
+          id: "inherited-classifier-clock",
+          input: identitySchema,
+          output: identitySchema,
+          execute: async ({ context }) => context.classify!(classifierRequest),
+        };
+        const compiled = compileLocal(
+          localPlan(localTaskNode(definition.id)),
+          definition,
+          {
+            classifier: (...args) => client.classify(...args),
+          },
+        );
+        const fiber = yield* runCompiledGraphProgram(
+          compiled,
+          compiled.plan.workflow.id,
+          new AbortController().signal,
+          undefined,
+          0,
+        ).pipe(Effect.forkChild);
+        yield* Effect.raceFirst(
+          Deferred.await(started),
+          Fiber.join(fiber).pipe(
+            Effect.flatMap((outcome) =>
+              Effect.die(
+                outcome.status === "failed"
+                  ? outcome.error
+                  : new Error(JSON.stringify(outcome)),
+              ),
+            ),
+          ),
+        );
+        yield* TestClock.adjust(199);
+        expect(requests).toBe(1);
+        yield* TestClock.adjust(1);
+        expect(requests).toBe(2);
+        expect(yield* Fiber.join(fiber)).toMatchObject({
+          status: "succeeded",
+          output: { model: "jev-1.13.0" },
+        });
+        expect(requests).toBe(2);
+      }).pipe(Effect.provide(TestClock.layer())),
+    );
+  });
+
   it("maps invalid local output to OutputValidationError and does not retain it", async () => {
     const cause = new Error("invalid output");
     const definition: TaskDefinition = {
@@ -295,9 +562,11 @@ describe("local task execution", () => {
       await expect(activeRun.outcome).resolves.toEqual({ status: "cancelled" });
       await waitForProcessExit(pid);
 
-      const lease = await compiled.context.workspaceLocks.acquire(
-        { key: workspace },
-        "exclusive",
+      const lease = await Effect.runPromise(
+        compiled.context.workspaceLocks.acquireEffect(
+          { key: workspace },
+          "exclusive",
+        ),
       );
       lease.release();
     } finally {

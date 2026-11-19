@@ -1,6 +1,6 @@
 import { ClassifierFailure } from "./types.js";
 
-const CLASSIFIER_MAX_ATTEMPTS = 4;
+export const CLASSIFIER_MAX_ATTEMPTS = 4;
 const CLASSIFIER_RETRY_BACKOFF_MS = [200, 400, 800] as const;
 const HTTP_SHORT_WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const HTTP_LONG_WEEKDAYS = [
@@ -163,7 +163,7 @@ function retryAfterDelayMs(
   return date === undefined ? undefined : Math.max(0, date - now);
 }
 
-function retryDelayFor(
+export function retryDelayFor(
   failedAttemptIndex: number,
   retryAfter: string | null,
   now: number,
@@ -178,61 +178,4 @@ function retryDelayFor(
   return Number.isFinite(requestedDelay) && requestedDelay < remainingBudgetMs
     ? requestedDelay
     : undefined;
-}
-
-function waitForRetry(delayMs: number, signal: AbortSignal): Promise<void> {
-  signal.throwIfAborted();
-  return new Promise((resolve, reject) => {
-    const cleanup = (): void => {
-      signal.removeEventListener("abort", onAbort);
-    };
-    const onAbort = (): void => {
-      clearTimeout(timer);
-      cleanup();
-      reject(signal.reason);
-    };
-    const timer = setTimeout(() => {
-      cleanup();
-      resolve();
-    }, delayMs);
-    signal.addEventListener("abort", onAbort, { once: true });
-    if (signal.aborted) onAbort();
-  });
-}
-
-export async function runSystemOneAttempts<Result>(options: {
-  readonly attempt: (attemptIndex: number) => Promise<Result>;
-  readonly signal: AbortSignal;
-  readonly deadline: number;
-  readonly monotonicNow: () => number;
-  readonly assertActive: (lastCause?: unknown) => void;
-}): Promise<Result> {
-  let lastAttemptFailure: ClassifierFailure | undefined;
-  for (let attemptIndex = 0; attemptIndex < CLASSIFIER_MAX_ATTEMPTS;) {
-    options.assertActive(lastAttemptFailure);
-    try {
-      return await options.attempt(attemptIndex);
-    } catch (cause) {
-      if (!(cause instanceof RetryableSystemOneAttempt)) throw cause;
-      lastAttemptFailure = cause.failure;
-      options.assertActive(cause);
-      if (attemptIndex + 1 >= CLASSIFIER_MAX_ATTEMPTS) throw cause.failure;
-      const retryDelay = retryDelayFor(
-        attemptIndex,
-        cause.retryAfter ?? null,
-        Date.now(),
-        options.deadline - options.monotonicNow(),
-      );
-      if (retryDelay === undefined) throw cause.failure;
-      try {
-        await waitForRetry(retryDelay, options.signal);
-      } catch (waitCause) {
-        options.assertActive(cause);
-        throw waitCause;
-      }
-      options.assertActive(cause);
-      attemptIndex += 1;
-    }
-  }
-  throw new Error("Classifier attempt limit ended without a result");
 }

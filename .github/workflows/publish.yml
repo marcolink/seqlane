@@ -139,7 +139,9 @@ jobs:
 
       - name: Verify release packages
         if: steps.release.outputs.released == 'true'
-        run: node scripts/verify-release-packages.mjs
+        run: |
+          node scripts/verify-release-packages.mjs
+          pnpm verify:runtime
 
       - name: Publish release packages
         if: steps.release.outputs.released == 'true'

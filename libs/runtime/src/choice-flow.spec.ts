@@ -1,6 +1,8 @@
 // @test-scope ./start-workflow-run.ts
-// @test-scope ./runtime/mastra/mastra-execution.ts
-// @test-scope ./runtime/compile/mastra-choice-compiler.ts
+// @test-scope ./runtime/execution/effect-plan.ts
+// @test-scope ./runtime/execution/effect-choice.ts
+// @test-scope ./runtime/execution/nested-workflow.ts
+// @test-scope ./runtime/validation/output-validation-effect.ts
 
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -467,11 +469,34 @@ describe("exclusive Flow choice through the runtime", () => {
     await run.cancel();
     await expect(run.outcome).resolves.toMatchObject({ status: "cancelled" });
     expect(otherCalls).toBe(0);
-    expect(events).toContainEqual(
-      expect.objectContaining({
-        type: "invocation.cancelled",
-        reason: "Choice cancelled",
-      }),
+    const selectedInvocation = events.find(
+      (event) =>
+        event.type === "invocation.created" &&
+        event.planNodeId === "choice:1:then",
+    );
+    expect(selectedInvocation?.type).toBe("invocation.created");
+    if (selectedInvocation?.type !== "invocation.created")
+      throw new Error("Missing selected invocation");
+    const choiceInvocation = events.find(
+      (event) =>
+        event.type === "invocation.created" && event.planNodeId === "choice:1",
+    );
+    if (choiceInvocation?.type !== "invocation.created")
+      throw new Error("Missing choice invocation");
+    for (const invocationId of [
+      selectedInvocation.invocationId,
+      choiceInvocation.invocationId,
+    ]) {
+      expect(
+        events.filter(
+          (event) =>
+            event.type === "invocation.cancelled" &&
+            event.invocationId === invocationId,
+        ),
+      ).toHaveLength(1);
+    }
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "invocation.failed" }),
     );
   });
 

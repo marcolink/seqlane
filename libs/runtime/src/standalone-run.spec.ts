@@ -1,6 +1,6 @@
 // @test-scope ./start-workflow-run.ts
 // @test-scope ./runner/profile/standalone-profile.ts
-// @test-scope ./runtime/mastra/mastra-execution.ts
+// @test-scope ./runtime/execution/effect-plan.ts
 import {
   buildWorkflow,
   createFlow,

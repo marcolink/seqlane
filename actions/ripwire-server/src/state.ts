@@ -1,20 +1,7 @@
 import { z } from "zod";
+import { detachedProcessOwnershipSchema } from "@seqlane/action-service-lifecycle";
 
-const processIdentitySchema = z.object({
-  processGroupId: z.number().int().positive(),
-  processStartTime: z.string().min(1),
-});
-
-export const serviceStateSchema = z.object({
-  pid: z.number().int().positive(),
-  identity: processIdentitySchema,
-  sentinel: z
-    .object({
-      pid: z.number().int().positive(),
-      identity: processIdentitySchema,
-    })
-    .optional(),
-});
+export const serviceStateSchema = detachedProcessOwnershipSchema;
 
 export const CLEANUP_ONLY_STATE_KEY = "cleanup-only";
 const cleanupOnlyStateSchema = z.object({

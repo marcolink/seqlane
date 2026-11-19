@@ -5,6 +5,12 @@ configured project with the supported source-file policy, starts the MCP
 server, waits for readiness, and stops the process group in the action post
 handler.
 
+Startup keeps cleanup ownership until it saves validated process and sentinel
+identities, receives the resident process's adoption acknowledgment, and
+passes readiness. The post handler validates those saved identities before
+cleanup. The production bundle includes the resident process anchor beside
+its main and post entrypoints.
+
 `working-directory` is the project indexed. The Action caller does not need a
 separate install or index step. Package-manager commands run from the shipped
 Action directory; the reviewed project is passed only as the explicit index
@@ -26,3 +32,7 @@ generated output, or other excluded paths.
 sets `ZVEC_GREP_MODEL_CACHE` to a runner-temp cache directory. When disabled,
 the variable is omitted; `ZVEC_GREP_HOME` is always set. Invalid boolean input
 fails at the Action input boundary.
+
+Package resolution and indexing each have a ten-minute deadline. Each
+readiness command has a three-second deadline within the configured startup
+timeout.

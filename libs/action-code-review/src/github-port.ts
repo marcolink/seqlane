@@ -12,15 +12,39 @@ import { CodeReviewError } from "./errors.js";
 import { z } from "zod";
 
 export interface GitHubReviewPort {
-  readPullRequest(number: number): Promise<PullRequestContext>;
-  readLivePullRequest(number: number): Promise<LivePullRequest>;
-  readComments(number: number): Promise<ReviewHistory>;
-  readAuthoritativeReport(number: number): Promise<ReviewComment | undefined>;
-  readIssueComment(commentId: string): Promise<ReviewComment>;
-  createMarker(number: number, body: string): Promise<string>;
-  createReport(number: number, body: string): Promise<void>;
-  updateReport(commentId: string, body: string): Promise<void>;
-  deleteComment(commentId: string): Promise<void>;
+  readPullRequest(
+    number: number,
+    signal?: AbortSignal,
+  ): Promise<PullRequestContext>;
+  readLivePullRequest(
+    number: number,
+    signal?: AbortSignal,
+  ): Promise<LivePullRequest>;
+  readComments(number: number, signal?: AbortSignal): Promise<ReviewHistory>;
+  readAuthoritativeReport(
+    number: number,
+    signal?: AbortSignal,
+  ): Promise<ReviewComment | undefined>;
+  readIssueComment(
+    commentId: string,
+    signal?: AbortSignal,
+  ): Promise<ReviewComment>;
+  createMarker(
+    number: number,
+    body: string,
+    signal?: AbortSignal,
+  ): Promise<string>;
+  createReport(
+    number: number,
+    body: string,
+    signal?: AbortSignal,
+  ): Promise<void>;
+  updateReport(
+    commentId: string,
+    body: string,
+    signal?: AbortSignal,
+  ): Promise<void>;
+  deleteComment(commentId: string, signal?: AbortSignal): Promise<void>;
 }
 
 const TRUSTED_REPORT_AUTHORS = new Set([
@@ -98,12 +122,24 @@ function normalizeComment(
 }
 
 export interface GitHubReviewClient {
-  getPullRequest(number: number): Promise<unknown>;
-  listIssueComments(number: number, page?: number): Promise<unknown>;
-  getIssueComment(commentId: string): Promise<unknown>;
-  createIssueComment(number: number, body: string): Promise<unknown>;
-  updateIssueComment(commentId: string, body: string): Promise<unknown>;
-  deleteIssueComment(commentId: string): Promise<unknown>;
+  getPullRequest(number: number, signal?: AbortSignal): Promise<unknown>;
+  listIssueComments(
+    number: number,
+    page?: number,
+    signal?: AbortSignal,
+  ): Promise<unknown>;
+  getIssueComment(commentId: string, signal?: AbortSignal): Promise<unknown>;
+  createIssueComment(
+    number: number,
+    body: string,
+    signal?: AbortSignal,
+  ): Promise<unknown>;
+  updateIssueComment(
+    commentId: string,
+    body: string,
+    signal?: AbortSignal,
+  ): Promise<unknown>;
+  deleteIssueComment(commentId: string, signal?: AbortSignal): Promise<unknown>;
 }
 
 const commentPageSchema = z.strictObject({
@@ -142,7 +178,7 @@ function commentIdentity(value: unknown, kind: "issue" | "review"): string {
 
 export interface CommentSource {
   readonly kind: "issue" | "review";
-  readonly fetchPage: (page: number) => Promise<unknown>;
+  readonly fetchPage: (page: number, signal?: AbortSignal) => Promise<unknown>;
   readonly values: Map<string, unknown>;
   page: number;
   hasNextPage: boolean;
@@ -176,12 +212,15 @@ function orderedComments(
 export async function readNewestComments(
   sources: readonly CommentSource[],
   limit = MAX_COMMENTS,
+  signal?: AbortSignal,
 ): Promise<{
   readonly values: ReadonlyArray<readonly [unknown, "issue" | "review"]>;
   readonly truncated: boolean;
 }> {
   const readPage = async (source: CommentSource): Promise<void> => {
-    const result = parseCommentPage(await source.fetchPage(source.page));
+    const result = parseCommentPage(
+      await source.fetchPage(source.page, signal),
+    );
     const validItems = result.items.filter(
       (value): value is object => typeof value === "object" && value !== null,
     );
@@ -238,9 +277,12 @@ function githubError(
 export class GitHubReviewAdapter implements GitHubReviewPort {
   constructor(private readonly client: GitHubReviewClient) {}
 
-  async readPullRequest(number: number): Promise<PullRequestContext> {
+  async readPullRequest(
+    number: number,
+    signal?: AbortSignal,
+  ): Promise<PullRequestContext> {
     try {
-      const value = await this.client.getPullRequest(number);
+      const value = await this.client.getPullRequest(number, signal);
       const source =
         typeof value === "object" && value !== null
           ? (value as Record<string, unknown>)
@@ -267,9 +309,12 @@ export class GitHubReviewAdapter implements GitHubReviewPort {
     }
   }
 
-  async readLivePullRequest(number: number): Promise<LivePullRequest> {
+  async readLivePullRequest(
+    number: number,
+    signal?: AbortSignal,
+  ): Promise<LivePullRequest> {
     try {
-      const value = await this.client.getPullRequest(number);
+      const value = await this.client.getPullRequest(number, signal);
       const source =
         typeof value === "object" && value !== null
           ? (value as Record<string, unknown>)
@@ -314,16 +359,20 @@ export class GitHubReviewAdapter implements GitHubReviewPort {
     }
   }
 
-  async readComments(number: number): Promise<ReviewHistory> {
+  async readComments(
+    number: number,
+    signal?: AbortSignal,
+  ): Promise<ReviewHistory> {
     try {
       const issues: CommentSource = {
         kind: "issue",
-        fetchPage: (page) => this.client.listIssueComments(number, page),
+        fetchPage: (page, requestSignal) =>
+          this.client.listIssueComments(number, page, requestSignal),
         values: new Map(),
         page: 1,
         hasNextPage: true,
       };
-      const history = await readNewestComments([issues]);
+      const history = await readNewestComments([issues], MAX_COMMENTS, signal);
       const rawValues = history.values.filter(
         (entry): entry is readonly [object, "issue" | "review"] =>
           typeof entry[0] === "object" && entry[0] !== null,
@@ -366,13 +415,17 @@ export class GitHubReviewAdapter implements GitHubReviewPort {
 
   async readAuthoritativeReport(
     number: number,
+    signal?: AbortSignal,
   ): Promise<ReviewComment | undefined> {
-    return findAuthoritativeReport(await this.readComments(number));
+    return findAuthoritativeReport(await this.readComments(number, signal));
   }
 
-  async readIssueComment(commentId: string): Promise<ReviewComment> {
+  async readIssueComment(
+    commentId: string,
+    signal?: AbortSignal,
+  ): Promise<ReviewComment> {
     try {
-      const value = await this.client.getIssueComment(commentId);
+      const value = await this.client.getIssueComment(commentId, signal);
       if (typeof value !== "object" || value === null) {
         throw githubError(
           "MALFORMED_COMMENT",
@@ -390,9 +443,13 @@ export class GitHubReviewAdapter implements GitHubReviewPort {
     }
   }
 
-  async createReport(number: number, body: string): Promise<void> {
+  async createReport(
+    number: number,
+    body: string,
+    signal?: AbortSignal,
+  ): Promise<void> {
     try {
-      await this.client.createIssueComment(number, body);
+      await this.client.createIssueComment(number, body, signal);
     } catch (cause) {
       throw githubError(
         "REPORT_CREATE_FAILED",
@@ -402,9 +459,13 @@ export class GitHubReviewAdapter implements GitHubReviewPort {
     }
   }
 
-  async createMarker(number: number, body: string): Promise<string> {
+  async createMarker(
+    number: number,
+    body: string,
+    signal?: AbortSignal,
+  ): Promise<string> {
     try {
-      const value = await this.client.createIssueComment(number, body);
+      const value = await this.client.createIssueComment(number, body, signal);
       if (typeof value !== "object" || value === null) {
         throw githubError(
           "MALFORMED_COMMENT",
@@ -429,9 +490,13 @@ export class GitHubReviewAdapter implements GitHubReviewPort {
     }
   }
 
-  async updateReport(commentId: string, body: string): Promise<void> {
+  async updateReport(
+    commentId: string,
+    body: string,
+    signal?: AbortSignal,
+  ): Promise<void> {
     try {
-      await this.client.updateIssueComment(commentId, body);
+      await this.client.updateIssueComment(commentId, body, signal);
     } catch (cause) {
       throw githubError(
         "REPORT_UPDATE_FAILED",
@@ -441,9 +506,9 @@ export class GitHubReviewAdapter implements GitHubReviewPort {
     }
   }
 
-  async deleteComment(commentId: string): Promise<void> {
+  async deleteComment(commentId: string, signal?: AbortSignal): Promise<void> {
     try {
-      await this.client.deleteIssueComment(commentId);
+      await this.client.deleteIssueComment(commentId, signal);
     } catch (cause) {
       throw githubError(
         "MARKER_DELETE_FAILED",

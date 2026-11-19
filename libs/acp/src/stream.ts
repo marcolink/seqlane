@@ -1,6 +1,14 @@
-import { z } from "zod";
-import type { AgentActivity } from "@seqlane/agent-adapter";
-import { AcpLimitError, AcpMalformedStreamError } from "./errors.js";
+import type {
+  SessionNotification,
+  SessionUpdate,
+} from "@agentclientprotocol/sdk";
+import type { AgentActivity, SeqlaneObservation } from "@seqlane/agent-adapter";
+import {
+  jsonValueSchema,
+  plainRecordSchema,
+  type JsonValue,
+} from "@seqlane/core";
+import { AcpAdapterError, AcpLimitError } from "./errors.js";
 
 export const MAX_TOOL_NAME_LENGTH = 256;
 export const MAX_TOOL_CALL_ID_LENGTH = 256;
@@ -9,385 +17,509 @@ export const MAX_ACTIVITY_COUNT = 1_024;
 export const MAX_TOOL_RECORD_COUNT = 1_024;
 export const MAX_ACTIVITY_INPUT_LENGTH = 1_000_000;
 
-const MAX_DIAGNOSTICS = 8;
-const DIAGNOSTICS_SUPPRESSED_CODE = "acp-diagnostics-suppressed";
-const DIAGNOSTICS_SUPPRESSED_MESSAGE =
-  "ACP v1 suppressed additional tool diagnostics after diagnostic budget exhaustion";
-
+const MAX_VALUE_DEPTH = 64;
+// The snapshot, current update, and optional full notification each preserve
+// the same native input/output values. Allow their three serialized copies,
+// plus 1 KiB per copy for the fixed ACP envelope and JSON syntax. Other native
+// metadata shares this combined projection budget; it is never truncated.
+const MAX_ACTIVITY_METADATA_BYTES =
+  3 * (MAX_ACTIVITY_INPUT_LENGTH + MAX_TOOL_RESULT_BYTES + 1_024);
 const textEncoder = new TextEncoder();
-const boundedToolString = (maximum: number) => z.string().min(1).max(maximum);
 
-/** The ACP v1 stream vocabulary consumed by the private Mastra ACP adapter. */
-export const acpV1StreamChunkSchema = z.discriminatedUnion("type", [
-  z.object({
-    type: z.literal("text-delta"),
-    payload: z.object({ text: z.string() }),
-  }),
-  z.object({ type: z.literal("text-start") }),
-  z.object({ type: z.literal("text-end") }),
-  z.object({ type: z.literal("step-finish") }),
-  z.object({ type: z.literal("finish") }),
-  z.object({
-    type: z.literal("tool-call"),
-    payload: z.object({
-      toolCallId: boundedToolString(MAX_TOOL_CALL_ID_LENGTH),
-      toolName: boundedToolString(MAX_TOOL_NAME_LENGTH),
-      args: z.unknown().optional(),
-    }),
-  }),
-  z.object({
-    type: z.literal("tool-call-delta"),
-    payload: z.object({
-      toolCallId: boundedToolString(MAX_TOOL_CALL_ID_LENGTH),
-      toolName: boundedToolString(MAX_TOOL_NAME_LENGTH),
-      argsTextDelta: z.string().optional(),
-    }),
-  }),
-  z.object({
-    type: z.literal("tool-result"),
-    payload: z.object({
-      toolCallId: boundedToolString(MAX_TOOL_CALL_ID_LENGTH),
-      toolName: boundedToolString(MAX_TOOL_NAME_LENGTH),
-      result: z.unknown().optional(),
-      isError: z.boolean().optional(),
-    }),
-  }),
-]);
+type ToolCall = Extract<SessionUpdate, { sessionUpdate: "tool_call" }>;
+type ToolCallUpdate = Extract<
+  SessionUpdate,
+  { sessionUpdate: "tool_call_update" }
+>;
+type ToolState = {
+  readonly id: string;
+  name?: string | null;
+  title?: string | null;
+  kind?: string | null;
+  status?: ToolCall["status"] | ToolCallUpdate["status"];
+  snapshot: Record<string, unknown>;
+  lastUpdate?: Record<string, unknown>;
+  notification?: unknown;
+  startedAt: number;
+  terminal: boolean;
+};
 
-export type AcpV1StreamChunk = z.output<typeof acpV1StreamChunkSchema>;
-
-function chunkType(value: unknown): string | undefined {
-  if (typeof value !== "object" || value === null || !("type" in value)) {
-    return undefined;
+function valueBytes(root: unknown, limit: number): number {
+  let bytes = 0;
+  let entries = 0;
+  const pending: { readonly value: unknown; readonly depth: number }[] = [
+    { value: root, depth: 0 },
+  ];
+  while (pending.length > 0) {
+    const item = pending.pop();
+    if (item === undefined) continue;
+    if (item.depth > MAX_VALUE_DEPTH) {
+      throw new AcpLimitError("ACP activity value depth", MAX_VALUE_DEPTH);
+    }
+    if (typeof item.value === "string") {
+      bytes += textEncoder.encode(item.value).byteLength;
+    } else if (typeof item.value === "number") {
+      if (!Number.isFinite(item.value)) {
+        throw new AcpAdapterError(
+          "malformed-stream",
+          "ACP activity contained a non-finite number",
+        );
+      }
+      bytes += 8;
+    } else if (typeof item.value === "boolean" || item.value === null) {
+      bytes += 1;
+    } else if (Array.isArray(item.value)) {
+      entries += item.value.length;
+      for (const value of item.value) {
+        pending.push({ value, depth: item.depth + 1 });
+      }
+    } else if (typeof item.value === "object") {
+      const properties = Object.entries(item.value);
+      entries += properties.length;
+      for (const [key, value] of properties) {
+        bytes += textEncoder.encode(key).byteLength;
+        pending.push({ value, depth: item.depth + 1 });
+      }
+    } else {
+      throw new AcpAdapterError(
+        "malformed-stream",
+        "ACP activity contained a non-JSON value",
+      );
+    }
+    if (bytes > limit) throw new AcpLimitError("ACP activity value", limit);
+    if (entries > MAX_ACTIVITY_COUNT * 16) {
+      throw new AcpLimitError(
+        "ACP activity value entries",
+        MAX_ACTIVITY_COUNT * 16,
+      );
+    }
   }
-  return typeof value.type === "string" ? value.type : undefined;
+  return bytes;
 }
 
-function throwStreamParseError(type: string, cause: z.ZodError): never {
-  const limitIssue = cause.issues.find((issue) => issue.code === "too_big");
-  if (limitIssue !== undefined) {
-    const field = limitIssue.path.at(-1);
-    const isCallId = field === "toolCallId";
-    throw new AcpLimitError(
-      isCallId ? "tool call id" : "tool name",
-      isCallId ? MAX_TOOL_CALL_ID_LENGTH : MAX_TOOL_NAME_LENGTH,
-      cause,
+function serializedJsonBytes(
+  root: JsonValue,
+  limit: number,
+  field: string,
+): number {
+  // Call only after jsonValueSchema has accepted the complete source value.
+  const serialized = JSON.stringify(root);
+  if (serialized === undefined) {
+    throw new AcpAdapterError(
+      "malformed-stream",
+      "ACP JSON value could not be serialized",
     );
   }
-  throw new AcpMalformedStreamError(type, cause);
+  const bytes = textEncoder.encode(serialized).byteLength;
+  if (bytes > limit) throw new AcpLimitError(field, limit);
+  return bytes;
 }
-
-/** Parse a known ACP v1 chunk exactly once; unknown object chunks are ignored. */
-export function parseAcpV1StreamChunk(
-  value: unknown,
-): AcpV1StreamChunk | undefined {
-  const type = chunkType(value);
-  if (type === undefined && (typeof value !== "object" || value === null)) {
-    throw new AcpMalformedStreamError(type);
-  }
-  if (
-    type !== "text-delta" &&
-    type !== "text-start" &&
-    type !== "text-end" &&
-    type !== "step-finish" &&
-    type !== "finish" &&
-    type !== "tool-call" &&
-    type !== "tool-call-delta" &&
-    type !== "tool-result"
-  ) {
-    return undefined;
-  }
-  const parsed = acpV1StreamChunkSchema.safeParse(value);
-  if (!parsed.success) throwStreamParseError(type, parsed.error);
-  return parsed.data;
-}
-
-function validateToolResultSize(result: unknown): void {
-  if (result === undefined) return;
-  let serialized: string | undefined;
-  try {
-    serialized = JSON.stringify(result);
-  } catch (cause) {
-    throw new AcpMalformedStreamError("tool-result", cause);
-  }
-  if (serialized === undefined) {
-    throw new AcpMalformedStreamError("tool-result");
-  }
-  if (textEncoder.encode(serialized).byteLength > MAX_TOOL_RESULT_BYTES) {
-    throw new AcpLimitError("tool result", MAX_TOOL_RESULT_BYTES);
-  }
-}
-
-export interface AcpToolRecord {
-  readonly key: string;
-  readonly invocationId: string;
-  readonly attemptIndex: number;
-  readonly toolCallId: string;
-  readonly toolName: string;
-  state: "open" | "closed";
-  terminalOutcome?: "success" | "failure" | "incomplete" | "cancelled";
-}
-
-export type AcpToolTerminalOutcome =
-  "success" | "failure" | "incomplete" | "cancelled";
 
 export interface AcpToolReducerSinks {
   readonly onActivity?: (activity: AgentActivity) => void;
-  readonly onToolOpened?: (record: AcpToolRecord) => void;
-  readonly onToolClosed?: (
-    record: AcpToolRecord,
-    outcome: AcpToolTerminalOutcome,
-  ) => void;
+  readonly onObservation?: (observation: SeqlaneObservation) => void;
   readonly onDiagnostic?: (diagnostic: {
     readonly code: string;
     readonly message: string;
   }) => void;
 }
 
-function tupleKey(
-  invocationId: string,
-  attemptIndex: number,
-  toolCallId: string,
-): string {
-  return JSON.stringify([invocationId, attemptIndex, toolCallId]);
-}
-
-function reportDiagnostic(
-  sink: AcpToolReducerSinks,
-  code: string,
-  message: string,
-): void {
-  try {
-    sink.onDiagnostic?.({ code, message });
-  } catch {
-    // Diagnostics cannot affect ACP execution.
+function toolName(tool: ToolState): string {
+  const name = tool.name ?? tool.title ?? "ACP tool call";
+  if (name.length === 0) return "ACP tool call";
+  if (name.length > MAX_TOOL_NAME_LENGTH) {
+    throw new AcpLimitError("tool name", MAX_TOOL_NAME_LENGTH);
   }
+  return name;
 }
 
-function createBoundedDiagnosticReporter(sinks: AcpToolReducerSinks) {
-  let count = 0;
-  let suppressionReported = false;
-  return (code: string, message: string): void => {
-    if (count < MAX_DIAGNOSTICS) {
-      count += 1;
-      reportDiagnostic(sinks, code, message);
-      return;
-    }
-    if (suppressionReported) return;
-    suppressionReported = true;
-    reportDiagnostic(
-      sinks,
-      DIAGNOSTICS_SUPPRESSED_CODE,
-      DIAGNOSTICS_SUPPRESSED_MESSAGE,
+function rawValueMetadata(
+  tool: ToolState,
+  update: Record<string, unknown>,
+  terminalReason?: string,
+) {
+  const metadata = {
+    protocol: "acp-v1",
+    snapshot: {
+      ...tool.snapshot,
+    },
+    update,
+    ...(tool.notification === undefined
+      ? {}
+      : { notification: tool.notification }),
+    ...(terminalReason === undefined ? {} : { terminalReason }),
+  };
+  const parsed = jsonValueSchema.safeParse(metadata);
+  if (!parsed.success) {
+    throw new AcpAdapterError(
+      "malformed-stream",
+      "ACP tool update contained non-JSON metadata",
+      parsed.error,
     );
+  }
+  valueBytes(parsed.data, Number.POSITIVE_INFINITY);
+  return parsed.data;
+}
+
+function activityFor(
+  tool: ToolState,
+  update: Record<string, unknown>,
+  state: AgentActivity["state"],
+  endedAt?: number,
+  message?: string,
+  terminalReason?: string,
+): AgentActivity {
+  if (tool.id.length === 0 || tool.id.length > MAX_TOOL_CALL_ID_LENGTH) {
+    throw new AcpLimitError("tool call id", MAX_TOOL_CALL_ID_LENGTH);
+  }
+  const metadata = rawValueMetadata(tool, update, terminalReason);
+  serializedJsonBytes(
+    metadata,
+    MAX_ACTIVITY_METADATA_BYTES,
+    "ACP activity metadata",
+  );
+  return {
+    activityId: tool.id,
+    kind: "tool",
+    name: toolName(tool),
+    state,
+    ...(tool.snapshot.rawInput === undefined
+      ? {}
+      : { input: tool.snapshot.rawInput }),
+    ...(tool.snapshot.rawOutput === undefined
+      ? {}
+      : { output: tool.snapshot.rawOutput }),
+    metadata,
+    startedAt: tool.startedAt,
+    ...(endedAt === undefined ? {} : { endedAt }),
+    ...(message === undefined ? {} : { message }),
   };
 }
 
-/** Adapter-local ACP v1 lifecycle authority for activity and native spans. */
+function applyToolPatch(
+  tool: ToolState,
+  update: ToolCall | ToolCallUpdate,
+  rawUpdate: Record<string, unknown>,
+  notification?: unknown,
+): void {
+  tool.lastUpdate = rawUpdate;
+  const partialUpdate = update.sessionUpdate === "tool_call_update";
+  for (const [key, value] of Object.entries(rawUpdate)) {
+    if (
+      partialUpdate &&
+      value === null &&
+      ["name", "title", "kind", "status"].includes(key)
+    ) {
+      continue;
+    }
+    tool.snapshot[key] = value;
+  }
+  if (update.name !== undefined && update.name !== null)
+    tool.name = update.name;
+  if (update.title !== undefined && update.title !== null)
+    tool.title = update.title;
+  if ("kind" in update && update.kind !== undefined && update.kind !== null) {
+    tool.kind = update.kind;
+  }
+  if (update.status !== undefined && update.status !== null) {
+    tool.status = update.status;
+  }
+  if (notification !== undefined) tool.notification = notification;
+}
+
+function acceptedPayload(
+  update: SessionUpdate,
+  notification?: SessionNotification,
+): {
+  readonly update: Record<string, unknown>;
+  readonly notification?: JsonValue;
+  readonly raw: JsonValue;
+} {
+  const parsedUpdate = jsonValueSchema.safeParse(update);
+  if (!parsedUpdate.success) {
+    throw new AcpAdapterError(
+      "malformed-stream",
+      "ACP update contained a non-JSON value",
+      parsedUpdate.error,
+    );
+  }
+  const record = plainRecordSchema.safeParse(parsedUpdate.data);
+  if (!record.success) {
+    throw new AcpAdapterError(
+      "malformed-stream",
+      "ACP update was not a JSON object",
+    );
+  }
+  // Preserve the nesting/entry guards without imposing the tool-result byte
+  // budget on unrelated update fields such as text or usage.
+  valueBytes(record.data, Number.POSITIVE_INFINITY);
+
+  if (notification === undefined) {
+    return { update: record.data, raw: parsedUpdate.data };
+  }
+  const parsedNotification = jsonValueSchema.safeParse(notification);
+  if (!parsedNotification.success) {
+    throw new AcpAdapterError(
+      "malformed-stream",
+      "ACP notification contained a non-JSON value",
+      parsedNotification.error,
+    );
+  }
+  valueBytes(parsedNotification.data, Number.POSITIVE_INFINITY);
+  const notificationRecord = plainRecordSchema.safeParse(
+    parsedNotification.data,
+  );
+  if (!notificationRecord.success) {
+    throw new AcpAdapterError(
+      "malformed-stream",
+      "ACP notification was not an object",
+    );
+  }
+  return {
+    update: record.data,
+    notification: parsedNotification.data,
+    raw: parsedUpdate.data,
+  };
+}
+
+function statusActivityState(
+  status: ToolCall["status"] | ToolCallUpdate["status"] | undefined,
+): AgentActivity["state"] | undefined {
+  if (status === "completed") return "succeeded";
+  if (status === "failed") return "failed";
+  if (status === "in_progress") return "progress";
+  return undefined;
+}
+
+/** Projects typed ACP v1 updates while retaining every native tool payload. */
 export class AcpToolReducer {
-  private readonly records = new Map<string, AcpToolRecord>();
-  private readonly reportDiagnostic: (code: string, message: string) => void;
-  private recordCount = 0;
+  private readonly tools = new Map<string, ToolState>();
+  private readonly terminalToolIds = new Set<string>();
   private activityCount = 0;
-  private activityInputLength = 0;
+  private toolRecordCount = 0;
+  private activityInputBytes = 0;
+  private observationCount = 0;
 
   constructor(
     private readonly invocationId: string,
     private readonly sinks: AcpToolReducerSinks,
-  ) {
-    this.reportDiagnostic = createBoundedDiagnosticReporter(sinks);
-  }
+  ) {}
 
-  consume(value: unknown, attemptIndex: number): AcpV1StreamChunk | undefined {
-    const chunk = parseAcpV1StreamChunk(value);
-    if (chunk === undefined) return undefined;
-    if (chunk.type === "tool-call" || chunk.type === "tool-call-delta") {
-      this.call(chunk, attemptIndex);
-    } else if (chunk.type === "tool-result") {
-      this.result(chunk, attemptIndex);
-    }
-    return chunk;
-  }
-
-  finishAttempt(
-    attemptIndex: number,
-    outcome: "incomplete" | "cancelled" | "failure",
-  ): void {
-    for (const record of this.records.values()) {
-      if (record.attemptIndex !== attemptIndex || record.state !== "open") {
-        continue;
-      }
-      record.state = "closed";
-      record.terminalOutcome = outcome;
-      this.sinks.onToolClosed?.(record, outcome);
+  consume(
+    update: SessionUpdate,
+    notification?: SessionNotification,
+  ): string | undefined {
+    const accepted = acceptedPayload(update, notification);
+    switch (update.sessionUpdate) {
+      case "tool_call":
+        this.toolCall(update, accepted.update, accepted.notification);
+        return undefined;
+      case "tool_call_update":
+        this.toolCallUpdate(update, accepted.update, accepted.notification);
+        return undefined;
+      case "agent_message_chunk":
+        return update.content.type === "text" ? update.content.text : undefined;
+      case "usage_update":
+        this.usage(accepted.notification ?? accepted.raw);
+        return undefined;
+      default:
+        return undefined;
     }
   }
 
-  private call(
-    chunk: Extract<AcpV1StreamChunk, { type: "tool-call" | "tool-call-delta" }>,
-    attemptIndex: number,
+  finishAttempt(outcome: "cancelled" | "failed"): void {
+    const endedAt = Date.now();
+    let callbackFailed = false;
+    let callbackFailure: unknown;
+    for (const tool of this.tools.values()) {
+      if (tool.terminal) continue;
+      tool.terminal = true;
+      try {
+        this.emit(
+          activityFor(
+            tool,
+            tool.lastUpdate ?? tool.snapshot,
+            "failed",
+            endedAt,
+            outcome === "cancelled"
+              ? "ACP prompt was cancelled"
+              : "ACP prompt ended before the tool reported completion",
+            outcome,
+          ),
+        );
+      } catch (cause) {
+        if (!callbackFailed) callbackFailure = cause;
+        callbackFailed = true;
+      } finally {
+        this.releaseTool(tool);
+      }
+    }
+    if (callbackFailed) throw callbackFailure;
+  }
+
+  private toolCall(
+    update: ToolCall,
+    rawUpdate: Record<string, unknown>,
+    notification?: unknown,
   ): void {
-    const { toolCallId, toolName } = chunk.payload;
-    const key = tupleKey(this.invocationId, attemptIndex, toolCallId);
-    const existing = this.records.get(key);
-    if (existing !== undefined) {
-      if (existing.state === "closed") {
-        this.reportDiagnostic(
-          "acp-tool-late-observation",
-          "ACP v1 ignored a tool observation after terminal closure",
-        );
-        return;
-      }
-      if (existing.toolName !== toolName) {
-        this.reportDiagnostic(
-          "acp-tool-conflicting-name",
-          "ACP v1 ignored a tool observation with a conflicting name",
-        );
-        return;
-      }
-      this.emitActivity({
-        activityId: toolCallId,
-        kind: "tool",
-        name: existing.toolName,
-        state: "progress",
-        ...(chunk.type === "tool-call" && chunk.payload.args !== undefined
-          ? { input: chunk.payload.args }
-          : chunk.type === "tool-call-delta" &&
-              chunk.payload.argsTextDelta !== undefined
-            ? { input: chunk.payload.argsTextDelta }
-            : {}),
-      });
+    if (this.terminalToolIds.has(update.toolCallId)) {
+      this.diagnoseLateUpdate();
       return;
     }
-    if (this.recordCount >= MAX_TOOL_RECORD_COUNT) {
+    this.validateSourcePayload(update);
+    if (this.tools.has(update.toolCallId)) {
+      const existing = this.tools.get(update.toolCallId);
+      if (existing === undefined) return;
+      if (existing.terminal) {
+        this.diagnoseLateUpdate();
+        return;
+      }
+      applyToolPatch(existing, update, rawUpdate, notification);
+      this.toolCallUpdate(
+        { ...update, sessionUpdate: "tool_call_update" },
+        rawUpdate,
+        notification,
+        false,
+      );
+      return;
+    }
+    if (this.toolRecordCount >= MAX_TOOL_RECORD_COUNT) {
       throw new AcpLimitError("tool record count", MAX_TOOL_RECORD_COUNT);
     }
-    this.recordCount += 1;
-    const record: AcpToolRecord = {
-      key,
-      invocationId: this.invocationId,
-      attemptIndex,
-      toolCallId,
-      toolName,
-      state: "open",
+    this.toolRecordCount += 1;
+    const tool: ToolState = {
+      id: update.toolCallId,
+      snapshot: {},
+      startedAt: Date.now(),
+      terminal: false,
     };
-    this.records.set(key, record);
-    this.sinks.onToolOpened?.(record);
-    this.emitActivity({
-      activityId: toolCallId,
-      kind: "tool",
-      name: toolName,
-      state: "started",
-      ...(chunk.type === "tool-call" && chunk.payload.args !== undefined
-        ? { input: chunk.payload.args }
-        : chunk.type === "tool-call-delta" &&
-            chunk.payload.argsTextDelta !== undefined
-          ? { input: chunk.payload.argsTextDelta }
-          : {}),
-    });
+    applyToolPatch(tool, update, rawUpdate, notification);
+    this.tools.set(tool.id, tool);
+    const state =
+      update.status === "completed" || update.status === "failed"
+        ? (statusActivityState(update.status) ?? "failed")
+        : "started";
+    const terminal = state === "succeeded" || state === "failed";
+    if (terminal) tool.terminal = true;
+    try {
+      this.emit(
+        activityFor(tool, rawUpdate, state, terminal ? Date.now() : undefined),
+      );
+    } finally {
+      if (terminal) this.releaseTool(tool);
+    }
   }
 
-  private result(
-    chunk: Extract<AcpV1StreamChunk, { type: "tool-result" }>,
-    attemptIndex: number,
+  private toolCallUpdate(
+    update: ToolCallUpdate,
+    rawUpdate: Record<string, unknown>,
+    notification?: unknown,
+    validatePayload = true,
   ): void {
-    const { toolCallId, toolName, result, isError } = chunk.payload;
-    const key = tupleKey(this.invocationId, attemptIndex, toolCallId);
-    const record = this.records.get(key);
-    if (record === undefined) throw new AcpMalformedStreamError(chunk.type);
-    const outcome = isError === true ? "failure" : "success";
-    if (record.state === "closed") {
-      if (record.toolName === toolName && record.terminalOutcome === outcome) {
-        return;
+    if (update.toolCallId.length === 0) {
+      throw new AcpAdapterError(
+        "malformed-stream",
+        "ACP tool call id is empty",
+      );
+    }
+    if (this.terminalToolIds.has(update.toolCallId)) {
+      this.diagnoseLateUpdate();
+      return;
+    }
+    if (validatePayload) this.validateSourcePayload(update);
+    let tool = this.tools.get(update.toolCallId);
+    if (tool === undefined) {
+      if (this.toolRecordCount >= MAX_TOOL_RECORD_COUNT) {
+        throw new AcpLimitError("tool record count", MAX_TOOL_RECORD_COUNT);
       }
-      this.reportDiagnostic(
-        "acp-tool-conflicting-terminal",
-        "ACP v1 ignored a conflicting or late tool terminal observation",
-      );
+      this.toolRecordCount += 1;
+      tool = {
+        id: update.toolCallId,
+        snapshot: {},
+        startedAt: Date.now(),
+        terminal: false,
+      };
+      this.tools.set(tool.id, tool);
+    }
+    if (tool.terminal) {
+      this.diagnoseLateUpdate();
       return;
     }
-    if (record.toolName !== toolName) {
-      this.reportDiagnostic(
-        "acp-tool-conflicting-terminal",
-        "ACP v1 ignored a tool terminal observation with a conflicting name",
+    applyToolPatch(tool, update, rawUpdate, notification);
+    const state = statusActivityState(tool.status) ?? "progress";
+    const terminal = state === "succeeded" || state === "failed";
+    if (terminal) tool.terminal = true;
+    try {
+      this.emit(
+        activityFor(tool, rawUpdate, state, terminal ? Date.now() : undefined),
       );
-      return;
+    } finally {
+      if (terminal) this.releaseTool(tool);
     }
-    validateToolResultSize(result);
-    record.state = "closed";
-    record.terminalOutcome = outcome;
-    this.sinks.onToolClosed?.(record, outcome);
-    this.emitActivity({
-      activityId: toolCallId,
-      kind: "tool",
-      name: toolName,
-      state: isError === true ? "failed" : "succeeded",
-      ...(result === undefined ? {} : { output: result }),
-      ...(isError === true ? { message: "Tool failed" } : {}),
-    });
   }
 
-  private emitActivity(activity: AgentActivity): void {
-    this.activityCount += 1;
-    if (this.activityCount > MAX_ACTIVITY_COUNT) {
-      throw new AcpLimitError("activity count", MAX_ACTIVITY_COUNT);
-    }
-    if (typeof activity.input === "string") {
-      this.activityInputLength += activity.input.length;
-      if (this.activityInputLength > MAX_ACTIVITY_INPUT_LENGTH) {
+  private validateSourcePayload(update: ToolCall | ToolCallUpdate): void {
+    if ("rawInput" in update && update.rawInput !== undefined) {
+      const bytes = valueBytes(update.rawInput, MAX_ACTIVITY_INPUT_LENGTH);
+      if (this.activityInputBytes + bytes > MAX_ACTIVITY_INPUT_LENGTH) {
         throw new AcpLimitError("activity input", MAX_ACTIVITY_INPUT_LENGTH);
       }
+      this.activityInputBytes += bytes;
     }
+    if ("rawOutput" in update && update.rawOutput !== undefined) {
+      const parsed = jsonValueSchema.safeParse(update.rawOutput);
+      if (!parsed.success) {
+        throw new AcpAdapterError(
+          "malformed-stream",
+          "ACP tool output contained a non-JSON value",
+          parsed.error,
+        );
+      }
+      serializedJsonBytes(parsed.data, MAX_TOOL_RESULT_BYTES, "tool result");
+    }
+  }
+
+  private releaseTool(tool: ToolState): void {
+    this.tools.delete(tool.id);
+    this.terminalToolIds.add(tool.id);
+    tool.snapshot = {};
+    tool.lastUpdate = undefined;
+    tool.notification = undefined;
+  }
+
+  private usage(usage: JsonValue): void {
+    this.observationCount += 1;
+    const observedAt = Date.now();
+    this.sinks.onObservation?.({
+      observationId: `acp-${this.invocationId}-usage-${this.observationCount}`,
+      kind: "model",
+      state: "updated",
+      model: {
+        operation: "acp.session.usage",
+        usage,
+        startedAt: observedAt,
+        endedAt: observedAt,
+      },
+      availability: [
+        { path: "model.model", reason: "source-unavailable" },
+        { path: "model.provider", reason: "source-unavailable" },
+        { path: "model.cost", reason: "source-unavailable" },
+      ],
+    });
+  }
+
+  private diagnoseLateUpdate(): void {
+    this.sinks.onDiagnostic?.({
+      code: "acp-tool-late-update",
+      message: "ACP reported a tool update after a terminal status",
+    });
+  }
+
+  private emit(activity: AgentActivity): void {
+    if (this.activityCount >= MAX_ACTIVITY_COUNT) {
+      throw new AcpLimitError("activity count", MAX_ACTIVITY_COUNT);
+    }
+    this.activityCount += 1;
     this.sinks.onActivity?.(activity);
   }
-}
-
-interface CompatibilityReducer {
-  onActivity?: (activity: AgentActivity) => void;
-  readonly reducer: AcpToolReducer;
-}
-
-const compatibilityReducers = new WeakMap<
-  Map<string, string>,
-  CompatibilityReducer
->();
-
-function compatibilityReducer(
-  activities: Map<string, string>,
-): CompatibilityReducer {
-  const existing = compatibilityReducers.get(activities);
-  if (existing !== undefined) return existing;
-
-  let initializing = true;
-  const reducer = new AcpToolReducer("compatibility", {
-    onActivity: (activity) => {
-      if (!initializing) context.onActivity?.(activity);
-    },
-    onToolOpened: (record) =>
-      activities.set(record.toolCallId, record.toolName),
-  });
-  const context: CompatibilityReducer = { reducer };
-  compatibilityReducers.set(activities, context);
-  for (const [toolCallId, toolName] of activities) {
-    reducer.consume(
-      {
-        type: "tool-call-delta",
-        payload: { toolCallId, toolName },
-      },
-      0,
-    );
-  }
-  initializing = false;
-  return context;
-}
-
-/** Compatibility helper routed through the canonical ACP v1 reducer. */
-export function reportAcpStreamChunk(
-  value: unknown,
-  activities: Map<string, string>,
-  onActivity: ((activity: AgentActivity) => void) | undefined,
-): void {
-  const context = compatibilityReducer(activities);
-  context.onActivity = onActivity;
-  context.reducer.consume(value, 0);
 }

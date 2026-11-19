@@ -84,7 +84,7 @@ function reviewReport(runCount: number, taskCount: number): PublicationReport {
               cacheWrite: 7276,
               total: 91763,
             },
-            skills: [{ name: "mastra", count: 1 }],
+            skills: [{ name: "runtime", count: 1 }],
           })),
         },
       })),

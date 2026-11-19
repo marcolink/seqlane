@@ -16,7 +16,7 @@ interface RunTransportOptions {
   readonly onThreadStart?: (threadId: string) => void;
   readonly onTurnStart?: (context: RunTransportTurnContext) => void;
   readonly onInterrupt?: (context: RunTransportTurnContext) => void;
-  readonly onClose?: () => void;
+  readonly onClose?: () => void | Promise<void>;
 }
 
 function createRunTestTransport(
@@ -25,13 +25,17 @@ function createRunTestTransport(
   let closed = false;
   let threadNumber = 0;
   let turnNumber = 0;
+  let resolveTermination!: () => void;
+  const termination = new Promise<void>((resolve) => {
+    resolveTermination = resolve;
+  });
   const listeners = new Set<(message: CodexInboundMessage) => void>();
   const emit = (message: CodexInboundMessage): void => {
     for (const listener of listeners) listener(message);
   };
 
   return {
-    termination: Promise.resolve(),
+    termination,
     request: async (method, params) => {
       if (closed) throw new Error("transport is closed");
       if (method === "model/list") {
@@ -86,7 +90,8 @@ function createRunTestTransport(
     },
     close: async () => {
       closed = true;
-      options.onClose?.();
+      await options.onClose?.();
+      resolveTermination();
     },
   };
 }
@@ -168,7 +173,6 @@ describe("Codex run ownership", () => {
     };
     const request = {
       invocationId: "invocation-1",
-      observability: {},
       task,
       input: {},
       agent: { goal: "Return JSON" },
@@ -239,18 +243,98 @@ describe("Codex run ownership", () => {
       }
       expect(resolveTransport).toBeTypeOf("function");
       const closing = run.close();
+      const closeResult = expect(closing).rejects.toMatchObject({
+        code: "cancellation",
+      });
       await vi.advanceTimersByTimeAsync(5_000);
-      await expect(closing).resolves.toBeUndefined();
+      await closeResult;
       await expect(lookup).resolves.toMatchObject({ code: "cancellation" });
       expect(closes).toBe(0);
       resolveTransport(transport);
-      await Promise.resolve();
-      await Promise.resolve();
+      await vi.waitFor(() => expect(closes).toBe(1));
       expect(closes).toBe(1);
-      await run.close();
+      await expect(run.close()).rejects.toMatchObject({ code: "cancellation" });
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("reports an unconfirmed transport close and observes its late completion", async () => {
+    let closes = 0;
+    let resolveClose!: () => void;
+    const transport = createRunTestTransport({
+      onClose: () => {
+        closes += 1;
+        return new Promise<void>((resolve) => {
+          resolveClose = resolve;
+        });
+      },
+    });
+    const run = createCodexRun(
+      {
+        executable: "/opt/codex",
+        workspace: "/workspace",
+        networkAccess: false,
+      },
+      { createTransport: async () => transport },
+    );
+
+    vi.useFakeTimers();
+    try {
+      await expect(
+        run.modelCapabilities.resolveDefaultModel(),
+      ).resolves.toEqual({
+        model: { provider: "openai", model: "gpt-5.6-sol" },
+      });
+      const closing = run.close();
+      const closeResult = expect(closing).rejects.toMatchObject({
+        code: "cancellation",
+      });
+      await vi.waitFor(() => expect(resolveClose).toBeTypeOf("function"));
+      await vi.advanceTimersByTimeAsync(5_000);
+      await closeResult;
+      expect(closes).toBe(1);
+      resolveClose();
+      await Promise.resolve();
+      expect(closes).toBe(1);
+      await expect(run.close()).rejects.toMatchObject({ code: "cancellation" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps an undefined transport close rejection as a failure", async () => {
+    const transport = createRunTestTransport({
+      onClose: () => Promise.reject(undefined),
+    });
+    const run = createCodexRun(
+      {
+        executable: "/opt/codex",
+        workspace: "/workspace",
+        networkAccess: false,
+      },
+      { createTransport: async () => transport },
+    );
+    await expect(run.modelCapabilities.resolveDefaultModel()).resolves.toEqual({
+      model: { provider: "openai", model: "gpt-5.6-sol" },
+    });
+
+    let rejection: unknown;
+    try {
+      await run.close();
+    } catch (cause) {
+      rejection = cause;
+    }
+    expect(rejection).toMatchObject({
+      code: "cancellation",
+      message: "Codex adapter: Codex transport close failed",
+    });
+    expect(rejection).toBeInstanceOf(Error);
+    if (!(rejection instanceof Error)) {
+      throw new Error("Codex close rejection was not an Error");
+    }
+    expect(Object.hasOwn(rejection, "cause")).toBe(true);
+    expect(rejection.cause).toBeUndefined();
   });
 
   it("keeps the shared transport open after a parallel session cancellation", async () => {
@@ -326,7 +410,6 @@ describe("Codex run ownership", () => {
     };
     const request = {
       invocationId: "invocation-1",
-      observability: {},
       task,
       input: {},
       agent: { goal: "Return JSON" },
@@ -348,9 +431,7 @@ describe("Codex run ownership", () => {
         ...request,
         invocationId: "invocation-2",
       });
-      for (let index = 0; index < 20 && turnNumber < 2; index += 1) {
-        await Promise.resolve();
-      }
+      await vi.waitFor(() => expect(turnNumber).toBe(2));
       expect(turnNumber).toBe(2);
       hangingController.abort(new Error("cancel hanging turn"));
       await vi.runAllTimersAsync();
@@ -424,7 +505,6 @@ describe("Codex run ownership", () => {
     };
     const request = {
       invocationId: "invocation-1",
-      observability: {},
       task,
       input: {},
       agent: { goal: "Return JSON" },

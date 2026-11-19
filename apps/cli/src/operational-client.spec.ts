@@ -1,12 +1,5 @@
 // @test-scope ./operational-client.ts
-// @test-scope ../../../libs/runtime/src/runtime/mastra/operational-host.ts
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Plan, PlanNode } from "@seqlane/core";
-import {
-  createOperationalHost,
-  createOperationalWorkflow,
-} from "@seqlane/runtime/operational-host";
-import { z } from "zod";
 import {
   OperationalClient,
   OperationalClientError,
@@ -17,257 +10,302 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+const workflow = {
+  id: "fixture",
+  key: "repository:fixture",
+  input: { schema: {} },
+  output: { schema: {} },
+  plan: { workflow: { id: "fixture" }, nodes: [] },
+};
+
+const runStatus = (status: string, output?: unknown) => ({
+  version: 1,
+  workId: "work-1",
+  runId: "run-1",
+  workflowKey: "repository:fixture",
+  status,
+  createdAt: "2026-10-22T10:00:00.000Z",
+  updatedAt: "2026-10-22T10:00:01.000Z",
+  ...(output === undefined ? {} : { output }),
+  completeness: {
+    inspection:
+      status === "queued" || status === "running" ? "incomplete" : "complete",
+  },
+});
+
+function stubJsonFetch(
+  handler: (url: URL, request: Request) => Response | Promise<Response>,
+) {
+  const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+    const request = input instanceof Request ? input : new Request(input, init);
+    return handler(new URL(request.url), request);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
 describe("OperationalClient", () => {
-  it("starts and observes a run through the real Mastra operational routes", async () => {
-    const node: PlanNode = {
-      type: "task",
-      taskId: "fixture.task",
-      nodeId: "fixture.task:1",
-      input: {},
-      dependsOn: [],
-      workspace: "exclusive",
-    };
-    const plan: Plan = {
-      workflow: { id: "fixture-workflow" },
-      nodes: [node],
-      output: { type: "ref", nodeId: node.nodeId, path: ["output"] },
-    };
-    const host = await createOperationalHost({
-      workflows: [
-        createOperationalWorkflow({
-          key: "repository:fixture",
-          plan,
-          taskDefinitions: new Map([
-            [
-              "fixture.task",
-              {
-                id: "fixture.task",
-                input: z.object({}),
-                output: z.object({ ok: z.boolean() }),
-                execute: async () => ({ ok: true }),
-              },
-            ],
-          ]),
-        }),
-      ],
-      storageUrl: "file::memory:",
+  it("posts v1 identities and observes a long healthy run until its normalized result is ready", async () => {
+    vi.useFakeTimers();
+    let statusPolls = 0;
+    const fetchMock = stubJsonFetch((url) => {
+      if (url.pathname === "/api/workflows") {
+        return Response.json({ version: 1, workflows: [workflow] });
+      }
+      if (url.pathname.endsWith("/start-async")) {
+        return Response.json({
+          version: 1,
+          workId: "work-1",
+          runId: "run-1",
+          status: "queued",
+        });
+      }
+      if (url.pathname.endsWith("/runs/run-1")) {
+        statusPolls += 1;
+        if (statusPolls === 8 || statusPolls === 20) {
+          return Response.json({ message: "not found" }, { status: 404 });
+        }
+        return Response.json(
+          statusPolls <= 45
+            ? runStatus("running")
+            : runStatus("succeeded", { ok: true }),
+        );
+      }
+      return new Response(null, { status: 404 });
     });
-    vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) =>
-      host.fetch(new Request(input, init)),
-    );
 
-    try {
-      await expect(
-        new OperationalClient("http://127.0.0.1:4111").startRun({
-          workflowId: "repository:fixture",
-          runId: "run-real-route",
-          workId: "work-real-route",
-          input: {},
-          runtimeId: "local",
-        }),
-      ).resolves.toMatchObject({ status: "success", result: { ok: true } });
-    } finally {
-      await host.close();
-    }
-  }, 15_000);
-
-  it("validates workflow registration and starts a run through Mastra routes", async () => {
-    const fetchMock = vi
-      .fn<typeof fetch>()
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({ "repository:fixture": { id: "fixture" } }),
-          {
-            status: 200,
-            headers: { "content-type": "application/json" },
-          },
-        ),
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({ status: "success", result: { ok: true } }),
-          {
-            status: 200,
-            headers: { "content-type": "application/json" },
-          },
-        ),
-      );
-    vi.stubGlobal("fetch", fetchMock);
-
-    const result = await new OperationalClient(
-      "http://127.0.0.1:4111/",
-    ).startRun({
-      workflowId: "repository:fixture",
+    const result = new OperationalClient("http://127.0.0.1:4111/").startRun({
+      workflowId: "fixture",
       runId: "run-1",
       workId: "work-1",
-      input: { value: 1 },
+      input: { value: false },
       runtimeId: "local",
+      workspace: "/tmp/workspace",
     });
-
-    expect(result).toEqual({ status: "success", result: { ok: true } });
-    expect(fetchMock).toHaveBeenCalledWith(
-      "http://127.0.0.1:4111/api/workflows/repository%3Afixture/start-async?runId=run-1",
-      expect.objectContaining({ method: "POST" }),
-    );
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    const init = fetchMock.mock.calls[1]?.[1];
-    expect(JSON.parse(String(init?.body))).toMatchObject({
-      resourceId: "work-1",
-      inputData: { value: 1 },
-      requestContext: {
-        "seqlane.workId": "work-1",
-        "seqlane.runId": "run-1",
-      },
+    await vi.runAllTimersAsync();
+    await expect(result).resolves.toMatchObject({
+      status: "succeeded",
+      output: { ok: true },
+      completeness: { inspection: "complete" },
+    });
+    expect(statusPolls).toBe(46);
+    const startRequest = fetchMock.mock.calls.find(([input]) =>
+      String(input).includes("start-async"),
+    )?.[1];
+    expect(startRequest?.redirect).toBe("error");
+    expect(JSON.parse(String(startRequest?.body))).toEqual({
+      version: 1,
+      workId: "work-1",
+      runId: "run-1",
+      input: { value: false },
+      runtime: { id: "local", workspace: "/tmp/workspace" },
     });
   });
 
-  it("cancels a run scoped to its registered workflow", async () => {
-    const fetchMock = vi
-      .fn<typeof fetch>()
-      .mockResolvedValueOnce(
+  it("fails after twelve consecutive unavailable observations", async () => {
+    vi.useFakeTimers();
+    const fetchMock = stubJsonFetch((url) => {
+      if (url.pathname === "/api/workflows") {
+        return Response.json({ version: 1, workflows: [workflow] });
+      }
+      if (url.pathname.endsWith("/start-async")) {
+        return Response.json({
+          version: 1,
+          workId: "work-1",
+          runId: "run-1",
+          status: "queued",
+        });
+      }
+      return Response.json({ message: "not found" }, { status: 404 });
+    });
+
+    const result = new OperationalClient("http://localhost:4111").startRun({
+      workflowId: "fixture",
+      runId: "run-1",
+      workId: "work-1",
+      input: {},
+    });
+    const rejection = expect(result).rejects.toMatchObject({
+      status: 404,
+      message:
+        'Operational run "run-1" remained unavailable after 12 observations',
+    });
+    await vi.runAllTimersAsync();
+    await rejection;
+    expect(fetchMock).toHaveBeenCalledTimes(14);
+  });
+
+  it("validates response DTOs and preserves the schema error as cause", async () => {
+    stubJsonFetch(() =>
+      Response.json({ version: 1, workflows: [{ key: "bad" }] }),
+    );
+
+    await expect(
+      new OperationalClient("http://localhost:4111").listWorkflows(),
+    ).rejects.toMatchObject({
+      name: "OperationalClientError",
+      message: "Operational server returned an invalid response",
+      cause: expect.objectContaining({ name: "ZodError" }),
+    });
+  });
+
+  it("rejects an oversized streamed response before JSON decoding", async () => {
+    const cancelReader = vi.fn();
+    stubJsonFetch(
+      () =>
         new Response(
-          JSON.stringify({
-            "user:fixture": { id: "fixture" },
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(new Uint8Array(32 * 1024 * 1024 + 1));
+            },
+            cancel: cancelReader,
           }),
         ),
-      )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ message: "Workflow run cancelled" })),
-      );
-    vi.stubGlobal("fetch", fetchMock);
+    );
+
+    await expect(
+      new OperationalClient("http://localhost:4111").health(),
+    ).rejects.toMatchObject({
+      name: "OperationalClientError",
+      message: "Operational server response is too large",
+      status: 200,
+    });
+    expect(cancelReader).toHaveBeenCalledOnce();
+  });
+
+  it("interrupts a body that stalls after response headers at the request deadline", async () => {
+    vi.useFakeTimers();
+    stubJsonFetch(
+      () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            pull() {
+              return new Promise<void>(() => undefined);
+            },
+          }),
+        ),
+    );
+
+    const pending = new OperationalClient("http://localhost:4111").health();
+    const rejection = expect(pending).rejects.toMatchObject({
+      name: "OperationalClientError",
+      message: "Operational server request timed out",
+      timedOut: true,
+    });
+    await vi.advanceTimersByTimeAsync(10_000);
+    await rejection;
+  });
+
+  it("rejects redirects without requesting the destination", async () => {
+    const fetchMock = stubJsonFetch(() =>
+      Response.redirect("http://example.com/private"),
+    );
+
+    await expect(
+      new OperationalClient("http://localhost:4111").health(),
+    ).rejects.toBeInstanceOf(OperationalClientError);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls[0]?.[1]?.redirect).toBe("error");
+  });
+
+  it("uses the v1 cancel DTO and exposes status and cancellation state", async () => {
+    const fetchMock = stubJsonFetch(async (url, request) => {
+      if (url.pathname === "/api/workflows") {
+        return Response.json({ version: 1, workflows: [workflow] });
+      }
+      if (url.pathname.endsWith("/cancel")) {
+        await expect(request.clone().json()).resolves.toEqual({
+          version: 1,
+          runId: "run-1",
+        });
+        return Response.json({
+          version: 1,
+          runId: "run-1",
+          status: "cancelled",
+          cancellationRequested: true,
+        });
+      }
+      return new Response(null, { status: 404 });
+    });
 
     await expect(
       new OperationalClient("http://localhost:4111").cancelRun(
         "run-1",
         "fixture",
       ),
-    ).resolves.toBe("Workflow run cancelled");
-    expect(fetchMock).toHaveBeenLastCalledWith(
-      "http://localhost:4111/api/workflows/user%3Afixture/runs/run-1/cancel",
-      expect.objectContaining({ method: "POST" }),
-    );
+    ).resolves.toEqual({
+      version: 1,
+      runId: "run-1",
+      status: "cancelled",
+      cancellationRequested: true,
+    });
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it("falls back to bounded backoff when the start route acknowledges only", async () => {
-    const fetchMock = vi
-      .fn<typeof fetch>()
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({ "repository:fixture": { id: "fixture" } }),
-        ),
-      )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ message: "Workflow run accepted" })),
-      )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ runId: "run-ack", status: "running" })),
-      )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ runId: "run-ack", status: "running" })),
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            runId: "run-ack",
-            status: "success",
-            result: { ok: true },
-          }),
-        ),
-      );
-    vi.stubGlobal("fetch", fetchMock);
-
-    await expect(
-      new OperationalClient("http://localhost:4111").startRun({
-        workflowId: "repository:fixture",
-        runId: "run-ack",
-        workId: "work-ack",
-        input: {},
-      }),
-    ).resolves.toEqual({ status: "success", result: { ok: true } });
-    expect(fetchMock).toHaveBeenCalledTimes(5);
-  });
-
-  it("fails observation after repeated missing run records", async () => {
-    vi.useFakeTimers();
-    const fetchMock = vi
-      .fn<typeof fetch>()
-      .mockImplementation(async (input) => {
-        const url = String(input);
-        if (url.endsWith("/api/workflows")) {
-          return new Response(
-            JSON.stringify({ "repository:fixture": { id: "fixture" } }),
-          );
-        }
-        if (url.includes("/start-async")) {
-          return new Response(
-            JSON.stringify({ message: "Workflow run accepted" }),
-          );
-        }
-        return new Response(JSON.stringify({ message: "not found" }), {
-          status: 404,
+  it("reads health, readiness, workflow, run, event, and trace DTOs", async () => {
+    stubJsonFetch((url) => {
+      if (url.pathname === "/healthz") {
+        return Response.json({ version: 1, status: "ok" });
+      }
+      if (url.pathname === "/readyz") {
+        return Response.json({ version: 1, status: "ready", checks: [] });
+      }
+      if (url.pathname === "/api/workflows/repository%3Afixture") {
+        return Response.json({ version: 1, workflow });
+      }
+      if (url.pathname === "/api/runs") {
+        return Response.json({ version: 1, runs: [] });
+      }
+      if (url.pathname === "/api/runs/run-1/events") {
+        return Response.json({
+          version: 1,
+          runId: "run-1",
+          afterSequence: 0,
+          events: [],
+          nextSequence: 0,
+          status: "running",
+          completeness: { inspection: "incomplete" },
         });
-      });
-    vi.stubGlobal("fetch", fetchMock);
-
-    const result = new OperationalClient("http://localhost:4111").startRun({
-      workflowId: "repository:fixture",
-      runId: "run-missing",
-      workId: "work-missing",
-      input: {},
-    });
-    const rejection = expect(result).rejects.toMatchObject({
-      message:
-        'Operational run "run-missing" remained unavailable after 12 observations',
-      status: 404,
-    });
-    await vi.advanceTimersByTimeAsync(20_000);
-
-    await rejection;
-  });
-
-  it("aborts an in-flight observation when its signal is cancelled", async () => {
-    const controller = new AbortController();
-    const fetchMock = vi
-      .fn<typeof fetch>()
-      .mockImplementation((input, init) => {
-        const url = String(input);
-        if (url.endsWith("/api/workflows")) {
-          return Promise.resolve(
-            new Response(
-              JSON.stringify({ "repository:fixture": { id: "fixture" } }),
-            ),
-          );
-        }
-        if (url.includes("/start-async")) {
-          return Promise.resolve(
-            new Response(JSON.stringify({ message: "Workflow run accepted" })),
-          );
-        }
-        return new Promise<Response>((_resolve, reject) => {
-          init?.signal?.addEventListener(
-            "abort",
-            () => reject(new DOMException("Aborted", "AbortError")),
-            { once: true },
-          );
+      }
+      if (url.pathname === "/api/runs/run-1/trace") {
+        return Response.json({
+          version: 1,
+          runId: "run-1",
+          spans: [],
+          droppedRecords: 0,
+          completeness: { inspection: "complete" },
         });
-      });
-    vi.stubGlobal("fetch", fetchMock);
-
-    const result = new OperationalClient("http://localhost:4111").startRun({
-      workflowId: "repository:fixture",
-      runId: "run-abort",
-      workId: "work-abort",
-      input: {},
-      signal: controller.signal,
+      }
+      if (url.pathname === "/api/runs/run-1") {
+        return Response.json(runStatus("running"));
+      }
+      return new Response(null, { status: 404 });
     });
-    await vi.waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledTimes(3);
-    });
-    controller.abort(new Error("cancellation failed"));
+    const client = new OperationalClient("http://localhost:4111");
 
-    await expect(result).rejects.toMatchObject({
-      message: "Operational run observation was aborted",
+    await expect(client.health()).resolves.toEqual({
+      version: 1,
+      status: "ok",
+    });
+    await expect(client.readiness()).resolves.toEqual({
+      version: 1,
+      status: "ready",
+      checks: [],
+    });
+    await expect(client.getWorkflow("repository:fixture")).resolves.toEqual(
+      workflow,
+    );
+    await expect(client.getRun("run-1")).resolves.toMatchObject({
+      status: "running",
+    });
+    await expect(client.listRuns()).resolves.toEqual({ version: 1, runs: [] });
+    await expect(client.getRunEvents("run-1")).resolves.toMatchObject({
+      events: [],
+      status: "running",
+    });
+    await expect(client.getTrace("run-1")).resolves.toMatchObject({
+      runId: "run-1",
+      spans: [],
     });
   });
 
@@ -281,16 +319,27 @@ describe("OperationalClient", () => {
     );
   });
 
-  it("rejects malformed server responses", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi
-        .fn<typeof fetch>()
-        .mockResolvedValue(new Response(JSON.stringify({ bad: true }))),
+  it("retains abort errors and cancels an in-flight request", async () => {
+    const controller = new AbortController();
+    const fetchMock = stubJsonFetch(
+      (_url, request) =>
+        new Promise<Response>((_resolve, reject) => {
+          request.signal.addEventListener(
+            "abort",
+            () => reject(new DOMException("Aborted", "AbortError")),
+            { once: true },
+          );
+        }),
     );
-
-    await expect(
-      new OperationalClient("http://localhost:4111").resolveWorkflow("fixture"),
-    ).rejects.toBeInstanceOf(OperationalClientError);
+    const pending = new OperationalClient("http://localhost:4111").health(
+      controller.signal,
+    );
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    const reason = new Error("stop observation");
+    controller.abort(reason);
+    await expect(pending).rejects.toMatchObject({
+      message: "Operational run observation was aborted",
+      cause: reason,
+    });
   });
 });

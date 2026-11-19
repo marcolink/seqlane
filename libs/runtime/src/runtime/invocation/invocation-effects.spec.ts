@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { InvocationEffects } from "./invocation-effects.js";
+import {
+  InvocationEffects,
+  InvocationTerminationTimeoutError,
+} from "./invocation-effects.js";
 
 async function expectPending(promise: Promise<unknown>) {
   await expect(
@@ -44,5 +47,17 @@ describe("InvocationEffects", () => {
 
     finishProcess();
     await termination;
+  });
+
+  it("reports unconfirmed activity after the owned termination bound", async () => {
+    const effects = new InvocationEffects();
+    effects.observeActivity({ activityId: "tool-1", state: "started" });
+
+    await expect(effects.waitForTermination(1)).rejects.toBeInstanceOf(
+      InvocationTerminationTimeoutError,
+    );
+
+    effects.observeActivity({ activityId: "tool-1", state: "succeeded" });
+    await expect(effects.waitForTermination(1)).resolves.toBeUndefined();
   });
 });

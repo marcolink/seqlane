@@ -12,6 +12,21 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./private/trace-carrier": {
+      "types": "./dist/trace-carrier.d.ts",
+      "import": "./dist/trace-carrier.js",
+      "default": "./dist/trace-carrier.js"
+    },
+    "./private/telemetry-span-snapshot": {
+      "types": "./dist/telemetry-span-snapshot.d.ts",
+      "import": "./dist/telemetry-span-snapshot.js",
+      "default": "./dist/telemetry-span-snapshot.js"
+    },
+    "./private/owned-process": {
+      "types": "./dist/owned-process.d.ts",
+      "import": "./dist/owned-process.js",
+      "default": "./dist/owned-process.js"
     }
   },
   "nx": {
@@ -24,11 +39,16 @@
   },
   "dependencies": {
     "@seqlane/core": "workspace:*",
-    "zod": "4.5.4"
+    "zod": "4.6.6"
   },
   "files": [
     "dist",
-    "!dist/**/*.tsbuildinfo"
+    "!dist/**/*.tsbuildinfo",
+    "!dist/**/*.spec.*",
+    "!dist/**/*.test.*",
+    "!dist/**/*test-support*",
+    "!dist/test-fixtures/**",
+    "!dist/**/*-fixture.*"
   ],
   "publishConfig": {
     "access": "public",

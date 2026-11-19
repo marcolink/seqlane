@@ -20,7 +20,7 @@ import {
   type ExecutionEventBridge,
 } from "../../runner/event-bridge.js";
 import { createSeqlanePlanSnapshot } from "../../runner/workflow/plan-snapshot.js";
-import { startCompiledWorkflow } from "../execution/workflow-run.js";
+import { startCompiledWorkflow } from "../execution/workflow-run.test-support.js";
 import type { ExecutorRequest } from "../execution/executor.js";
 import { PlanCompiler } from "./compile-plan.js";
 function createEventBridge(

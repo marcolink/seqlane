@@ -17,9 +17,11 @@ import {
   OutputValidationError,
   RuntimeError,
   ValidationFailedError,
+} from "../../index.js";
+import {
   runCompiledWorkflow,
   startCompiledWorkflow,
-} from "../../index.js";
+} from "../execution/workflow-run.test-support.js";
 import { parseValidationResult } from "./validation-results.js";
 import { PlanCompiler } from "../compile/compile-plan.js";
 import type { ExecutorRequest } from "../execution/executor.js";

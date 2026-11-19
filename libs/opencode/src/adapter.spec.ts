@@ -41,7 +41,6 @@ function request(
     signal: new AbortController().signal,
     onExecutionStarted: () => undefined,
     ...overrides,
-    observability: overrides.observability ?? {},
   };
 }
 

@@ -1,4 +1,5 @@
 import { restoreCache, saveCache } from "@actions/cache";
+import { Effect } from "effect";
 
 export interface CachePort {
   restore(path: string, key: string): Promise<string | undefined>;
@@ -10,30 +11,41 @@ export const actionsCache: CachePort = {
   save: (path, key) => saveCache([path], key),
 };
 
-export async function tryRestore(
+export function tryRestore(
   cache: CachePort,
   path: string,
   key: string,
   onError: (error: unknown) => void,
-): Promise<boolean> {
-  try {
-    const restoredKey = await cache.restore(path, key);
-    return restoredKey === key;
-  } catch (error) {
-    onError(error);
-    return false;
-  }
+): Effect.Effect<boolean, unknown> {
+  return Effect.uninterruptible(
+    Effect.tryPromise({
+      try: () => cache.restore(path, key),
+      catch: (error) => error,
+    }),
+  ).pipe(
+    Effect.map((restoredKey) => restoredKey === key),
+    Effect.catch((error) =>
+      Effect.sync(() => {
+        onError(error);
+        return false;
+      }),
+    ),
+  );
 }
 
-export async function trySave(
+export function trySave(
   cache: CachePort,
   path: string,
   key: string,
   onError: (error: unknown) => void,
-): Promise<void> {
-  try {
-    await cache.save(path, key);
-  } catch (error) {
-    onError(error);
-  }
+): Effect.Effect<void, never> {
+  return Effect.uninterruptible(
+    Effect.tryPromise({
+      try: () => cache.save(path, key),
+      catch: (error) => error,
+    }),
+  ).pipe(
+    Effect.asVoid,
+    Effect.catch((error) => Effect.sync(() => onError(error))),
+  );
 }

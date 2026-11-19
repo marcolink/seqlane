@@ -1,4 +1,5 @@
 import type { AgentActivity } from "@seqlane/agent-adapter";
+import { z } from "zod";
 import { CodexAdapterError } from "./errors.js";
 
 export const MAX_TURN_ITEMS = 1_024;
@@ -10,11 +11,14 @@ interface ActivityRecord {
   readonly activityId: string;
   readonly name: string;
   readonly input?: unknown;
+  readonly output?: unknown;
+  readonly metadata?: unknown;
   readonly startedAt?: number;
 }
 
 export class CodexActivityReducer {
   private readonly records = new Map<string, ActivityRecord>();
+  private readonly openActivities = new Set<string>();
   private eventCount = 0;
   private eventBytes = 0;
   private truncated = false;
@@ -27,6 +31,7 @@ export class CodexActivityReducer {
     if (!this.consume(item, "started activity")) return;
     const merged = { ...this.records.get(record.activityId), ...record };
     this.records.set(record.activityId, merged);
+    this.openActivities.add(record.activityId);
     this.emit({ ...merged, kind: "tool", state: "started" });
   }
 
@@ -52,17 +57,45 @@ export class CodexActivityReducer {
     const merged = {
       ...this.records.get(record.activityId),
       ...record,
+      ...(record.metadata === undefined
+        ? {}
+        : {
+            metadata: {
+              ...asRecord(this.records.get(record.activityId)?.metadata),
+              ...asRecord(record.metadata),
+            },
+          }),
     };
     this.records.set(record.activityId, merged);
-    const failed = item.status === "failed" || item.error !== undefined;
+    this.openActivities.delete(record.activityId);
+    const failed =
+      item.status === "failed" ||
+      item.status === "declined" ||
+      (item.error !== undefined && item.error !== null);
     this.emit({
       ...merged,
       kind: "tool",
       state: failed ? "failed" : "succeeded",
-      ...(item.output === undefined ? {} : { output: item.output }),
+      ...(record.output === undefined ? {} : { output: record.output }),
       ...(completedAt === undefined ? {} : { endedAt: completedAt }),
       ...(failed ? { message: "Tool failed" } : {}),
     });
+  }
+
+  terminateOpenActivities(endedAt: number, message: string): void {
+    for (const activityId of this.openActivities) {
+      const record = this.records.get(activityId);
+      if (record === undefined) continue;
+      this.emit({
+        ...record,
+        activityId,
+        kind: "tool",
+        state: "failed",
+        endedAt,
+        message,
+      });
+    }
+    this.openActivities.clear();
   }
 
   private consume(value: unknown, description: string): boolean {
@@ -80,6 +113,7 @@ export class CodexActivityReducer {
     ) {
       this.truncated = true;
       this.records.clear();
+      this.openActivities.clear();
       this.emit({
         activityId: "activity-truncated",
         kind: "tool",
@@ -108,13 +142,47 @@ export class CodexActivityReducer {
     ) {
       return undefined;
     }
+    const input = nativeInput(item);
+    const output = nativeOutput(item);
     return {
       activityId,
       name,
-      ...(item.input === undefined ? {} : { input: item.input }),
+      ...(input === undefined ? {} : { input }),
+      ...(output === undefined ? {} : { output }),
+      metadata: item,
       ...(startedAt === undefined ? {} : { startedAt }),
     };
   }
+}
+
+function nativeInput(item: Record<string, unknown>): unknown {
+  if (item.input !== undefined) return item.input;
+  if (item.arguments !== undefined) return item.arguments;
+  if (item.type === "commandExecution") {
+    const { command, cwd, commandActions } = item;
+    if (
+      command === undefined &&
+      cwd === undefined &&
+      commandActions === undefined
+    ) {
+      return undefined;
+    }
+    return { command, cwd, commandActions };
+  }
+  return undefined;
+}
+
+function nativeOutput(item: Record<string, unknown>): unknown {
+  if (item.output !== undefined) return item.output;
+  if (item.aggregatedOutput !== undefined) return item.aggregatedOutput;
+  if (item.result !== undefined) return item.result;
+  if (item.contentItems !== undefined) return item.contentItems;
+  return undefined;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  const parsed = z.record(z.string(), z.unknown()).safeParse(value);
+  return parsed.success ? parsed.data : {};
 }
 
 function boundedJsonBytes(value: unknown, description: string): number {

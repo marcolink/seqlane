@@ -197,8 +197,6 @@ async function main() {
         `--head=${selection.revision}`,
       ],
     ],
-    ["SDLC validation", ["docs:validate"]],
-    ["SDLC tests", ["docs:test"]],
     ["test mapping", ["test:mapping"]],
     ["workflow helper", ["test:workflow-helper"]],
     [

@@ -101,6 +101,123 @@ describe("Codex app-server protocol", () => {
     ).toThrow(CodexProtocolError);
   });
 
+  it("preserves the optional Codex model context window in token usage", () => {
+    const tokenUsage = {
+      modelContextWindow: 200_000,
+      total: {
+        totalTokens: 3,
+        inputTokens: 2,
+        cachedInputTokens: 0,
+        cacheWriteInputTokens: 0,
+        outputTokens: 1,
+        reasoningOutputTokens: 0,
+      },
+      last: {
+        totalTokens: 3,
+        inputTokens: 2,
+        cachedInputTokens: 0,
+        cacheWriteInputTokens: 0,
+        outputTokens: 1,
+        reasoningOutputTokens: 0,
+      },
+    };
+
+    expect(
+      parseCodexMessage({
+        jsonrpc: "2.0",
+        method: "thread/tokenUsage/updated",
+        params: { threadId: "thread-1", turnId: "turn-1", tokenUsage },
+      }),
+    ).toMatchObject({
+      kind: "notification",
+      notification: { params: { tokenUsage } },
+    });
+    expect(() =>
+      parseCodexMessage({
+        jsonrpc: "2.0",
+        method: "thread/tokenUsage/updated",
+        params: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          tokenUsage: { ...tokenUsage, modelContextWindow: 1.5 },
+        },
+      }),
+    ).toThrow(CodexProtocolError);
+  });
+
+  it("preserves accepted native turn, error, and token usage fields", () => {
+    const notification = parseCodexMessage({
+      method: "turn/completed",
+      params: {
+        threadId: "thread-1",
+        turn: {
+          id: "turn-1",
+          status: "failed",
+          items: [],
+          nativeTurn: { enabled: false, count: 0, label: "" },
+          error: {
+            message: "request failed",
+            nativeError: { retryable: false, code: 0, detail: "" },
+          },
+        },
+      },
+    });
+    expect(notification).toMatchObject({
+      notification: {
+        params: {
+          turn: {
+            nativeTurn: { enabled: false, count: 0, label: "" },
+            error: {
+              nativeError: { retryable: false, code: 0, detail: "" },
+            },
+          },
+        },
+      },
+    });
+
+    const usage = {
+      total: {
+        totalTokens: 1,
+        inputTokens: 0,
+        cachedInputTokens: 0,
+        cacheWriteInputTokens: 0,
+        outputTokens: 1,
+        reasoningOutputTokens: 0,
+        nativeCounts: { enabled: false, count: 0, label: "" },
+      },
+      last: {
+        totalTokens: 1,
+        inputTokens: 0,
+        cachedInputTokens: 0,
+        cacheWriteInputTokens: 0,
+        outputTokens: 1,
+        reasoningOutputTokens: 0,
+      },
+      nativeUsage: { enabled: false, count: 0, label: "" },
+    };
+    expect(
+      parseCodexMessage({
+        method: "thread/tokenUsage/updated",
+        params: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          tokenUsage: usage,
+        },
+      }),
+    ).toMatchObject({ notification: { params: { tokenUsage: usage } } });
+
+    const delta = {
+      threadId: "thread-1",
+      turnId: "turn-1",
+      itemId: "message-1",
+      delta: "",
+      nativeDelta: { enabled: false, count: 0, label: "" },
+    };
+    expect(
+      parseCodexMessage({ method: "item/agentMessage/delta", params: delta }),
+    ).toMatchObject({ notification: { params: delta } });
+  });
+
   it("accepts an absolute Windows executable path", () => {
     expect(
       parseCodexLaunchConfiguration(

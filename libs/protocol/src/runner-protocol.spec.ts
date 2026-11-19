@@ -68,6 +68,21 @@ describe("Seqlane runner command protocol", () => {
     expect(decodeRunnerCommand(encodeRunnerCommand(command))).toEqual(command);
   });
 
+  it("round-trips an interaction response command with strict answers", () => {
+    const command: RunnerCommand = {
+      type: "interaction.respond",
+      runId: "run-1",
+      invocationId: "invocation-1",
+      requestId: "request-1",
+      answers: { region: "eu-west" },
+    };
+    expect(decodeRunnerCommand(encodeRunnerCommand(command))).toEqual(command);
+    expect(isRunnerCommand({ ...command, extra: true })).toBe(false);
+    expect(isRunnerCommand({ ...command, answers: { region: 42 } })).toBe(
+      false,
+    );
+  });
+
   it("rejects event-shaped messages", () => {
     expect(isRunnerCommand({ type: "run.started" })).toBe(false);
     expect(() => decodeRunnerCommand('{"type":"run.started"}')).toThrow(

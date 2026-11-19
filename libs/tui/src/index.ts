@@ -8,4 +8,5 @@ export {
   type RendererFailure,
   type RendererMode,
   type RuntimeSessionUi,
+  type UserInputView,
 } from "./renderer-contract.js";

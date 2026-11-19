@@ -6,7 +6,6 @@ import type { ModelSelection, PlanNode, TaskDefinition } from "@seqlane/core";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { PlanCompiler } from "../compile/compile-plan.js";
-import { preflightCompiledWorkflowModels } from "../execution/model-preflight.js";
 import {
   preflightCompiledWorkflowSessionCapabilities,
   resolveCompiledWorkflowSessions,
@@ -17,7 +16,7 @@ import type {
   SessionResolver,
 } from "./session-resolution.js";
 import { UnorderedSharedSessionError } from "./shared-session-order.js";
-import { runCompiledWorkflow } from "../execution/workflow-run.js";
+import { runCompiledWorkflow } from "../execution/workflow-run.test-support.js";
 
 function task(
   nodeId: string,
@@ -303,7 +302,6 @@ describe("shared-session order preflight", () => {
       },
     );
 
-    await resolveCompiledWorkflowSessions(compiled);
     await runCompiledWorkflow(compiled);
 
     expect(activity).toContain("parent:source");
@@ -364,8 +362,6 @@ describe("shared-session order preflight", () => {
       },
     );
 
-    await preflightCompiledWorkflowModels(compiled);
-    await resolveCompiledWorkflowSessions(compiled);
     await runCompiledWorkflow(compiled);
 
     expect(resolverSelections).toEqual([selection]);
@@ -451,8 +447,6 @@ describe("shared-session order preflight", () => {
       },
     );
 
-    await preflightCompiledWorkflowModels(compiled);
-    await resolveCompiledWorkflowSessions(compiled);
     await expect(runCompiledWorkflow(compiled)).resolves.toMatchObject({
       status: "failed",
       error: { message: expect.stringMatching(/effective model selection/i) },
@@ -493,8 +487,6 @@ describe("shared-session order preflight", () => {
         ]),
       },
     );
-
-    await resolveCompiledWorkflowSessions(compiled);
 
     await expect(runCompiledWorkflow(compiled)).resolves.toMatchObject({
       status: "failed",

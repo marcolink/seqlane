@@ -82,6 +82,52 @@ describe("code-review GitHub adapter", () => {
     ]);
   });
 
+  it("passes the Action interruption signal to GitHub comment requests", async () => {
+    const calls: { get: unknown[]; create: unknown[]; update: unknown[] } = {
+      get: [],
+      create: [],
+      update: [],
+    };
+    const signal = new AbortController().signal;
+    const methods = createIssueCommentMethods(
+      createClient(calls),
+      "owner",
+      "repo",
+      signal,
+    );
+
+    await methods.getIssueComment("1");
+
+    expect(calls.get).toEqual([
+      {
+        owner: "owner",
+        repo: "repo",
+        comment_id: 1,
+        request: { signal },
+      },
+    ]);
+  });
+
+  it("lets the scoped request signal override the Action fallback", async () => {
+    const calls: { get: unknown[]; create: unknown[]; update: unknown[] } = {
+      get: [],
+      create: [],
+      update: [],
+    };
+    const actionSignal = new AbortController().signal;
+    const requestSignal = new AbortController().signal;
+    const methods = createIssueCommentMethods(
+      createClient(calls),
+      "owner",
+      "repo",
+      actionSignal,
+    );
+
+    await methods.getIssueComment("1", requestSignal);
+
+    expect(calls.get).toMatchObject([{ request: { signal: requestSignal } }]);
+  });
+
   it("does not expose ETag-dependent comment operations", () => {
     const methods = createIssueCommentMethods(
       createClient({ get: [], create: [], update: [] }),

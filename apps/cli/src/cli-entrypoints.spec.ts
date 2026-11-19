@@ -3,7 +3,6 @@
 // @test-scope ./run-execution.ts
 // @test-scope ./run-outcome.ts
 // @test-scope ./index.ts
-// @test-scope ./run-operational-host.ts
 // @test-scope ./run-result.ts
 // @test-scope ./run-lifecycle.ts
 // @test-scope ./run-cleanup.ts
@@ -13,7 +12,6 @@
 // @test-scope ./event-dispatcher.ts
 // @test-scope ./output.ts
 // @test-scope ./recording.ts
-// @test-scope ./commands/unstable_studio.ts
 // @test-scope ./commands/unstable_plan.ts
 // @test-scope ./commands/unstable_serve.ts
 // @test-scope ./cli-contracts.ts
@@ -785,6 +783,52 @@ export default createFlow({ id: "stdout", input: z.object({}), output: z.boolean
     expect(result.code).toBe(1);
     expect(`${result.stdout}${result.stderr}`).toContain(
       "--json cannot be combined with --dry",
+    );
+  });
+
+  it("rejects interactive JSON mode before starting the runner", async () => {
+    const result = await runCli(productionEntry, [
+      "run",
+      exampleWorkflowReference,
+      "--interactive",
+      "--json",
+    ]);
+
+    expect(result.code).toBe(1);
+    expect(`${result.stdout}${result.stderr}`).toContain(
+      "--interactive cannot be combined with --json",
+    );
+  });
+
+  it("validates interactive flags during dry planning without opening a consumer", async () => {
+    const result = await runCli(productionEntry, [
+      "run",
+      exampleWorkflowReference,
+      "--input",
+      builtinInput,
+      "--interactive",
+      "--dry",
+    ]);
+
+    expect(result.code).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      workflow: { id: "minimal-example" },
+    });
+    expect(result.stderr).toBe("");
+  });
+
+  it("requires --interactive when an input timeout is set", async () => {
+    const result = await runCli(productionEntry, [
+      "run",
+      exampleWorkflowReference,
+      "--input-timeout",
+      "5",
+      "--dry",
+    ]);
+
+    expect(result.code).toBe(1);
+    expect(`${result.stdout}${result.stderr}`).toContain(
+      "--input-timeout requires --interactive",
     );
   });
 

@@ -1,12 +1,17 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { spawn, type ChildProcess } from "node:child_process";
+import { Cause, Effect, Exit, Scope } from "effect";
 
 import { ActionResolutionError } from "./errors.js";
+import { extractOpenCodeArchive } from "./opencode-archive.js";
+import {
+  startOpenCodeProcess,
+  type OpenCodeProcessOptions,
+  type OpenCodeProcessState,
+} from "./opencode-process.js";
 
 export interface OpenCodeConnection {
   readonly url: string;
@@ -88,77 +93,79 @@ export interface OpenCodeRuntimeHandle {
   readonly stop: () => Promise<void>;
 }
 
-export interface OpenCodeRuntimeOptions {
+export interface OpenCodeRuntimeOptions extends OpenCodeProcessOptions {
+  readonly onUncertain?: (cause: unknown) => void;
   readonly skillDirectory?: string;
   readonly temporaryParent?: string;
   readonly archiveUrl?: string;
-  readonly download?: (url: string) => Promise<Uint8Array>;
-  readonly start?: (
-    executable: string,
-    args: readonly string[],
-    options: {
-      readonly cwd: string;
-      readonly env: Readonly<Record<string, string>>;
-    },
-  ) => ChildProcess;
-  readonly healthcheck?: (url: string) => Promise<boolean>;
-  readonly readinessTimeoutMs?: number;
-  readonly pollIntervalMs?: number;
+  readonly download?: (
+    url: string,
+    signal?: AbortSignal,
+  ) => Promise<Uint8Array>;
 }
 
 function runtimeError(message: string, cause?: unknown): ActionResolutionError {
   return new ActionResolutionError("agent", "AGENT_FAILED", message, cause);
 }
 
+function promise<A>(run: (signal: AbortSignal) => Promise<A>) {
+  return Effect.tryPromise({ try: run, catch: (cause) => cause });
+}
+
 export async function downloadOpenCodeArchive(
   url: string,
+  signal?: AbortSignal,
 ): Promise<Uint8Array> {
+  const timeout = AbortSignal.timeout(OPENCODE_DOWNLOAD_TIMEOUT_MS);
   const response = await fetch(url, {
-    signal: AbortSignal.timeout(OPENCODE_DOWNLOAD_TIMEOUT_MS),
+    signal: signal === undefined ? timeout : AbortSignal.any([signal, timeout]),
   });
-  if (!response.ok)
-    throw new Error(`Archive download failed: ${response.status}`);
-  const contentLength = response.headers.get("content-length");
-  if (
-    contentLength !== null &&
-    Number.isSafeInteger(Number(contentLength)) &&
-    Number(contentLength) > OPENCODE_ARCHIVE_MAX_BYTES
-  ) {
-    throw new Error("The OpenCode archive exceeds the maximum download size.");
-  }
-  if (response.body === null) {
-    throw new Error("The OpenCode archive response has no body.");
-  }
-
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let totalBytes = 0;
   try {
-    while (true) {
-      const chunk = await reader.read();
-      if (chunk.done) break;
-      totalBytes += chunk.value.byteLength;
-      if (totalBytes > OPENCODE_ARCHIVE_MAX_BYTES) {
-        throw new Error(
-          "The OpenCode archive exceeds the maximum download size.",
-        );
-      }
-      chunks.push(chunk.value);
+    if (!response.ok)
+      throw new Error(`Archive download failed: ${response.status}`);
+    const contentLength = response.headers.get("content-length");
+    if (
+      contentLength !== null &&
+      Number.isSafeInteger(Number(contentLength)) &&
+      Number(contentLength) > OPENCODE_ARCHIVE_MAX_BYTES
+    ) {
+      throw new Error(
+        "The OpenCode archive exceeds the maximum download size.",
+      );
     }
-  } catch (error: unknown) {
-    await reader.cancel().catch(() => undefined);
-    throw error;
-  } finally {
-    reader.releaseLock();
-  }
+    if (response.body === null) {
+      throw new Error("The OpenCode archive response has no body.");
+    }
 
-  const archive = new Uint8Array(totalBytes);
-  let offset = 0;
-  for (const chunk of chunks) {
-    archive.set(chunk, offset);
-    offset += chunk.byteLength;
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let totalBytes = 0;
+    try {
+      while (true) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        totalBytes += chunk.value.byteLength;
+        if (totalBytes > OPENCODE_ARCHIVE_MAX_BYTES) {
+          throw new Error(
+            "The OpenCode archive exceeds the maximum download size.",
+          );
+        }
+        chunks.push(chunk.value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+
+    const archive = new Uint8Array(totalBytes);
+    let offset = 0;
+    for (const chunk of chunks) {
+      archive.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return archive;
+  } finally {
+    await response.body?.cancel().catch(() => undefined);
   }
-  return archive;
 }
 
 export function verifyOpenCodeArchive(archive: Uint8Array): void {
@@ -168,74 +175,66 @@ export function verifyOpenCodeArchive(archive: Uint8Array): void {
   }
 }
 
-function defaultStart(
-  executable: string,
-  args: readonly string[],
-  options: {
-    readonly cwd: string;
-    readonly env: Readonly<Record<string, string>>;
-  },
-): ChildProcess {
-  return spawn(executable, [...args], {
-    cwd: options.cwd,
-    env: options.env,
-    stdio: "ignore",
-    windowsHide: true,
-  });
-}
+type RuntimeState = OpenCodeProcessState;
 
-function defaultHealthcheck(url: string): Promise<boolean> {
-  return fetch(url, { signal: AbortSignal.timeout(2_000) })
-    .then((response) => response.ok)
-    .catch(() => false);
-}
-
-export async function waitForOpenCodeReady(
-  child: Pick<ChildProcess, "exitCode">,
-  healthcheck: () => Promise<boolean>,
-  timeoutMs: number,
-  pollIntervalMs: number,
-  startupError: () => unknown = () => undefined,
-): Promise<void> {
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < timeoutMs) {
-    const error = startupError();
-    if (error !== undefined) {
-      throw runtimeError("OpenCode failed before becoming ready.", error);
-    }
-    if (child.exitCode !== null) {
-      throw runtimeError("OpenCode exited before becoming ready.", {
-        exitCode: child.exitCode,
-      });
-    }
-    if (await healthcheck()) return;
-    await new Promise((resolveWait) => setTimeout(resolveWait, pollIntervalMs));
-  }
-  throw runtimeError("OpenCode did not become ready before the timeout.");
-}
-
-function waitForExit(child: ChildProcess, timeoutMs = 5_000): Promise<void> {
-  if (child.exitCode !== null) return Promise.resolve();
-  return new Promise((resolveExit) => {
-    const timeout = setTimeout(resolveExit, timeoutMs);
-    child.once("exit", () => {
-      clearTimeout(timeout);
-      resolveExit();
-    });
-  });
-}
-
-async function extractArchive(
-  archivePath: string,
-  directory: string,
-): Promise<void> {
-  await new Promise<void>((resolveExtract, rejectExtract) => {
-    execFile(
-      "tar",
-      ["--extract", "--gzip", "--file", archivePath, "--directory", directory],
-      { cwd: directory, maxBuffer: 1024 * 1024 },
-      (error) => (error === null ? resolveExtract() : rejectExtract(error)),
+function openCodeRuntimeEffect(
+  workspace: string,
+  options: OpenCodeRuntimeOptions,
+  state: RuntimeState,
+): Effect.Effect<OpenCodeConnection, unknown, Scope.Scope> {
+  return Effect.gen(function* () {
+    const parent = resolve(options.temporaryParent ?? tmpdir());
+    const directory = yield* Effect.acquireRelease(
+      promise(() => mkdtemp(join(parent, ".seqlane-opencode-"))),
+      (path) =>
+        state.safeToDelete
+          ? promise(() => rm(path, { recursive: true, force: true })).pipe(
+              Effect.catch((cause) =>
+                Effect.sync(() => {
+                  state.cleanupFailure = cause;
+                  state.cleanupFailurePresent = true;
+                }),
+              ),
+            )
+          : Effect.void,
     );
+    const skillDirectory =
+      options.skillDirectory ?? resolveOpenCodeSkillDirectory();
+    const archive = yield* promise((signal) =>
+      (options.download ?? downloadOpenCodeArchive)(
+        options.archiveUrl ?? OPENCODE_ARCHIVE_URL,
+        signal,
+      ),
+    );
+    verifyOpenCodeArchive(archive);
+    const archivePath = join(directory, "opencode.tar.gz");
+    yield* Effect.uninterruptible(
+      promise((signal) =>
+        writeFile(archivePath, archive, { flag: "wx", signal }),
+      ),
+    );
+    yield* extractOpenCodeArchive(archivePath, directory, state);
+    const executable = join(directory, "opencode");
+    yield* startOpenCodeProcess(
+      executable,
+      resolve(workspace),
+      [
+        "serve",
+        "--hostname",
+        OPENCODE_HOST,
+        "--port",
+        String(OPENCODE_PORT),
+        "--print-logs",
+      ],
+      buildOpenCodeChildEnvironment(process.env, skillDirectory),
+      `http://${OPENCODE_HOST}:${OPENCODE_PORT}/global/health`,
+      options,
+      state,
+    );
+    return {
+      url: `http://${OPENCODE_HOST}:${OPENCODE_PORT}`,
+      workspace: resolve(workspace),
+    };
   });
 }
 
@@ -246,92 +245,67 @@ export class NodeOpenCodeRuntime {
     this.options = options;
   }
 
-  async start(workspace: string): Promise<OpenCodeRuntimeHandle> {
-    const parent = resolve(this.options.temporaryParent ?? tmpdir());
-    const directory = await mkdtemp(join(parent, ".seqlane-opencode-"));
-    let child: ChildProcess | undefined;
+  async start(
+    workspace: string,
+    shutdownSignal?: AbortSignal,
+  ): Promise<OpenCodeRuntimeHandle> {
+    const scope = Effect.runSync(Scope.make("sequential"));
+    const state: RuntimeState = { safeToDelete: true };
+    let connection: OpenCodeConnection;
     try {
-      const skillDirectory =
-        this.options.skillDirectory ?? resolveOpenCodeSkillDirectory();
-      const archive = await (this.options.download ?? downloadOpenCodeArchive)(
-        this.options.archiveUrl ?? OPENCODE_ARCHIVE_URL,
+      connection = await Effect.runPromise(
+        Effect.provideService(
+          openCodeRuntimeEffect(workspace, this.options, state),
+          Scope.Scope,
+          scope,
+        ),
+        shutdownSignal === undefined ? undefined : { signal: shutdownSignal },
       );
-      verifyOpenCodeArchive(archive);
-      const archivePath = join(directory, "opencode.tar.gz");
-      await writeFile(archivePath, archive, { flag: "wx" });
-      await mkdir(directory, { recursive: true });
-      await extractArchive(archivePath, directory);
-      const executable = join(directory, "opencode");
-      child = (this.options.start ?? defaultStart)(
-        executable,
-        [
-          "serve",
-          "--hostname",
-          OPENCODE_HOST,
-          "--port",
-          String(OPENCODE_PORT),
-          "--print-logs",
-        ],
-        {
-          cwd: resolve(workspace),
-          env: buildOpenCodeChildEnvironment(process.env, skillDirectory),
-        },
+    } catch (cause: unknown) {
+      const cleanupExit = await Effect.runPromiseExit(
+        Scope.close(scope, Exit.fail(cause)),
       );
-      let startupError: unknown;
-      const onStartupError = (error: unknown) => {
-        startupError = error;
-      };
-      child.on("error", onStartupError);
-      const healthcheck = this.options.healthcheck ?? defaultHealthcheck;
-      const timeout = this.options.readinessTimeoutMs ?? 120_000;
-      const interval = this.options.pollIntervalMs ?? 1_000;
-      try {
-        await waitForOpenCodeReady(
-          child,
-          () =>
-            healthcheck(
-              `http://${OPENCODE_HOST}:${OPENCODE_PORT}/global/health`,
-            ),
-          timeout,
-          interval,
-          () => startupError,
+      if (!state.safeToDelete) this.options.onUncertain?.(state.cleanupFailure);
+      if (state.cleanupFailurePresent === true) {
+        throw runtimeError(
+          "OpenCode could not start and its cleanup could not be confirmed.",
+          new AggregateError(
+            [cause, state.cleanupFailure],
+            "OpenCode startup and cleanup both failed.",
+            { cause },
+          ),
         );
-      } finally {
-        child.off("error", onStartupError);
       }
-      let stopped = false;
-      return {
-        connection: {
-          url: `http://${OPENCODE_HOST}:${OPENCODE_PORT}`,
-          workspace: resolve(workspace),
-        },
-        stop: async () => {
-          if (stopped) return;
-          stopped = true;
-          const processHandle = child;
-          if (processHandle === undefined) {
-            await rm(directory, { recursive: true, force: true });
-            return;
-          }
-          if (processHandle.exitCode === null) processHandle.kill("SIGTERM");
-          await waitForExit(processHandle);
-          if (processHandle.exitCode === null) {
-            processHandle.kill("SIGKILL");
-            await waitForExit(processHandle, 1_000);
-          }
-          await rm(directory, { recursive: true, force: true });
-        },
-      };
-    } catch (error: unknown) {
-      if (child?.exitCode === null) child.kill("SIGTERM");
-      if (child !== undefined) await waitForExit(child);
-      if (child?.exitCode === null) {
-        child.kill("SIGKILL");
-        await waitForExit(child, 1_000);
+      if (Exit.isFailure(cleanupExit)) {
+        throw runtimeError(
+          "OpenCode could not be started or cleaned up.",
+          Cause.squash(cleanupExit.cause),
+        );
       }
-      await rm(directory, { recursive: true, force: true });
-      if (error instanceof ActionResolutionError) throw error;
-      throw runtimeError("OpenCode could not be started.", error);
+      if (cause instanceof ActionResolutionError) throw cause;
+      throw runtimeError("OpenCode could not be started.", cause);
     }
+    let stopPromise: Promise<void> | undefined;
+    return {
+      connection,
+      stop: () => {
+        if (stopPromise !== undefined) return stopPromise;
+        stopPromise = (async () => {
+          try {
+            await Effect.runPromise(Scope.close(scope, Exit.void));
+          } finally {
+            if (!state.safeToDelete)
+              this.options.onUncertain?.(state.cleanupFailure);
+          }
+          if (state.cleanupFailurePresent === true) {
+            throw runtimeError(
+              "OpenCode could not be stopped and its files were retained.",
+              state.cleanupFailure,
+            );
+          }
+        })();
+        return stopPromise;
+      },
+    };
   }
 }

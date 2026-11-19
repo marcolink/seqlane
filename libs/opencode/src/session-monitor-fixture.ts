@@ -2,6 +2,7 @@ import type { ServerResponse } from "node:http";
 
 export interface SessionMonitorFixtureOptions {
   readonly toolEvents?: boolean;
+  readonly unfinishedToolEvents?: boolean;
   readonly duplicateToolTerminal?: boolean;
   readonly malformedEventCount?: number;
   readonly nextToolEvents?: boolean;
@@ -40,25 +41,24 @@ function legacyToolEvents(options: SessionMonitorFixtureOptions): unknown[] {
       },
     },
   };
-  return [
-    {
-      type: "message.part.updated",
-      data: {
-        sessionID: "session-1",
-        part: {
-          type: "tool",
-          callID: "call-1",
-          tool: "filesystem.read",
-          state: {
-            status: "running",
-            input: { path: "/repo/package.json" },
-          },
+  const running = {
+    type: "message.part.updated",
+    data: {
+      sessionID: "session-1",
+      part: {
+        type: "tool",
+        callID: "call-1",
+        tool: "filesystem.read",
+        state: {
+          status: "running",
+          input: { path: "/repo/package.json" },
         },
       },
     },
-    terminal,
-    ...(options.duplicateToolTerminal ? [terminal] : []),
-  ];
+  };
+  return options.unfinishedToolEvents
+    ? [running]
+    : [running, terminal, ...(options.duplicateToolTerminal ? [terminal] : [])];
 }
 
 function nextToolEvents(options: SessionMonitorFixtureOptions): unknown[] {

@@ -4,6 +4,12 @@
 SHA-256 checksum, extracts only the binary, starts its HTTP MCP server, and
 stops the process group in the post step.
 
+Startup keeps cleanup ownership until it saves validated process and sentinel
+identities, receives the resident process's adoption acknowledgment, and
+passes readiness. The post handler validates those saved identities before
+each cleanup signal. The production bundle includes the resident process
+anchor beside its main and post entrypoints.
+
 The Action accepts a required `working-directory`. It supports the trusted
 Ripwire `0.4.0` assets for Linux and macOS on x64 and arm64. It defaults to
 loopback `127.0.0.1:7998`, `top-k=200`, stable output, redaction, and read-only

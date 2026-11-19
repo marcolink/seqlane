@@ -1,10 +1,13 @@
 import type { TaskId } from "@seqlane/core";
+import type { WorkspacePolicy } from "@seqlane/core";
 import type { WorkspaceIdentityRegistry } from "./workspace-identity.js";
 
 export interface WorkspaceResource {
   readonly key: string;
   /** The concrete resources covered by a composed workflow resource. */
   readonly resources?: readonly WorkspaceResource[];
+  /** Strongest policy required by a composed workflow subtree. */
+  readonly requiredPolicy?: WorkspacePolicy;
 }
 
 export type WorkspaceResourceRegistry = ReadonlyMap<TaskId, WorkspaceResource>;

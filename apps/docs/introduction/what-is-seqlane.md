@@ -6,8 +6,7 @@ tasks.
 
 ## A controller for coding agents
 
-Seqlane has a different role from general async AI runners such as Trigger.dev
-and Mastra. An adapter sends each agent task to an external coding agent.
+An adapter sends each agent task to an external coding agent.
 [Classifier tasks](/authoring-workflows/classifier-tasks) call a configured
 classification model through a separate connection.
 

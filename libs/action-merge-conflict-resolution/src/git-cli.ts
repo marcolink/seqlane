@@ -1,4 +1,3 @@
-import { execFile } from "node:child_process";
 import { lstatSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 
@@ -25,41 +24,7 @@ import {
   type GitWorkspacePort,
 } from "./git-port.js";
 import { readRebaseCommitCount } from "./git-count.js";
-
-const maximumGitOutputBytes = 8 * 1024 * 1024;
-
-export function runGitCommand(
-  executable: string,
-  args: readonly string[],
-  cwd: string,
-  env: Readonly<Record<string, string | undefined>> = {},
-): Promise<GitCommandResult> {
-  return new Promise((resolveResult) => {
-    execFile(
-      executable,
-      [...args],
-      {
-        cwd,
-        env: { ...process.env, ...env },
-        encoding: "utf8",
-        maxBuffer: maximumGitOutputBytes,
-        windowsHide: true,
-      },
-      (error, stdout, stderr) => {
-        const exitCode =
-          error === null ? 0 : typeof error.code === "number" ? error.code : 1;
-        resolveResult({
-          executable,
-          args: [...args],
-          cwd,
-          exitCode,
-          stdout,
-          stderr,
-        });
-      },
-    );
-  });
-}
+import { runGitCommand } from "./git-process.js";
 
 function operationPath(cwd: string, output: string): string {
   const path = output.trim();
@@ -69,21 +34,37 @@ function operationPath(cwd: string, output: string): string {
 export class NodeGitCli implements GitPort, GitWorkspacePort {
   readonly cwd: string;
   private readonly executable: string;
+  private readonly signal?: AbortSignal;
+  private readonly onUncertain?: (cause: unknown) => void;
 
-  constructor(cwd: string, executable = "git") {
+  constructor(
+    cwd: string,
+    executable = "git",
+    signal?: AbortSignal,
+    onUncertain?: (cause: unknown) => void,
+  ) {
     this.cwd = resolve(cwd);
     this.executable = executable;
+    this.signal = signal;
+    this.onUncertain = onUncertain;
   }
 
   run(args: readonly string[]): Promise<GitCommandResult> {
-    return runGitCommand(this.executable, args, this.cwd);
+    return this.runWithEnvironment(args, {});
   }
 
   runWithEnvironment(
     args: readonly string[],
     env: Readonly<Record<string, string | undefined>>,
   ): Promise<GitCommandResult> {
-    return runGitCommand(this.executable, args, this.cwd, env);
+    return runGitCommand({
+      executable: this.executable,
+      args,
+      cwd: this.cwd,
+      env,
+      signal: this.signal,
+      onUncertain: this.onUncertain,
+    });
   }
 
   private async requiredCommand(

@@ -9,6 +9,7 @@ export interface DockerCommandRequest {
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly signal?: AbortSignal;
   readonly timeoutMs?: number;
+  readonly onUncertain?: (cause: unknown) => void;
 }
 
 export interface DockerCommandResult {

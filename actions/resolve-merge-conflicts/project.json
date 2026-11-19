@@ -14,22 +14,10 @@
       "dependsOn": ["^build"]
     },
     "build": {
-      "executor": "@nx/esbuild:esbuild",
+      "executor": "nx:run-commands",
       "options": {
-        "main": "actions/resolve-merge-conflicts/src/main.ts",
-        "tsConfig": "actions/resolve-merge-conflicts/tsconfig.json",
-        "outputPath": "actions/resolve-merge-conflicts/dist",
-        "outputFileName": "main.js",
-        "bundle": true,
-        "thirdParty": true,
-        "format": ["esm"],
-        "platform": "node",
-        "target": "node24",
-        "outputHashing": "none",
-        "minify": true,
-        "sourcemap": false,
-        "declaration": false,
-        "skipTypeCheck": true
+        "cwd": "actions/resolve-merge-conflicts",
+        "command": "node ../../scripts/build-action.mjs"
       },
       "cache": true,
       "inputs": ["bundleProduction", "^bundleProduction", "bundleGlobals"],
@@ -41,7 +29,7 @@
       "dependsOn": ["build"],
       "options": {
         "cwd": ".",
-        "command": "pnpm exec vitest run actions/resolve-merge-conflicts/src/lazy-agent-port.spec.ts actions/resolve-merge-conflicts/src/main.spec.ts && node actions/resolve-merge-conflicts/tests/entrypoint-smoke.mjs"
+        "command": "pnpm exec vitest run actions/resolve-merge-conflicts/src && node actions/resolve-merge-conflicts/tests/entrypoint-smoke.mjs"
       }
     }
   }

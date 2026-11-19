@@ -1,8 +1,9 @@
+import { executeSequentialProgram } from "./workflow-run.test-support.js";
+// @test-scope ./program.ts
+// @test-scope ./run-sequential-graph.ts
 import { describe, expect, it, vi } from "vitest";
-import {
-  createSequentialProgram,
-  executeSequentialProgram,
-} from "./program.js";
+import { Effect } from "effect";
+import { createSequentialProgram, runProgram } from "./program.js";
 
 describe("private sequential program runner", () => {
   it("runs steps once in order with cancellation signals", async () => {
@@ -144,6 +145,202 @@ describe("private sequential program runner", () => {
       status: "failed",
       error,
     });
+  });
+
+  it("rejects dependency cycles before starting any step", () => {
+    const execute = vi.fn();
+    expect(() =>
+      createSequentialProgram({
+        steps: [
+          { id: "a", dependsOn: ["b"], execute },
+          { id: "b", dependsOn: ["a"], execute },
+        ],
+      }),
+    ).toThrow(/dependency cycle/);
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("rejects an invalid private concurrency bound through its Zod contract", () => {
+    expect(() =>
+      createSequentialProgram({ concurrency: 0.5, steps: [] }),
+    ).toThrow();
+  });
+
+  it("starts a fast successor while an unrelated prerequisite is still running", async () => {
+    let finishSlow!: () => void;
+    const slowFinished = new Promise<void>((resolve) => {
+      finishSlow = resolve;
+    });
+    let startSuccessor!: () => void;
+    const successorStarted = new Promise<void>((resolve) => {
+      startSuccessor = resolve;
+    });
+    const program = createSequentialProgram({
+      steps: [
+        {
+          id: "slow",
+          dependsOn: [],
+          execute: () => slowFinished,
+        },
+        {
+          id: "fast",
+          dependsOn: [],
+          execute: async () => undefined,
+        },
+        {
+          id: "successor",
+          dependsOn: ["fast"],
+          execute: async () => {
+            startSuccessor();
+          },
+        },
+      ],
+    });
+    const outcome = executeSequentialProgram(program);
+
+    await successorStarted;
+    finishSlow();
+    await expect(outcome).resolves.toEqual({ status: "success" });
+  });
+
+  it("does not let a dependency waiter consume the only body permit", async () => {
+    const executionOrder: string[] = [];
+    const program = createSequentialProgram({
+      concurrency: 1,
+      steps: [
+        {
+          id: "waiter",
+          dependsOn: ["root"],
+          execute: async () => {
+            executionOrder.push("waiter");
+          },
+        },
+        {
+          id: "root",
+          dependsOn: [],
+          execute: async () => {
+            executionOrder.push("root");
+          },
+        },
+      ],
+    });
+
+    await expect(executeSequentialProgram(program)).resolves.toEqual({
+      status: "success",
+    });
+    expect(executionOrder).toEqual(["root", "waiter"]);
+  });
+
+  it("does not run dependents after failure and keeps the original cause", async () => {
+    const error = new Error("prerequisite failed");
+    const dependent = vi.fn();
+    const skipped = vi.fn();
+    const program = createSequentialProgram({
+      steps: [
+        { id: "root", execute: async () => Promise.reject(error) },
+        {
+          id: "dependent",
+          dependsOn: ["root"],
+          execute: dependent,
+          onSkip: skipped,
+        },
+      ],
+    });
+
+    await expect(executeSequentialProgram(program)).resolves.toEqual({
+      status: "failed",
+      error,
+    });
+    expect(dependent).not.toHaveBeenCalled();
+    expect(skipped).toHaveBeenCalledWith(["root"]);
+  });
+
+  it("settles downstream steps when an onSkip callback throws", async () => {
+    const prerequisiteError = new Error("prerequisite failed");
+    const callbackError = new Error("skip callback failed");
+    const middleBody = vi.fn();
+    const leafBody = vi.fn();
+    const leafSkip = vi.fn();
+    const program = createSequentialProgram({
+      steps: [
+        {
+          id: "root",
+          execute: async () => Promise.reject(prerequisiteError),
+        },
+        {
+          id: "middle",
+          dependsOn: ["root"],
+          execute: middleBody,
+          onSkip: () => {
+            throw callbackError;
+          },
+        },
+        {
+          id: "leaf",
+          dependsOn: ["middle"],
+          execute: leafBody,
+          onSkip: leafSkip,
+        },
+      ],
+    });
+
+    const results = await Effect.runPromise(
+      runProgram(program, new AbortController().signal),
+    );
+    await expect(executeSequentialProgram(program)).resolves.toEqual({
+      status: "failed",
+      error: prerequisiteError,
+    });
+    expect(results).toEqual([
+      { status: "failed", error: prerequisiteError },
+      { status: "failed", error: callbackError },
+      { status: "failed", error: callbackError },
+    ]);
+    expect(middleBody).not.toHaveBeenCalled();
+    expect(leafBody).not.toHaveBeenCalled();
+    expect(leafSkip).toHaveBeenCalledWith(["middle"]);
+  });
+
+  it("cancels a permit waiter before its body starts", async () => {
+    const controller = new AbortController();
+    let markStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    let releaseActive!: () => void;
+    const activeBarrier = new Promise<void>((resolve) => {
+      releaseActive = resolve;
+    });
+    const queuedBody = vi.fn();
+    const queuedOnCancel = vi.fn();
+    const program = createSequentialProgram({
+      concurrency: 1,
+      steps: [
+        {
+          id: "active",
+          dependsOn: [],
+          execute: async () => {
+            markStarted();
+            await activeBarrier;
+          },
+        },
+        {
+          id: "queued",
+          dependsOn: [],
+          execute: queuedBody,
+          onCancel: queuedOnCancel,
+        },
+      ],
+    });
+    const outcome = executeSequentialProgram(program, controller.signal);
+
+    await started;
+    controller.abort();
+    releaseActive();
+
+    await expect(outcome).resolves.toEqual({ status: "cancelled" });
+    expect(queuedOnCancel).toHaveBeenCalledOnce();
+    expect(queuedBody).not.toHaveBeenCalled();
   });
 
   it("treats an abort racing a step rejection as cancellation", async () => {

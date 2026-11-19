@@ -1,32 +1,10 @@
 import type {
   InvocationId,
   PlanNode,
-  RepeatNode,
-  TaskNode,
   SeqlaneInvocationSubject,
-  SeqlaneRunOutcome,
 } from "@seqlane/core";
-import {
-  executeSequentialProgram,
-  type SequentialProgramResult,
-} from "./program.js";
 import { invocationIdForNode, type ExecutionContext } from "./context.js";
-import { toSeqlaneInvocationError } from "./errors.js";
-import type { CompiledPlan } from "../compile/compile-plan.js";
 import { taskIdCompatibility } from "../invocation/invocation-support.js";
-
-const DEFAULT_HEARTBEAT_INTERVAL_MS = 20_000;
-
-export interface ActiveWorkflowRun {
-  readonly outcome: Promise<SeqlaneRunOutcome>;
-  cancel(): Promise<void>;
-}
-
-export interface StartCompiledWorkflowOptions {
-  readonly emitRunStarted?: boolean;
-  readonly heartbeatIntervalMs?: number;
-  readonly signal?: AbortSignal;
-}
 
 function availableDependencyIds(
   context: ExecutionContext,
@@ -79,17 +57,21 @@ export function invocationKind(
   return "validation";
 }
 
-function emitInvocationTopology(
+export function emitInvocationTopology(
   context: ExecutionContext,
   orderedNodes: readonly PlanNode[],
 ): void {
   for (const [siblingOrder, node] of orderedNodes.entries()) {
     const subject = invocationSubject(node);
+    const invocationId = invocationIdForNode(context, node);
     context.events.emit({
       type: "invocation.created",
       workId: context.workId,
       runId: context.runId,
-      invocationId: invocationIdForNode(context, node),
+      invocationId,
+      ...(context.parentInvocationId === undefined
+        ? {}
+        : { parentInvocationId: context.parentInvocationId }),
       planNodeId: node.nodeId,
       subject,
       ...taskIdCompatibility(subject),
@@ -98,6 +80,27 @@ function emitInvocationTopology(
       siblingOrder,
       dependencyIds: availableDependencyIds(context, node),
     });
+    if (node.type === "choice") {
+      for (const [armOrder, arm] of [node.then, node.else].entries()) {
+        const armSubject = invocationSubject(arm);
+        const armInvocationId = context.invocationIds.get(arm.nodeId);
+        if (armInvocationId === undefined) continue;
+        context.events.emit({
+          type: "invocation.created",
+          workId: context.workId,
+          runId: context.runId,
+          invocationId: armInvocationId,
+          planNodeId: arm.nodeId,
+          subject: armSubject,
+          ...taskIdCompatibility(armSubject),
+          kind: invocationKind(arm),
+          label: invocationTaskId(arm),
+          parentInvocationId: invocationId,
+          siblingOrder: armOrder,
+          dependencyIds: availableDependencyIds(context, node),
+        });
+      }
+    }
   }
 
   for (const node of orderedNodes) {
@@ -115,149 +118,35 @@ function emitInvocationTopology(
   }
 }
 
-export function startCompiledWorkflow(
-  compiled: CompiledPlan,
-  options: StartCompiledWorkflowOptions = {},
-): ActiveWorkflowRun {
-  const { context } = compiled;
-  const abortController = new AbortController();
-  let execution: Promise<SequentialProgramResult> | undefined;
-  let cancellationRequested = false;
-  let finished = false;
-  let cancellationPromise: Promise<void> | undefined;
-  let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
-  const startedAt = Date.now();
-
-  const cancel = (): Promise<void> => {
-    if (finished) return Promise.resolve();
-    cancellationRequested = true;
-    abortController.abort();
-    cancellationPromise ??=
-      execution?.then(() => undefined) ?? Promise.resolve();
-    return cancellationPromise;
-  };
-
-  const onAbort = (): void => {
-    void cancel().catch(() => undefined);
-  };
-  if (options.signal?.aborted) onAbort();
-  else options.signal?.addEventListener("abort", onAbort, { once: true });
-
-  const outcome = (async (): Promise<SeqlaneRunOutcome> => {
-    if (options.emitRunStarted ?? true) {
-      context.events.emit({
-        type: "run.started",
-        workId: context.workId,
-        runId: context.runId,
-      });
-    }
-    emitInvocationTopology(context, compiled.orderedNodes);
-    const heartbeatIntervalMs =
-      options.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS;
-    if (heartbeatIntervalMs > 0) {
-      heartbeatTimer = setInterval(() => {
-        context.events.emit({
-          type: "run.heartbeat",
-          workId: context.workId,
-          runId: context.runId,
-          activeInvocationIds: compiled.orderedNodes
-            .filter(
-              (
-                node,
-              ): node is
-                | TaskNode
-                | RepeatNode
-                | Extract<PlanNode, { type: "workflow" }> =>
-                node.type === "task" ||
-                node.type === "workflow" ||
-                node.type === "repeat",
-            )
-            .map((node) => invocationIdForNode(context, node)),
-          elapsedMs: Date.now() - startedAt,
-        });
-      }, heartbeatIntervalMs);
-    }
-
-    const emitCancelled = (): SeqlaneRunOutcome => {
-      finished = true;
-      context.events.emit({
-        type: "run.cancelled",
-        workId: context.workId,
-        runId: context.runId,
-      });
-      return { status: "cancelled" };
+/** Close created choice arms when their enclosing node cannot execute them. */
+export function settleUnstartedChoiceArms(
+  context: ExecutionContext,
+  node: PlanNode,
+  outcome: "skipped" | "cancelled",
+  dependencyIds: readonly InvocationId[] = [],
+): void {
+  if (node.type !== "choice") return;
+  for (const arm of [node.then, node.else]) {
+    const invocationId = invocationIdForNode(context, arm);
+    if (context.terminalInvocationIds.has(invocationId)) continue;
+    const identity = {
+      workId: context.workId,
+      runId: context.runId,
+      invocationId,
     };
-
-    try {
-      await Promise.resolve();
-      if (cancellationRequested) {
-        return emitCancelled();
-      }
-
-      execution = executeSequentialProgram(
-        compiled.program,
-        abortController.signal,
-      );
-      const result = await execution;
-
-      if (cancellationRequested || result.status === "cancelled") {
-        return emitCancelled();
-      }
-
-      if (result.status === "success") {
-        const output = context.workflowResult;
-        finished = true;
-        context.events.emit({
-          type: "run.succeeded",
-          workId: context.workId,
-          runId: context.runId,
-          output,
-        });
-        return { status: "succeeded", result: output };
-      }
-
-      const error =
-        context.failure ??
-        toSeqlaneInvocationError(
-          result.error,
-          "runtime",
-          compiled.plan.workflow.id,
-        );
-      context.failure = error;
-      finished = true;
-      context.events.emit({
-        type: "run.failed",
-        workId: context.workId,
-        runId: context.runId,
-        error,
-      });
-      return { status: "failed", error };
-    } catch (cause) {
-      if (cancellationRequested) return emitCancelled();
-
-      const error =
-        context.failure ??
-        toSeqlaneInvocationError(cause, "runtime", compiled.plan.workflow.id);
-      context.failure = error;
-      finished = true;
-      context.events.emit({
-        type: "run.failed",
-        workId: context.workId,
-        runId: context.runId,
-        error,
-      });
-      return { status: "failed", error };
-    } finally {
-      if (heartbeatTimer !== undefined) clearInterval(heartbeatTimer);
-      options.signal?.removeEventListener("abort", onAbort);
-    }
-  })();
-
-  return { outcome, cancel };
-}
-
-export async function runCompiledWorkflow(
-  compiled: CompiledPlan,
-): Promise<SeqlaneRunOutcome> {
-  return startCompiledWorkflow(compiled).outcome;
+    context.events.emit(
+      outcome === "cancelled"
+        ? {
+            type: "invocation.cancelled",
+            ...identity,
+            reason: "Choice cancelled before arm execution",
+          }
+        : {
+            type: "invocation.skipped",
+            ...identity,
+            reason: "Choice failed before arm execution",
+            dependencyIds,
+          },
+    );
+  }
 }

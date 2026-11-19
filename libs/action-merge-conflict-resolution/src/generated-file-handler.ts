@@ -2,6 +2,7 @@ import { lstatSync, readlinkSync } from "node:fs";
 import { cp, mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
+import { Effect } from "effect";
 
 import {
   type ConflictPath,
@@ -23,10 +24,15 @@ import {
 import {
   type DockerCommandPort,
   type DockerCommandRequest,
-  type DockerCommandResult,
 } from "./lockfile-port.js";
-import { LOCKFILE_DOCKER_IMAGE, runDockerCommand } from "./lockfile-docker.js";
+import { LOCKFILE_DOCKER_IMAGE } from "./lockfile-docker.js";
 import { NodeGitCli } from "./git-cli.js";
+import { dockerIo, type DockerOwnershipState } from "./docker-cli.js";
+import {
+  dockerPortEffect,
+  DockerCleanupUnconfirmedError,
+  runDockerOperation,
+} from "./docker-container.js";
 
 export const GENERATED_FILE_DOCKER_WORKDIR = "/workspace";
 export const GENERATED_FILE_DOCKER_HOME = "/tmp/seqlane-home";
@@ -116,10 +122,12 @@ export interface NodeGeneratedFileHandlerOptions {
   readonly dockerExecutable?: string;
   readonly cwd?: string;
   readonly env?: Readonly<Record<string, string | undefined>>;
+  readonly signal?: AbortSignal;
   readonly timeoutMs?: number;
   readonly uid?: number;
   readonly gid?: number;
   readonly image?: string;
+  readonly onUncertain?: (cause: unknown) => void;
 }
 
 function isWithinRoot(root: string, candidate: string): boolean {
@@ -195,7 +203,8 @@ async function createHandlerWorkspace(
 }
 
 interface DockerHandlerExecution {
-  readonly docker: DockerCommandPort;
+  readonly docker?: DockerCommandPort;
+  readonly ownership: DockerOwnershipState;
   readonly request: DockerCommandRequest;
   readonly workspace: string;
   readonly corepackHome: string;
@@ -204,53 +213,60 @@ interface DockerHandlerExecution {
   readonly image?: string;
 }
 
-async function runDockerHandlerCommand(
+function runDockerHandlerCommand(
   execution: DockerHandlerExecution,
   command: readonly string[],
   network: GeneratedFileDockerNetwork,
-): Promise<void> {
-  let result: DockerCommandResult;
-  try {
-    result = await execution.docker.run({
-      ...execution.request,
-      args: buildDockerGeneratedFileArguments({
-        workspace: execution.workspace,
-        corepackHome: execution.corepackHome,
-        command,
-        uid: execution.uid,
-        gid: execution.gid,
-        image: execution.image,
-        network,
-      }),
-    });
-  } catch (error: unknown) {
-    throw generatedHandlerError(
-      "The generated-file handler could not start.",
-      error,
+) {
+  return Effect.gen(function* () {
+    const result = yield* dockerPortEffect(
+      {
+        ...execution.request,
+        args: buildDockerGeneratedFileArguments({
+          workspace: execution.workspace,
+          corepackHome: execution.corepackHome,
+          command,
+          uid: execution.uid,
+          gid: execution.gid,
+          image: execution.image,
+          network,
+        }),
+      },
+      execution.docker,
+      execution.ownership,
+    ).pipe(
+      Effect.mapError((error) =>
+        generatedHandlerError(
+          "The generated-file handler could not start.",
+          error,
+        ),
+      ),
     );
-  }
-  if (result.exitCode !== 0) {
-    throw generatedHandlerError(
-      "The generated-file handler command failed.",
-      result.stderr,
-    );
-  }
+    if (result.exitCode !== 0) {
+      throw generatedHandlerError(
+        "The generated-file handler command failed.",
+        result.stderr,
+      );
+    }
+  });
 }
 
-async function runHandlerCommands(
+function runHandlerCommands(
   rule: ConflictHandlerRule,
   execution: DockerHandlerExecution,
-): Promise<void> {
-  const commands = [
-    ...(rule.handler.setup ?? []).map((command) => ({
-      command,
-      network: "bridge" as const,
-    })),
-    { command: rule.handler.command, network: "none" as const },
-  ];
-  for (const { command, network } of commands) {
-    await runDockerHandlerCommand(execution, command, network);
-  }
+) {
+  return Effect.gen(function* () {
+    const commands = [
+      ...(rule.handler.setup ?? []).map((command) => ({
+        command,
+        network: "bridge" as const,
+      })),
+      { command: rule.handler.command, network: "none" as const },
+    ];
+    for (const { command, network } of commands) {
+      yield* runDockerHandlerCommand(execution, command, network);
+    }
+  });
 }
 
 async function collectGeneratedOutputs(
@@ -333,71 +349,87 @@ function assertConflictOutputs(
   }
 }
 
-async function runGeneratedFileHandler(
+function runGeneratedFileHandlerEffect(
   context: {
     readonly targetRoot: string;
     readonly options: NodeGeneratedFileHandlerOptions;
-    readonly docker: DockerCommandPort;
+    readonly docker?: DockerCommandPort;
     readonly git: GitWorkspacePort;
+    readonly ownership: DockerOwnershipState;
   },
   rule: ConflictHandlerRule,
   conflicts: ConflictSet,
-): Promise<readonly ConflictPath[]> {
-  const { targetRoot, options, docker, git } = context;
-  const safeTargetRoot = await assertSafeRoot(targetRoot, "Resolution target");
-  assertConflictOutputs(rule, conflicts);
-  const before = new Set(await readWorkspaceChangePaths(git));
-  const temporaryParent = resolve(options.temporaryParent ?? tmpdir());
-  const handlerWorkspace = await createHandlerWorkspace(
-    safeTargetRoot,
-    temporaryParent,
+) {
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const { targetRoot, options, docker, git, ownership } = context;
+      const safeTargetRoot = yield* dockerIo(() =>
+        assertSafeRoot(targetRoot, "Resolution target"),
+      );
+      assertConflictOutputs(rule, conflicts);
+      const before = new Set(
+        yield* dockerIo(() => readWorkspaceChangePaths(git)),
+      );
+      const temporaryParent = resolve(options.temporaryParent ?? tmpdir());
+      const handlerWorkspace = yield* Effect.acquireRelease(
+        dockerIo(() => createHandlerWorkspace(safeTargetRoot, temporaryParent)),
+        (path) =>
+          ownership.uncertainty === undefined
+            ? dockerIo(() => rm(path, { recursive: true, force: true })).pipe(
+                Effect.orDie,
+              )
+            : Effect.void,
+      );
+      yield* Effect.uninterruptible(
+        dockerIo(() => copyTargetWorkspace(safeTargetRoot, handlerWorkspace)),
+      );
+      const corepackHome = join(handlerWorkspace, ".seqlane-corepack");
+      yield* Effect.uninterruptible(dockerIo(() => mkdir(corepackHome)));
+      const request: DockerCommandRequest = {
+        executable: options.dockerExecutable ?? "docker",
+        args: [],
+        cwd: resolve(options.cwd ?? safeTargetRoot),
+        env: safeHandlerEnvironment(options.env),
+        signal: options.signal,
+        timeoutMs: options.timeoutMs ?? GENERATED_FILE_DOCKER_TIMEOUT_MS,
+      };
+      yield* runHandlerCommands(rule, {
+        docker,
+        ownership,
+        request,
+        workspace: handlerWorkspace,
+        corepackHome,
+        uid: currentUserId(options.uid, () => process.getuid?.() ?? 0),
+        gid: currentUserId(options.gid, () => process.getgid?.() ?? 0),
+        image: options.image,
+      });
+      const generatedFiles = yield* dockerIo(() =>
+        collectGeneratedOutputs(handlerWorkspace, rule, conflicts),
+      );
+      yield* Effect.uninterruptible(
+        dockerIo(() =>
+          copyGeneratedOutputs(
+            handlerWorkspace,
+            safeTargetRoot,
+            generatedFiles,
+          ),
+        ),
+      );
+      return yield* dockerIo(() =>
+        validateGeneratedChanges(git, before, conflicts, rule),
+      );
+    }),
   );
-  try {
-    await copyTargetWorkspace(safeTargetRoot, handlerWorkspace);
-    const corepackHome = join(handlerWorkspace, ".seqlane-corepack");
-    await mkdir(corepackHome);
-    const request: DockerCommandRequest = {
-      executable: options.dockerExecutable ?? "docker",
-      args: [],
-      cwd: resolve(options.cwd ?? safeTargetRoot),
-      env: safeHandlerEnvironment(options.env),
-      timeoutMs: options.timeoutMs ?? GENERATED_FILE_DOCKER_TIMEOUT_MS,
-    };
-    await runHandlerCommands(rule, {
-      docker,
-      request,
-      workspace: handlerWorkspace,
-      corepackHome,
-      uid: currentUserId(options.uid, () => process.getuid?.() ?? 0),
-      gid: currentUserId(options.gid, () => process.getgid?.() ?? 0),
-      image: options.image,
-    });
-    const generatedFiles = await collectGeneratedOutputs(
-      handlerWorkspace,
-      rule,
-      conflicts,
-    );
-    await copyGeneratedOutputs(
-      handlerWorkspace,
-      safeTargetRoot,
-      generatedFiles,
-    );
-    return await validateGeneratedChanges(git, before, conflicts, rule);
-  } finally {
-    await rm(handlerWorkspace, { recursive: true, force: true });
-  }
 }
 
 export class NodeGeneratedFileHandler implements GeneratedFileHandlerPort {
   private readonly targetRoot: string;
-  private readonly docker: DockerCommandPort;
   private readonly git: GitWorkspacePort;
   private readonly options: NodeGeneratedFileHandlerOptions;
 
   constructor(options: NodeGeneratedFileHandlerOptions) {
     this.options = options;
     this.targetRoot = resolve(options.targetRoot);
-    this.docker = options.docker ?? { run: runDockerCommand };
     this.git = options.git ?? new NodeGitCli(this.targetRoot);
   }
 
@@ -405,15 +437,32 @@ export class NodeGeneratedFileHandler implements GeneratedFileHandlerPort {
     rule: ConflictHandlerRule,
     conflicts: ConflictSet,
   ): Promise<readonly ConflictPath[]> {
-    return runGeneratedFileHandler(
-      {
-        targetRoot: this.targetRoot,
-        options: this.options,
-        docker: this.docker,
-        git: this.git,
-      },
-      rule,
-      conflicts,
-    );
+    const ownership: DockerOwnershipState = {};
+    try {
+      return await runDockerOperation(
+        runGeneratedFileHandlerEffect(
+          {
+            targetRoot: this.targetRoot,
+            options: this.options,
+            docker: this.options.docker,
+            git: this.git,
+            ownership,
+          },
+          rule,
+          conflicts,
+        ),
+        ownership,
+        this.options,
+      );
+    } catch (cause: unknown) {
+      if (cause instanceof DockerCleanupUnconfirmedError) {
+        throw generatedHandlerError(
+          "Docker cleanup is unconfirmed; the generated-file workspace was retained.",
+          cause,
+        );
+      }
+      if (cause instanceof ActionResolutionError) throw cause;
+      throw generatedHandlerError("The generated-file handler failed.", cause);
+    }
   }
 }

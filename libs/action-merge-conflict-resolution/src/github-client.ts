@@ -76,11 +76,13 @@ export class GitHubMetadataAdapter implements PullRequestMetadataPort {
   private readonly client: GitHubMetadataClient;
   private readonly repository: RepositoryIdentity;
   private readonly workflow: WorkflowDefinitionMetadata | undefined;
+  private readonly signal: AbortSignal | undefined;
 
   constructor(options: GitHubMetadataAdapterOptions) {
     this.client = options.client;
     this.repository = validateRepository(options.repository);
     this.workflow = validateWorkflow(options.workflow);
+    this.signal = options.signal;
   }
 
   async readPullRequest(
@@ -102,6 +104,7 @@ export class GitHubMetadataAdapter implements PullRequestMetadataPort {
         owner: this.repository.owner,
         repository: this.repository.name,
         pullRequestNumber,
+        ...(this.signal === undefined ? {} : { signal: this.signal }),
       });
     } catch (error: unknown) {
       throw operationError("The pull-request metadata request failed.", error);
@@ -169,6 +172,7 @@ export class GitHubMetadataAdapter implements PullRequestMetadataPort {
         owner: this.repository.owner,
         repository: this.repository.name,
         ref: `heads/${parsedBranch.data}`,
+        ...(this.signal === undefined ? {} : { signal: this.signal }),
       });
     } catch (error: unknown) {
       throw operationError("The live base branch request failed.", error);

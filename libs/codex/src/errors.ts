@@ -5,7 +5,9 @@ export type CodexAdapterErrorCode =
   | "execution"
   | "cancellation"
   | "output"
-  | "limit";
+  | "limit"
+  | "user-input.unsupported"
+  | "USER_INPUT_PROTOCOL_ERROR";
 
 export class CodexAdapterError extends Error {
   constructor(

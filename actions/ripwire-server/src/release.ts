@@ -19,6 +19,7 @@ export interface VersionCommandOptions {
   readonly env: NodeJS.ProcessEnv;
   readonly timeout: number;
   readonly maxBuffer: number;
+  readonly signal?: AbortSignal;
 }
 
 export type VersionCommandRunner = (
@@ -71,6 +72,7 @@ export interface DownloadOptions {
   readonly maxBytes: number;
   readonly timeoutMilliseconds?: number;
   readonly fetchImpl?: typeof fetch;
+  readonly signal?: AbortSignal;
 }
 
 export function trustedReleaseDigest(
@@ -192,7 +194,12 @@ export async function downloadBytes(
     options.timeoutMilliseconds ?? DOWNLOAD_TIMEOUT_MILLISECONDS;
   const response = await fetchImpl(url, {
     redirect: "follow",
-    signal: AbortSignal.timeout(timeoutMilliseconds),
+    signal: options.signal
+      ? AbortSignal.any([
+          options.signal,
+          AbortSignal.timeout(timeoutMilliseconds),
+        ])
+      : AbortSignal.timeout(timeoutMilliseconds),
   });
   try {
     if (!response.ok)
@@ -371,8 +378,12 @@ export interface InstallOptions {
   readonly platform?: NodeJS.Platform;
   readonly architecture?: NodeJS.Architecture;
   readonly fetchImpl?: typeof fetch;
-  readonly runVersion?: (binaryPath: string) => Promise<string>;
+  readonly runVersion?: (
+    binaryPath: string,
+    signal?: AbortSignal,
+  ) => Promise<string>;
   readonly removePartialInstall?: (installDirectory: string) => Promise<void>;
+  readonly signal?: AbortSignal;
 }
 
 export class RipwireInstallError extends Error {
@@ -413,6 +424,7 @@ export async function verifyBinaryVersion(
   expectedVersion: string,
   execImpl: VersionCommandRunner = execFileAsync,
   baseEnvironment: NodeJS.ProcessEnv = process.env,
+  signal?: AbortSignal,
 ): Promise<string> {
   const { stdout } = await execImpl(binaryPath, ["--version"], {
     cwd: dirname(binaryPath),
@@ -423,6 +435,7 @@ export async function verifyBinaryVersion(
     ),
     timeout: 5_000,
     maxBuffer: 64 * 1024,
+    ...(signal === undefined ? {} : { signal }),
   });
   const match = stdout.trim().match(/\bripwire\s+v?(\d+\.\d+\.\d+)\b/i);
   if (!match || match[1] !== expectedVersion) {
@@ -449,10 +462,12 @@ export async function installRipwire(
       downloadBytes(target.archiveUrl, {
         maxBytes: MAX_ARCHIVE_BYTES,
         fetchImpl: options.fetchImpl,
+        signal: options.signal,
       }),
       downloadBytes(target.checksumUrl, {
         maxBytes: MAX_CHECKSUM_BYTES,
         fetchImpl: options.fetchImpl,
+        signal: options.signal,
       }),
     ]);
     await writeFile(archivePath, archive, { mode: 0o600 });
@@ -463,8 +478,14 @@ export async function installRipwire(
     extractBinary(archive, target, binaryPath);
     await chmod(binaryPath, 0o755);
     const version = options.runVersion
-      ? await options.runVersion(binaryPath)
-      : await verifyBinaryVersion(binaryPath, target.version);
+      ? await options.runVersion(binaryPath, options.signal)
+      : await verifyBinaryVersion(
+          binaryPath,
+          target.version,
+          execFileAsync,
+          process.env,
+          options.signal,
+        );
     if (version !== target.version) {
       throw new Error(
         `Ripwire binary version mismatch; expected ${target.version}`,

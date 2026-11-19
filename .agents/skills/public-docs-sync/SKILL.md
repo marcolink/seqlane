@@ -10,8 +10,7 @@ keeps `apps/docs/` aligned with the current target-branch implementation.
 
 ## Scope
 
-The public site lives in `apps/docs/`. It is separate from canonical SDLC
-records in `docs/sdlc/`.
+The public site lives in `apps/docs/`.
 
 The public site contains Introduction, Authoring workflows, Adapters, and
 `seqlane run` reference pages. Do not add pages for other CLI commands unless
@@ -43,7 +42,7 @@ Keep examples minimal and runnable in context. Explain default behavior,
 constraints, and ordering rules beside the relevant API or flag. Use direct
 links between related workflow pages.
 
-Do not publish `docs/sdlc/` content on the VitePress site.
+Keep planning records and internal decision documents outside the repository and public site.
 
 ## Validate
 

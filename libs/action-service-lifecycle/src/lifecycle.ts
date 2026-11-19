@@ -1,496 +1,514 @@
 import { closeSync, openSync } from "node:fs";
-import { mkdir, readFile } from "node:fs/promises";
-import { execFile, spawn, type ChildProcess } from "node:child_process";
+import { mkdir } from "node:fs/promises";
+import { spawn, type ChildProcess } from "node:child_process";
 import { dirname } from "node:path";
-import { promisify } from "node:util";
+import { Effect } from "effect";
+import type * as Scope from "effect/Scope";
 
-const execFileAsync = promisify(execFile);
+import { SpawnDetachedError, ServiceLifecycleError } from "./errors.js";
+import {
+  readProcessIdentity,
+  waitForProcessGroupExit,
+} from "./process-identity.js";
+import {
+  anchorMessageSchema,
+  processIdentitySchema,
+  type DetachedProcessOwnership,
+  type ProcessIdentity,
+} from "./schemas.js";
+import { terminateProcessGroup } from "./termination.js";
 
-const sleep = (milliseconds: number) =>
-  new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
-
-export interface ProcessIdentity {
-  processGroupId: number;
-  processStartTime: string;
-}
-
-export interface DetachedProcessOwnership {
-  pid: number;
-  identity: ProcessIdentity;
-  sentinel?: {
-    pid: number;
-    identity: ProcessIdentity;
-  };
-}
+export { SpawnDetachedError };
+export type { DetachedProcessOwnership, ProcessIdentity };
 
 export interface DetachedProcess {
-  pid: number;
-  identity: ProcessIdentity;
-  sentinelPid: number;
-  sentinelIdentity: ProcessIdentity;
-  anchor: ChildProcess;
-}
-
-export class SpawnDetachedError extends Error {
-  readonly cleanupSucceeded: boolean;
-  readonly ownership: DetachedProcessOwnership | undefined;
-
-  constructor(
-    command: string,
-    cause: unknown,
-    cleanupSucceeded: boolean,
-    ownership?: DetachedProcessOwnership,
-  ) {
-    super(`Could not start anchored process for ${command}`, { cause });
-    this.name = "SpawnDetachedError";
-    this.cleanupSucceeded = cleanupSucceeded;
-    this.ownership = ownership;
-  }
-}
-
-export interface ProcessMember {
-  pid: number;
-  identity: ProcessIdentity;
+  readonly pid: number;
+  readonly identity: ProcessIdentity;
+  readonly sentinelPid: number;
+  readonly sentinelIdentity: ProcessIdentity;
+  readonly anchor: ChildProcess;
 }
 
 export interface SpawnDetachedOptions {
-  command: string;
-  args: string[];
-  cwd: string;
-  env: NodeJS.ProcessEnv;
-  logPath: string;
-  anchorPath: string;
+  readonly command: string;
+  readonly args: string[];
+  readonly cwd: string;
+  readonly env: NodeJS.ProcessEnv;
+  readonly logPath: string;
+  readonly anchorPath: string;
 }
 
-function positiveInteger(value: unknown): number | undefined {
-  const number = Number(value);
-  return Number.isInteger(number) && number > 0 ? number : undefined;
+interface OwnedLifecycle {
+  cleanupStarted: boolean;
+  handoffComplete: boolean;
+  adoptionAcknowledged: boolean;
+  cleanupSucceeded: boolean | undefined;
+  ownership: DetachedProcessOwnership | undefined;
+  anchor: ChildProcess | undefined;
+  anchorExited: boolean;
+  anchorClosed: boolean;
 }
 
-function processErrorCode(error: unknown): string | undefined {
-  return error instanceof Error && "code" in error
-    ? (error as NodeJS.ErrnoException).code
-    : undefined;
-}
+const lifecycleState = new WeakMap<DetachedProcess, OwnedLifecycle>();
 
-function parseLinuxProcessIdentity(contents: string): ProcessIdentity {
-  const commandEnd = contents.lastIndexOf(")");
-  if (commandEnd < 0) throw new Error("Invalid Linux process metadata");
-  const fields = contents
-    .slice(commandEnd + 2)
-    .trim()
-    .split(/\s+/);
-  const processGroupId = positiveInteger(fields[2]);
-  const processStartTime = fields[19];
-  if (!processGroupId || !processStartTime) {
-    throw new Error("Incomplete Linux process metadata");
-  }
-  return { processGroupId, processStartTime };
-}
-
-async function readProcessIdentityFromPs(
-  pid: number,
-): Promise<ProcessIdentity> {
-  const { stdout } = await execFileAsync(
-    "ps",
-    ["-o", "pid=", "-o", "pgid=", "-o", "lstart=", "-p", String(pid)],
-    { maxBuffer: 16 * 1024 },
-  );
-  const match = stdout.trim().match(/^(\d+)\s+(\d+)\s+(.+)$/);
-  const processGroupId = positiveInteger(match?.[2]);
-  const processStartTime = match?.[3]?.trim();
-  if (!processGroupId || !processStartTime) {
-    throw new Error("Incomplete process metadata");
-  }
-  return { processGroupId, processStartTime };
-}
-
-export async function readProcessIdentity(
-  pidValue: unknown,
-): Promise<ProcessIdentity | undefined> {
-  const pid = positiveInteger(pidValue);
-  if (!pid) return undefined;
-  if (process.platform === "linux") {
-    return parseLinuxProcessIdentity(
-      await readFile(`/proc/${pid}/stat`, "utf8"),
-    );
-  }
-  if (process.platform === "darwin") return readProcessIdentityFromPs(pid);
-  return undefined;
-}
-
-function normalizeProcessIdentity(
-  identity: unknown,
-): ProcessIdentity | undefined {
-  if (!identity || typeof identity !== "object") return undefined;
-  const value = identity as {
-    processGroupId?: unknown;
-    processStartTime?: unknown;
-  };
-  const processGroupId = positiveInteger(value.processGroupId);
-  const processStartTime =
-    typeof value.processStartTime === "string"
-      ? value.processStartTime.trim()
-      : "";
-  if (!processGroupId || !processStartTime) return undefined;
-  return { processGroupId, processStartTime };
-}
-
-async function processIdentityMatches(
-  pid: number,
-  expectedIdentity: ProcessIdentity,
-): Promise<boolean> {
-  try {
-    const currentIdentity = await readProcessIdentity(pid);
-    return (
-      currentIdentity?.processGroupId === expectedIdentity.processGroupId &&
-      currentIdentity?.processStartTime === expectedIdentity.processStartTime
-    );
-  } catch {
-    return false;
-  }
-}
-
-export async function spawnDetached({
-  command,
-  args,
-  cwd,
-  env,
-  logPath,
-  anchorPath,
-}: SpawnDetachedOptions): Promise<DetachedProcess> {
-  await mkdir(dirname(logPath), { recursive: true });
-  const logFile = openSync(logPath, "a");
-  let child: ChildProcess;
-  try {
-    child = spawn(
-      process.execPath,
-      [anchorPath, command, JSON.stringify(args)],
-      {
-        cwd,
-        env,
-        detached: true,
-        stdio: ["ignore", logFile, logFile, "ipc"],
-        windowsHide: true,
-      },
-    );
-  } finally {
-    closeSync(logFile);
-  }
-
-  const anchorReady = waitForAnchorReady(child);
-  anchorReady.catch(() => undefined);
-  const pid = await new Promise<number>((resolve, reject) => {
-    child.once("error", reject);
-    child.once("spawn", () => resolve(child.pid ?? 0));
+function waitForSpawn(child: ChildProcess) {
+  return Effect.callback<void, Error>((resume, signal) => {
+    const finish = (effect: Effect.Effect<void, Error>) => {
+      child.off("spawn", onSpawn);
+      child.off("error", onError);
+      signal.removeEventListener("abort", onAbort);
+      resume(effect);
+    };
+    const onSpawn = () => finish(Effect.void);
+    const onError = (error: Error) => finish(Effect.fail(error));
+    const onAbort = () => {
+      child.off("spawn", onSpawn);
+      child.off("error", onError);
+    };
+    child.once("spawn", onSpawn);
+    child.once("error", onError);
+    signal.addEventListener("abort", onAbort, { once: true });
   });
-
-  if (!Number.isInteger(pid) || pid <= 0) {
-    throw new Error(`Could not determine the PID for ${command}`);
-  }
-
-  let identity: ProcessIdentity | undefined;
-  let sentinelPid: number | undefined;
-  let sentinelIdentity: ProcessIdentity | undefined;
-  try {
-    identity = await readProcessIdentity(pid);
-    if (!identity) {
-      throw new Error(`Could not verify the identity for ${command}`);
-    }
-    sentinelPid = await anchorReady;
-    sentinelIdentity = await readProcessIdentity(sentinelPid);
-    if (
-      !sentinelIdentity ||
-      sentinelIdentity.processGroupId !== identity.processGroupId
-    ) {
-      throw new Error(`Could not verify the sentinel identity for ${command}`);
-    }
-    return { pid, identity, sentinelPid, sentinelIdentity, anchor: child };
-  } catch (error) {
-    const cleanupSucceeded = await terminateFailedAnchor(child, pid, identity, {
-      pid: sentinelPid,
-      identity: sentinelIdentity,
-    });
-    const ownership = identity
-      ? {
-          pid,
-          identity,
-          ...(sentinelPid && sentinelIdentity
-            ? { sentinel: { pid: sentinelPid, identity: sentinelIdentity } }
-            : {}),
-        }
-      : undefined;
-    throw new SpawnDetachedError(command, error, cleanupSucceeded, ownership);
-  }
 }
 
-function waitForAnchorReady(child: ChildProcess): Promise<number> {
-  return new Promise((resolve, reject) => {
-    let settled = false;
-    const timeout = setTimeout(() => {
-      finish(reject, new Error("Process anchor did not become ready"));
-    }, 5_000);
+function waitForAnchorClose(
+  child: ChildProcess,
+  state: OwnedLifecycle,
+  timeoutMilliseconds: number,
+) {
+  if (state.anchorExited || state.anchorClosed) return Effect.succeed(true);
+  const closed = Effect.callback<void, never>((resume, signal) => {
+    const finish = () => {
+      child.off("exit", onExit);
+      child.off("close", onClose);
+      signal.removeEventListener("abort", onAbort);
+      resume(Effect.void);
+    };
+    const onExit = () => {
+      state.anchorExited = true;
+      finish();
+    };
+    const onClose = () => {
+      state.anchorClosed = true;
+      finish();
+    };
+    const onAbort = () => {
+      child.off("exit", onExit);
+      child.off("close", onClose);
+    };
+    child.once("exit", onExit);
+    child.once("close", onClose);
+    signal.addEventListener("abort", onAbort, { once: true });
+    if (state.anchorExited || state.anchorClosed) finish();
+  });
+  return Effect.timeoutOption(closed, timeoutMilliseconds).pipe(
+    Effect.map((result) => result._tag === "Some"),
+  );
+}
 
-    const finish = (handler: (value?: unknown) => void, value?: unknown) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
+type AnchorReady =
+  | { readonly sentinelPid: number }
+  | { readonly error: string; readonly sentinelPid?: number };
+
+function waitForAnchorReady(child: ChildProcess) {
+  return Effect.callback<AnchorReady, Error>((resume, signal) => {
+    const finish = (effect: Effect.Effect<AnchorReady, Error>) => {
       child.off("message", onMessage);
       child.off("exit", onExit);
       child.off("error", onError);
       child.off("disconnect", onDisconnect);
-      handler(value);
+      signal.removeEventListener("abort", onAbort);
+      resume(effect);
     };
-    const onMessage = (message: unknown) => {
-      if (
-        message &&
-        typeof message === "object" &&
-        "type" in message &&
-        message.type === "ready"
-      ) {
-        const sentinelPid =
-          "sentinelPid" in message
-            ? positiveInteger(message.sentinelPid)
-            : undefined;
-        if (!sentinelPid) {
-          finish(reject, new Error("Process anchor did not report a sentinel"));
-          return;
-        }
-        finish(resolve as (value?: unknown) => void, sentinelPid);
-      } else if (
-        message &&
-        typeof message === "object" &&
-        "type" in message &&
-        message.type === "error"
-      ) {
-        const messageValue =
-          "message" in message && typeof message.message === "string"
-            ? message.message
-            : "Process anchor failed";
-        finish(reject, new Error(messageValue));
-      }
+    const onMessage = (value: unknown) => {
+      const message = anchorMessageSchema.safeParse(value);
+      if (!message.success)
+        return finish(
+          Effect.fail(
+            new Error("Process anchor sent malformed readiness data"),
+          ),
+        );
+      if (message.data.type === "ready")
+        finish(Effect.succeed({ sentinelPid: message.data.sentinelPid }));
+      else if (message.data.type === "error")
+        finish(
+          Effect.succeed({
+            error: message.data.message,
+            ...(message.data.sentinelPid
+              ? { sentinelPid: message.data.sentinelPid }
+              : {}),
+          }),
+        );
     };
-    const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
+    const onExit = (code: number | null, signalValue: NodeJS.Signals | null) =>
       finish(
-        reject,
-        new Error(
-          `Process anchor exited before readiness (code=${String(code)}, signal=${String(signal)})`,
+        Effect.fail(
+          new Error(
+            `Process anchor exited before readiness (code=${String(code)}, signal=${String(signalValue)})`,
+          ),
         ),
       );
-    };
-    const onError = (error: Error) => finish(reject, error);
+    const onError = (error: Error) => finish(Effect.fail(error));
     const onDisconnect = () =>
       finish(
-        reject,
-        new Error("Process anchor IPC disconnected before readiness"),
+        Effect.fail(
+          new Error("Process anchor IPC disconnected before readiness"),
+        ),
       );
-
+    const onAbort = () => {
+      child.off("message", onMessage);
+      child.off("exit", onExit);
+      child.off("error", onError);
+      child.off("disconnect", onDisconnect);
+    };
     child.on("message", onMessage);
     child.once("exit", onExit);
     child.once("error", onError);
     child.once("disconnect", onDisconnect);
+    signal.addEventListener("abort", onAbort, { once: true });
   });
 }
 
-function adoptAnchor(child: ChildProcess): Promise<void> {
-  return new Promise((resolve, reject) => {
+function adoptAndWaitForAck(child: ChildProcess) {
+  return Effect.callback<void, Error>((resume, signal) => {
     if (!child.connected || typeof child.send !== "function") {
-      reject(new Error("Process anchor IPC is not connected"));
+      resume(Effect.fail(new Error("Process anchor IPC is not connected")));
       return;
     }
     let settled = false;
-    const timeout = setTimeout(() => {
-      finish(reject, new Error("Process anchor adoption timed out"));
-    }, 1_000);
-    const finish = (handler: (value?: unknown) => void, value?: unknown) => {
+    const finish = (effect: Effect.Effect<void, Error>) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timeout);
       child.off("message", onMessage);
       child.off("disconnect", onDisconnect);
       child.off("error", onError);
-      handler(value);
+      signal.removeEventListener("abort", onAbort);
+      resume(effect);
     };
-    const onMessage = (message: unknown) => {
-      if (
-        message &&
-        typeof message === "object" &&
-        "type" in message &&
-        message.type === "adopted"
-      ) {
-        finish(resolve as (value?: unknown) => void);
-      }
+    const onMessage = (value: unknown) => {
+      const parsed = anchorMessageSchema.safeParse(value);
+      if (!parsed.success)
+        return finish(
+          Effect.fail(new Error("Process anchor sent malformed adoption data")),
+        );
+      if (parsed.data.type === "adopted") finish(Effect.void);
+      else if (parsed.data.type === "error")
+        finish(Effect.fail(new Error(parsed.data.message)));
     };
     const onDisconnect = () =>
       finish(
-        reject,
-        new Error("Process anchor IPC disconnected during adoption"),
+        Effect.fail(
+          new Error("Process anchor IPC disconnected during adoption"),
+        ),
       );
-    const onError = (error: Error) => finish(reject, error);
+    const onError = (error: Error) => finish(Effect.fail(error));
+    const onAbort = () => {
+      child.off("message", onMessage);
+      child.off("disconnect", onDisconnect);
+      child.off("error", onError);
+    };
     child.on("message", onMessage);
     child.once("disconnect", onDisconnect);
     child.once("error", onError);
+    signal.addEventListener("abort", onAbort, { once: true });
     child.send({ type: "adopt" }, (error) => {
-      if (error) finish(reject, error);
+      if (error) finish(Effect.fail(error));
     });
   });
 }
 
-function disconnectAnchor(child: ChildProcess): void {
-  if (!child.connected) return;
-  try {
-    child.disconnect();
-  } catch {
-    // The anchor may have exited after sending its readiness message.
-  }
-}
-
-/** Adopt the anchor so the service outlives the action's Node process. */
-export async function adoptDetachedProcess(
-  service: DetachedProcess,
-): Promise<void> {
-  try {
-    await adoptAnchor(service.anchor);
-    disconnectAnchor(service.anchor);
-    service.anchor.unref();
-  } catch (error) {
-    disconnectAnchor(service.anchor);
-    throw error;
-  }
-}
-
-async function terminateFailedAnchor(
-  child: ChildProcess,
-  pid: number,
-  identity: ProcessIdentity | undefined,
-  sentinel: Partial<ProcessMember>,
-): Promise<boolean> {
-  disconnectAnchor(child);
-  const processGroupId = identity?.processGroupId ?? pid;
-  if (identity) {
-    try {
-      if (await terminateProcessGroup(pid, identity, sentinel)) return true;
-    } catch {
-      // Fall through to direct anchor cleanup if group cleanup cannot run.
+function cleanup(
+  service:
+    | Pick<
+        DetachedProcess,
+        "pid" | "identity" | "sentinelPid" | "sentinelIdentity"
+      >
+    | undefined,
+  child: ChildProcess | undefined,
+  state: OwnedLifecycle,
+) {
+  return Effect.suspend(() => {
+    if (state.handoffComplete || state.cleanupStarted) return Effect.void;
+    state.cleanupStarted = true;
+    const ownership = service
+      ? {
+          pid: service.pid,
+          identity: service.identity,
+          sentinel: {
+            pid: service.sentinelPid,
+            identity: service.sentinelIdentity,
+          },
+        }
+      : state.ownership;
+    if (ownership) {
+      return terminateProcessGroup(
+        ownership.pid,
+        ownership.identity,
+        ownership.sentinel,
+      ).pipe(
+        Effect.tap((succeeded) =>
+          Effect.sync(() => {
+            state.cleanupSucceeded = succeeded;
+            if (!succeeded)
+              process.stderr.write(
+                "Could not confirm anchored service cleanup; ownership remains uncertain\n",
+              );
+          }),
+        ),
+        Effect.catch((cause) =>
+          Effect.sync(() => {
+            state.cleanupSucceeded = false;
+            process.stderr.write(
+              `Could not confirm anchored service cleanup: ${cause instanceof Error ? cause.message : String(cause)}\n`,
+            );
+          }),
+        ),
+      );
     }
-  }
-
-  await waitForChildExit(child, 1_000);
-  if (child.exitCode === null && child.signalCode === null) {
-    child.kill("SIGKILL");
-    await waitForChildExit(child, 1_000);
-  }
-  return (
-    (child.exitCode !== null || child.signalCode !== null) &&
-    (await waitForProcessGroupExit(processGroupId, 1_000))
-  );
-}
-
-function waitForChildExit(
-  child: ChildProcess,
-  timeoutMilliseconds: number,
-): Promise<void> {
-  if (child.exitCode !== null || child.signalCode !== null) {
-    return Promise.resolve();
-  }
-  return new Promise((resolve) => {
-    const timeout = setTimeout(done, timeoutMilliseconds);
-    child.once("exit", done);
-    function done() {
-      clearTimeout(timeout);
-      resolve();
-    }
+    if (!child)
+      return Effect.sync(() => {
+        state.cleanupSucceeded = true;
+      });
+    return Effect.gen(function* () {
+      if (child.connected) {
+        try {
+          child.disconnect();
+        } catch {
+          // The child may have disconnected between the check and call.
+        }
+      }
+      let closed = yield* waitForAnchorClose(child, state, 2_000);
+      if (!closed) {
+        child.kill("SIGKILL");
+        closed = yield* waitForAnchorClose(child, state, 2_000);
+      }
+      const groupStopped =
+        closed && child.pid !== undefined
+          ? yield* waitForProcessGroupExit(child.pid, 2_000).pipe(
+              Effect.catch(() => Effect.succeed(false)),
+            )
+          : closed;
+      state.cleanupSucceeded = groupStopped;
+      if (!groupStopped)
+        process.stderr.write(
+          "Could not confirm process anchor group exit; cleanup remains uncertain\n",
+        );
+    });
   });
 }
 
-function processGroupIsAlive(processGroupId: number): boolean {
-  try {
-    process.kill(-processGroupId, 0);
-    return true;
-  } catch (error) {
-    return processErrorCode(error) === "EPERM";
-  }
-}
-
-function signalProcessGroup(
-  processGroupId: number,
-  signal: NodeJS.Signals,
-): boolean {
-  try {
-    process.kill(-processGroupId, signal);
-    return true;
-  } catch (error) {
-    const code = processErrorCode(error);
-    if (code === "ESRCH" || code === "EINVAL") return false;
-    throw error;
-  }
-}
-
-async function waitForProcessGroupExit(
-  processGroupId: number,
-  timeoutMilliseconds: number,
-): Promise<boolean> {
-  const deadline = Date.now() + timeoutMilliseconds;
-  while (processGroupIsAlive(processGroupId) && Date.now() < deadline) {
-    await sleep(100);
-  }
-  return !processGroupIsAlive(processGroupId);
-}
-
-function normalizeProcessMember(member: unknown): ProcessMember | undefined {
-  if (!member || typeof member !== "object") return undefined;
-  const value = member as { pid?: unknown; identity?: unknown };
-  const pid = positiveInteger(value.pid);
-  const identity = normalizeProcessIdentity(value.identity);
-  if (!pid || !identity) return undefined;
-  return { pid, identity };
-}
-
-async function findMatchingProcessMember(
-  members: readonly (ProcessMember | undefined)[],
-): Promise<ProcessMember | undefined> {
-  for (const member of members) {
-    if (!member || !processGroupIsAlive(member.identity.processGroupId)) {
-      continue;
+function start(options: SpawnDetachedOptions, state: OwnedLifecycle) {
+  return Effect.gen(function* () {
+    if (process.platform !== "linux" && process.platform !== "darwin")
+      return yield* Effect.fail(
+        new Error(`Process identity is unsupported on ${process.platform}`),
+      );
+    yield* Effect.tryPromise({
+      try: () => mkdir(dirname(options.logPath), { recursive: true }),
+      catch: (cause) => cause,
+    });
+    const log = yield* Effect.try({
+      try: () => openSync(options.logPath, "a"),
+      catch: (cause) => cause,
+    });
+    const child = yield* Effect.acquireRelease(
+      Effect.sync(() => {
+        try {
+          const processAnchor = spawn(
+            process.execPath,
+            [options.anchorPath, options.command, JSON.stringify(options.args)],
+            {
+              cwd: options.cwd,
+              env: options.env,
+              detached: true,
+              stdio: ["ignore", log, log, "ipc"],
+              windowsHide: true,
+            },
+          );
+          state.anchor = processAnchor;
+          processAnchor.once("exit", () => {
+            state.anchorExited = true;
+          });
+          processAnchor.once("close", () => {
+            state.anchorClosed = true;
+          });
+          return processAnchor;
+        } finally {
+          closeSync(log);
+        }
+      }),
+      (processAnchor) => cleanup(undefined, processAnchor, state),
+    );
+    yield* waitForSpawn(child).pipe(Effect.timeout("5 seconds"));
+    const pid = child.pid;
+    if (!pid || !Number.isInteger(pid) || pid < 1)
+      return yield* Effect.fail(
+        new Error("Could not determine the process anchor PID"),
+      );
+    const identity = yield* readProcessIdentity(pid);
+    if (!identity || identity.processGroupId !== pid)
+      return yield* Effect.fail(
+        new Error("Could not verify process anchor identity"),
+      );
+    state.ownership = { pid, identity };
+    const anchorReady = yield* waitForAnchorReady(child).pipe(
+      Effect.timeout("5 seconds"),
+    );
+    if ("error" in anchorReady) {
+      if (anchorReady.sentinelPid) {
+        const sentinelIdentity = yield* readProcessIdentity(
+          anchorReady.sentinelPid,
+        );
+        if (sentinelIdentity?.processGroupId === identity.processGroupId) {
+          state.ownership = {
+            pid,
+            identity,
+            sentinel: {
+              pid: anchorReady.sentinelPid,
+              identity: sentinelIdentity,
+            },
+          };
+        }
+      }
+      return yield* Effect.fail(new Error(anchorReady.error));
     }
-    if (await processIdentityMatches(member.pid, member.identity)) {
-      return member;
+    const sentinelPid = anchorReady.sentinelPid;
+    const sentinelIdentity = yield* readProcessIdentity(sentinelPid);
+    const parsedIdentity = processIdentitySchema.safeParse(sentinelIdentity);
+    if (
+      !parsedIdentity.success ||
+      parsedIdentity.data.processGroupId !== identity.processGroupId
+    ) {
+      return yield* Effect.fail(
+        new Error(
+          "Could not verify sentinel identity in the anchored process group",
+        ),
+      );
     }
-  }
-  return undefined;
+    const service = {
+      pid,
+      identity,
+      sentinelPid,
+      sentinelIdentity: parsedIdentity.data,
+      anchor: child,
+    } satisfies DetachedProcess;
+    state.ownership = {
+      pid,
+      identity,
+      sentinel: { pid: sentinelPid, identity: parsedIdentity.data },
+    };
+    lifecycleState.set(service, state);
+    return service;
+  }).pipe(
+    Effect.catch((cause) => {
+      const hasVerifiedOwnership = state.ownership !== undefined;
+      const cleanupEffect = state.anchor
+        ? cleanup(undefined, state.anchor, state)
+        : Effect.succeed(undefined);
+      return cleanupEffect.pipe(
+        Effect.andThen(
+          Effect.suspend(() =>
+            Effect.fail(
+              new SpawnDetachedError(
+                options.command,
+                cause,
+                hasVerifiedOwnership
+                  ? false
+                  : (state.cleanupSucceeded ?? false),
+                state.ownership,
+              ),
+            ),
+          ),
+        ),
+      );
+    }),
+  );
 }
 
-export async function terminateProcessGroup(
-  pidValue: unknown,
-  expectedIdentity: unknown,
-  sentinelValue?: unknown,
-): Promise<boolean> {
-  const pid = positiveInteger(pidValue);
-  const identity = normalizeProcessIdentity(expectedIdentity);
-  const sentinel = normalizeProcessMember(sentinelValue);
-  const primary = pid && identity ? { pid, identity } : undefined;
-  const members = [primary, sentinel];
-  if (
-    members.every(
-      (member) =>
-        !member || !processGroupIsAlive(member.identity.processGroupId),
-    )
-  ) {
-    return true;
-  }
-  const owner = await findMatchingProcessMember(members);
-  if (!owner) return false;
-
-  if (!signalProcessGroup(owner.identity.processGroupId, "SIGTERM"))
-    return true;
-  if (await waitForProcessGroupExit(owner.identity.processGroupId, 5_000)) {
-    return true;
-  }
-
-  const killOwner = await findMatchingProcessMember(members);
-  if (!killOwner) return false;
-  if (!signalProcessGroup(killOwner.identity.processGroupId, "SIGKILL")) {
-    return true;
-  }
-  return waitForProcessGroupExit(killOwner.identity.processGroupId, 2_000);
+export function spawnDetached(
+  options: SpawnDetachedOptions,
+): Effect.Effect<DetachedProcess, SpawnDetachedError, Scope.Scope> {
+  return Effect.suspend(() => {
+    const state: OwnedLifecycle = {
+      cleanupStarted: false,
+      handoffComplete: false,
+      adoptionAcknowledged: false,
+      cleanupSucceeded: undefined,
+      ownership: undefined,
+      anchor: undefined,
+      anchorExited: false,
+      anchorClosed: false,
+    };
+    return start(options, state).pipe(
+      Effect.tap((service) =>
+        Effect.acquireRelease(Effect.succeed(service), () =>
+          cleanup(service, service.anchor, state),
+        ),
+      ),
+    );
+  });
 }
+
+export function adoptDetachedProcess(
+  service: DetachedProcess,
+): Effect.Effect<void, ServiceLifecycleError> {
+  return Effect.gen(function* () {
+    const state = lifecycleState.get(service);
+    if (!state)
+      return yield* Effect.fail(
+        new ServiceLifecycleError(
+          "Detached service has no active lifecycle scope",
+          new Error("Unknown service ownership"),
+        ),
+      );
+    yield* adoptAndWaitForAck(service.anchor).pipe(Effect.timeout("1 second"));
+    yield* Effect.sync(() => {
+      if (service.anchor.connected) service.anchor.disconnect();
+      service.anchor.unref();
+      const state = lifecycleState.get(service);
+      if (state) state.adoptionAcknowledged = true;
+    });
+  }).pipe(
+    Effect.mapError(
+      (cause) =>
+        new ServiceLifecycleError(
+          "Could not adopt the anchored service",
+          cause,
+        ),
+    ),
+  );
+}
+
+export function completeDetachedProcessHandoff(
+  service: DetachedProcess,
+): Effect.Effect<void, ServiceLifecycleError> {
+  return Effect.gen(function* () {
+    const state = lifecycleState.get(service);
+    if (!state || !state.ownership || !state.adoptionAcknowledged)
+      return yield* Effect.fail(
+        new ServiceLifecycleError(
+          "Cannot hand off a service before resident adoption",
+          new Error("Service ownership or adoption acknowledgment is missing"),
+        ),
+      );
+    state.handoffComplete = true;
+  });
+}
+
+export function cleanupDetachedProcess(
+  service: DetachedProcess,
+): Effect.Effect<boolean, ServiceLifecycleError> {
+  const state = lifecycleState.get(service);
+  if (!state)
+    return Effect.fail(
+      new ServiceLifecycleError(
+        "Detached service has no active lifecycle scope",
+        new Error("Unknown service ownership"),
+      ),
+    );
+  return cleanup(service, service.anchor, state).pipe(
+    Effect.map(() => state.cleanupSucceeded ?? false),
+  );
+}
+
+export { terminateProcessGroup };

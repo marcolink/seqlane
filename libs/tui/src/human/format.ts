@@ -107,6 +107,9 @@ export function disclosureSymbol(row: RunVisibleRow, unicode: boolean): string {
 
 export function nodeFacts(row: RunVisibleRow, now: Date): string {
   const { node } = row;
+  if (node.pendingInputRequestId !== undefined && node.state === "active") {
+    return "waiting for input";
+  }
   if (node.state === "waiting" || node.state === "queued") return node.state;
   const elapsed =
     node.elapsedMs ??

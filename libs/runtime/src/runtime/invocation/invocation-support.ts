@@ -1,33 +1,48 @@
 import type {
   InvocationId,
-  PlanNode,
   SeqlaneInvocationSubject,
   TaskNode,
   ValueBinding,
 } from "@seqlane/core";
-import type { ObservabilityContext } from "@mastra/core/observability";
 import {
   referencedNodeIds,
   WORKFLOW_INPUT_NODE_ID,
 } from "../plan/binding-resolution.js";
 import type { ExecutionContext } from "../execution/context.js";
 import { toSeqlaneInvocationError } from "../execution/errors.js";
+import {
+  findUnconfirmedInvocationTermination,
+  type UnconfirmedInvocationTerminationError,
+} from "../execution/executor.js";
 import type { RuntimeValidationResult } from "../validation/validation-results.js";
+import type { JointAdmission } from "./joint-admission.js";
 
 import type { PreparedInvocationInput } from "./prepared-input.js";
-
-export type LegacyTaskNode = PlanNode & { readonly executor?: string };
+import type { Context } from "effect";
 
 export interface TaskExecutionOptions {
+  /** Native services captured before entering a Promise task callback. */
+  readonly nativeContext?: Context.Context<never>;
   readonly preparedInput?: PreparedInvocationInput;
   readonly invocationId: InvocationId;
-  readonly observability: Partial<ObservabilityContext>;
   readonly results: Map<string, unknown>;
   readonly remainingConsumers: Map<string, number>;
   readonly subject: SeqlaneInvocationSubject;
   /** `graph` means static workspace conflicts are already dependency edges. */
   readonly workspaceAdmission?: "dynamic" | "graph";
+  /** Admission acquired by the native Effect Plan caller. */
+  readonly admission?: JointAdmission;
+  /** Mutable lease disposition shared with the Effect finalizer. */
+  readonly admissionOwnership?: {
+    retain: boolean;
+    uncertainty?: UnconfirmedInvocationTerminationError;
+  };
+  /** Private timeout seam for owned executor termination and tests. */
+  readonly terminationTimeoutMs?: number;
+  readonly onOwnedProcessAcquired?: (pid: number) => Promise<void>;
   readonly iteration?: number;
+  /** Native choice/repeat callers publish completion after output validation. */
+  readonly deferCompletion?: boolean;
   /** Awaited before result publication; may run an asynchronous evaluator. */
   readonly validateOutput?: (output: unknown) => unknown;
 }
@@ -36,10 +51,10 @@ export type ValidationExecutionOptions = Pick<
   TaskExecutionOptions,
   | "preparedInput"
   | "invocationId"
-  | "observability"
   | "results"
   | "remainingConsumers"
   | "workspaceAdmission"
+  | "admission"
   | "iteration"
 >;
 
@@ -138,4 +153,45 @@ export function throwInvocationFailure(
     ...optionalIteration(iteration),
   });
   throw error;
+}
+
+export function terminalizeDynamicInvocation(
+  cause: unknown,
+  options: {
+    readonly context: ExecutionContext;
+    readonly abortSignal: AbortSignal;
+    readonly invocationId: InvocationId;
+    readonly taskId: string;
+    readonly iteration?: number;
+  },
+): void {
+  const { context, abortSignal, invocationId, taskId, iteration } = options;
+  if (context.terminalInvocationIds.has(invocationId)) return;
+  const uncertainTermination = findUnconfirmedInvocationTermination(cause);
+  if (abortSignal.aborted && uncertainTermination === undefined) {
+    context.events.emit({
+      type: "invocation.cancelled",
+      workId: context.workId,
+      runId: context.runId,
+      invocationId,
+      reason: "Run cancelled during invocation execution",
+      ...optionalIteration(iteration),
+    });
+    return;
+  }
+  const error = toSeqlaneInvocationError(
+    uncertainTermination ?? cause,
+    "runtime",
+    taskId,
+  );
+  context.failure = error;
+  context.events.emit({
+    type: "invocation.failed",
+    workId: context.workId,
+    runId: context.runId,
+    invocationId,
+    error,
+    disposition: "fail_run",
+    ...optionalIteration(iteration),
+  });
 }

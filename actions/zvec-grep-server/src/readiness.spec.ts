@@ -1,8 +1,10 @@
+import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   buildReadinessArguments,
   mcpUrl,
   parseListenAddress,
+  waitForCommandHealth,
 } from "./readiness.js";
 
 describe("zvec-grep readiness", () => {
@@ -51,5 +53,22 @@ describe("zvec-grep readiness", () => {
       listen: "[::1]:7999",
       mcpUrl: "http://[::1]:7999/mcp",
     });
+  });
+
+  it("uses the native deadline while retrying readiness checks", async () => {
+    let attempts = 0;
+    await expect(
+      Effect.runPromise(
+        waitForCommandHealth(
+          () =>
+            Effect.sync(() => {
+              attempts += 1;
+            }).pipe(Effect.flatMap(() => Effect.fail(new Error("starting")))),
+          20,
+          "zvec-grep",
+        ),
+      ),
+    ).rejects.toThrow("did not become ready before the startup timeout");
+    expect(attempts).toBeGreaterThan(0);
   });
 });

@@ -1,36 +1,19 @@
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import "./require-shim.js";
 
 import * as core from "@actions/core";
 import * as github from "@actions/github";
+import { Effect } from "effect";
 import {
-  GitHubMetadataAdapter,
-  NodeCommitAndPush,
-  NodeGitCli,
-  NodeLockfileRegenerator,
-  NodeOpenCodeRuntime,
-  NodeWorkspaceBoundary,
-  NodeGeneratedFileHandler,
-  createSeqlaneAgentRunner,
-  createBoundedRecording,
-  createSecretRedactor,
-  createProgressWriter,
-  createSummaryWriter,
-  parseActionInputs,
   ActionResolutionError,
+  parseActionInputs,
   resolutionErrorDetails,
-  resolveMergeConflicts,
   workflowDefinitionMetadata,
-  type PullRequestMetadata,
-  type WorkspaceFilesPort,
-  validateSeparateWorkspaceRoots,
+  type GitHubMetadataClient,
 } from "@seqlane/action-merge-conflict-resolution";
-import workflow from "@seqlane/resolve-merge-conflicts-workflow";
-import { createLazyAgentPort } from "./lazy-agent-port.js";
+import { composeResolverAction } from "./composition.js";
 
 function requiredWorkspace(): string {
   const value = process.env.GITHUB_WORKSPACE;
@@ -51,16 +34,28 @@ function workflowMetadata() {
   return workflowDefinitionMetadata(ref, sha);
 }
 
-export async function run(): Promise<void> {
-  const secrets = [
-    process.env.OPENAI_API_KEY,
-    process.env.GITHUB_TOKEN,
-    process.env.GH_TOKEN,
-  ].filter((value): value is string => value !== undefined && value.length > 0);
-  for (const secret of secrets) core.setSecret(secret);
+function interruptible(): { readonly signal: AbortSignal; dispose(): void } {
+  const controller = new AbortController();
+  const onInt = () =>
+    controller.abort(new Error("Action interrupted by SIGINT."));
+  const onTerm = () =>
+    controller.abort(new Error("Action interrupted by SIGTERM."));
+  process.once("SIGINT", onInt);
+  process.once("SIGTERM", onTerm);
+  return {
+    signal: controller.signal,
+    dispose: () => {
+      process.off("SIGINT", onInt);
+      process.off("SIGTERM", onTerm);
+    },
+  };
+}
 
-  const actionRequest = parseActionInputs({
-    pullRequestNumber: core.getInput("pull-request-number", { required: true }),
+function readInputs() {
+  const request = parseActionInputs({
+    pullRequestNumber: core.getInput("pull-request-number", {
+      required: true,
+    }),
     resolutionStrategy: core.getInput("resolution-strategy"),
     sourceDirectory: core.getInput("source-directory", { required: true }),
     targetDirectory: core.getInput("target-directory", { required: true }),
@@ -70,147 +65,109 @@ export async function run(): Promise<void> {
     conflictHandlers: core.getInput("conflict-handlers"),
   });
   const pushToken = core.getInput("push-token");
-  if (actionRequest.push && pushToken.length === 0) {
+  if (request.push && pushToken.length === 0) {
     throw new ActionResolutionError(
       "input-validation",
       "PUSH_TOKEN_REQUIRED",
       "The push-token input is required when push is true.",
     );
   }
-  if (pushToken.length > 0) {
-    core.setSecret(pushToken);
-    secrets.push(pushToken);
-  }
-  const root = requiredWorkspace();
-  const { sourceRoot, targetRoot } = await validateSeparateWorkspaceRoots(
-    resolve(root, actionRequest.sourceDirectory),
-    resolve(root, actionRequest.targetDirectory),
-  );
-  const request = actionRequest;
-  const agentRoot = await mkdtemp(
-    join(process.env.RUNNER_TEMP ?? tmpdir(), "seqlane-agent-"),
-  );
-  const token = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN ?? "";
-  const octokit = github.getOctokit(token);
-  const workflowRef = workflowMetadata();
-  const redactor = createSecretRedactor(secrets);
-  let metadata: PullRequestMetadata | undefined;
-  let boundary: NodeWorkspaceBoundary | undefined;
-  const git = new NodeGitCli(targetRoot);
-  const githubAdapter = new GitHubMetadataAdapter({
-    repository: {
-      owner: github.context.repo.owner,
-      name: github.context.repo.repo,
-    },
-    workflow: workflowRef,
-    client: {
-      getPullRequest: async (value) =>
-        (
-          await octokit.rest.pulls.get({
-            owner: value.owner,
-            repo: value.repository,
-            pull_number: value.pullRequestNumber,
-          })
-        ).data,
-      getBranchRef: async (value) =>
-        (
-          await octokit.rest.git.getRef({
-            owner: value.owner,
-            repo: value.repository,
-            ref: value.ref,
-          })
-        ).data,
-    },
-  });
-  const getBoundary = () => {
-    if (metadata === undefined)
-      throw new Error("Pull-request metadata is unavailable.");
-    boundary ??= new NodeWorkspaceBoundary({
-      sourceRoot,
-      targetRoot,
-      agentRoot,
-      baseRevision: metadata.baseRevision,
-      headRevision: metadata.headRevision,
-      git,
-    });
-    return boundary;
-  };
-  const files: WorkspaceFilesPort = {
-    captureIntegrationBaseline: async () =>
-      getBoundary().captureIntegrationBaseline(),
-    prepareAgentWorkspace: async (conflicts) => {
-      return getBoundary().prepareAgentWorkspace(conflicts);
-    },
-    copyAgentEdits: async (paths) => getBoundary().copyAgentEdits(paths),
-    validateTarget: async (conflicts, generatedPaths) =>
-      getBoundary().validateTarget(conflicts, generatedPaths),
-  };
-  const runtime = new NodeOpenCodeRuntime({
-    skillDirectory: resolverSkillDirectory(),
-  });
-  const ports = {
-    github: {
-      readPullRequest: async (number: number) => {
-        metadata = await githubAdapter.readPullRequest(number);
-        return metadata;
-      },
-      readLiveBaseRevision: (
-        branch: Parameters<typeof githubAdapter.readLiveBaseRevision>[0],
-      ) => githubAdapter.readLiveBaseRevision(branch),
-    },
-    git,
-    files,
-    lockfile: new NodeLockfileRegenerator({
-      targetRoot,
-      trustedSourceRoot: sourceRoot,
-    }),
-    generatedFiles: new NodeGeneratedFileHandler({ targetRoot, git }),
-    agent: createLazyAgentPort(() => {
-      if (metadata === undefined)
-        throw new Error("Pull-request metadata is unavailable.");
-      return createSeqlaneAgentRunner({
-        workspace: agentRoot,
-        workflow,
-        openCode: runtime,
-        repository: `${metadata.baseRepository.owner}/${metadata.baseRepository.name}`,
-        pullRequestNumber: metadata.number,
-        strategy: request.strategy,
-        baseBranch: metadata.baseBranch,
-        headBranch: metadata.headBranch,
-        recording: () => createBoundedRecording(secrets),
-      });
-    }),
-    summary: createSummaryWriter(
-      async (summary) => {
-        await core.summary.addRaw(summary).write();
-      },
-      workflowRef,
-      redactor,
-    ),
-    progress: createProgressWriter((line) => core.info(line), redactor),
-    commitAndPush: new NodeCommitAndPush(
-      git,
-      request.push ? pushToken : undefined,
-    ),
-  };
+  if (pushToken.length > 0) core.setSecret(pushToken);
+  return { request, pushToken };
+}
 
-  try {
-    const result = await resolveMergeConflicts(request, ports);
-    core.setOutput("result", result.result);
-    if (result.kind === "error") {
-      core.setFailed(`${result.error.category}/${result.error.code}`);
-      if (result.error.diagnostic !== undefined) {
-        core.error(`Resolution diagnostic: ${result.error.diagnostic}`);
-      }
-      return;
+function githubClient(token: string): GitHubMetadataClient {
+  const octokit = github.getOctokit(token);
+  return {
+    getPullRequest: async (value) =>
+      (
+        await octokit.rest.pulls.get({
+          owner: value.owner,
+          repo: value.repository,
+          pull_number: value.pullRequestNumber,
+          ...(value.signal === undefined
+            ? {}
+            : { request: { signal: value.signal } }),
+        })
+      ).data,
+    getBranchRef: async (value) =>
+      (
+        await octokit.rest.git.getRef({
+          owner: value.owner,
+          repo: value.repository,
+          ref: value.ref,
+          ...(value.signal === undefined
+            ? {}
+            : { request: { signal: value.signal } }),
+        })
+      ).data,
+  };
+}
+
+async function runAction(signal: AbortSignal): Promise<void> {
+  const secrets = [
+    process.env.OPENAI_API_KEY,
+    process.env.GITHUB_TOKEN,
+    process.env.GH_TOKEN,
+  ].filter((value): value is string => value !== undefined && value.length > 0);
+  for (const secret of secrets) core.setSecret(secret);
+
+  const { request, pushToken } = readInputs();
+  if (pushToken.length > 0) secrets.push(pushToken);
+  const workspaceRoot = requiredWorkspace();
+  const token = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN ?? "";
+  const repository = {
+    owner: github.context.repo.owner,
+    name: github.context.repo.repo,
+  };
+  const result = await Effect.runPromise(
+    Effect.scoped(
+      composeResolverAction({
+        request,
+        pushToken,
+        secrets,
+        client: githubClient(token),
+        context: {
+          signal,
+          workspaceRoot,
+          runnerTemporaryDirectory: process.env.RUNNER_TEMP,
+          repository,
+          workflow: workflowMetadata(),
+          skillDirectory: resolverSkillDirectory(),
+        },
+        callbacks: {
+          info: (line) => core.info(line),
+          warning: (message) => core.warning(message),
+          writeSummary: async (summary) => {
+            await core.summary.addRaw(summary).write();
+          },
+        },
+      }),
+    ),
+    { signal },
+  );
+
+  core.setOutput("result", result.result);
+  if (result.kind === "error") {
+    core.setFailed(`${result.error.category}/${result.error.code}`);
+    if (result.error.diagnostic !== undefined) {
+      core.error(`Resolution diagnostic: ${result.error.diagnostic}`);
     }
-    core.setOutput("strategy", result.strategy);
-    core.setOutput("base-sha", result.baseSha);
-    core.setOutput("head-sha", result.headSha);
-    core.setOutput("attempts", String(result.attempts));
-    core.setOutput("pushed", String(result.pushed));
+    return;
+  }
+  core.setOutput("strategy", result.strategy);
+  core.setOutput("base-sha", result.baseSha);
+  core.setOutput("head-sha", result.headSha);
+  core.setOutput("attempts", String(result.attempts));
+  core.setOutput("pushed", String(result.pushed));
+}
+
+export async function run(): Promise<void> {
+  const { signal, dispose } = interruptible();
+  try {
+    await runAction(signal);
   } finally {
-    await rm(agentRoot, { recursive: true, force: true });
+    dispose();
   }
 }
 

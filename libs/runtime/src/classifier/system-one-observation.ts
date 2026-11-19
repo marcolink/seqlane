@@ -8,8 +8,11 @@ export function emitFailedSystemOneObservation(options: {
   readonly model: string;
   readonly request: JsonValue;
   readonly startedAt: number;
+  readonly endedAt: number;
   readonly cause: unknown;
   readonly cancelled: boolean;
+  readonly response?: JsonValue;
+  readonly usage?: JsonValue;
   readonly onObservation: ClassifierObservationSink;
 }): void {
   const error = options.cancelled
@@ -27,8 +30,10 @@ export function emitFailedSystemOneObservation(options: {
       provider: "typesafe",
       model: options.model,
       request: options.request,
+      ...(options.response === undefined ? {} : { response: options.response }),
+      ...(options.usage === undefined ? {} : { usage: options.usage }),
       startedAt: options.startedAt,
-      endedAt: Date.now(),
+      endedAt: options.endedAt,
       error: error.slice(0, 2_000),
     },
   };

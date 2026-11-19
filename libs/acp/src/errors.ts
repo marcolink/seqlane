@@ -17,20 +17,6 @@ export class AcpAdapterError extends Error {
   }
 }
 
-export class AcpMalformedStreamError extends AcpAdapterError {
-  constructor(
-    readonly chunkType: string | undefined,
-    cause?: unknown,
-  ) {
-    super(
-      "malformed-stream",
-      `received malformed stream data${chunkType === undefined ? "" : ` for ${chunkType}`}`,
-      cause,
-    );
-    this.name = "AcpMalformedStreamError";
-  }
-}
-
 export class AcpLimitError extends AcpAdapterError {
   constructor(
     readonly resource: string,

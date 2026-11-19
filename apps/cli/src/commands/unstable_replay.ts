@@ -1,4 +1,5 @@
 import { Args, Flags } from "@oclif/core";
+import { Effect } from "effect";
 import { readSeqlaneRecording } from "../recording.js";
 import { createCliRenderer, createOutputCapabilities } from "../output.js";
 import { outputModeOptions, parseOutputMode } from "../output-mode.js";
@@ -7,7 +8,10 @@ import {
   errorMessage,
   SeqlaneCommand,
 } from "../command.js";
-import { renderReplayRecording, writeReplayEvents } from "../replay.js";
+import {
+  renderReplayRecordingEffect,
+  writeReplayEventsEffect,
+} from "../replay.js";
 
 export default class ReplayCommand extends SeqlaneCommand {
   static override hidden = true;
@@ -51,10 +55,12 @@ export default class ReplayCommand extends SeqlaneCommand {
 
     if (flags.events === "ndjson") {
       try {
-        writeReplayEvents(
-          args.recording,
-          process.stdout,
-          createOutputCapabilities().redactions,
+        await Effect.runPromise(
+          writeReplayEventsEffect(
+            args.recording,
+            process.stdout,
+            createOutputCapabilities().redactions,
+          ),
         );
       } catch (error) {
         this.error(
@@ -70,7 +76,12 @@ export default class ReplayCommand extends SeqlaneCommand {
 
     let recording;
     try {
-      recording = readSeqlaneRecording(args.recording);
+      recording = await Effect.runPromise(
+        Effect.tryPromise({
+          try: async () => readSeqlaneRecording(args.recording),
+          catch: (cause) => cause,
+        }),
+      );
     } catch (error) {
       this.error(
         contextualizeCommandError(
@@ -86,10 +97,8 @@ export default class ReplayCommand extends SeqlaneCommand {
       parseOutputMode(flags.output),
       capabilities,
     );
-    await renderReplayRecording({
-      recording,
-      renderer,
-      capabilities,
-    });
+    await Effect.runPromise(
+      renderReplayRecordingEffect({ recording, renderer, capabilities }),
+    );
   }
 }

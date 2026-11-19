@@ -113,10 +113,13 @@ export interface CodexTurn {
   readonly id: string;
   readonly status: "completed" | "interrupted" | "failed" | "inProgress";
   readonly items: readonly Record<string, unknown>[];
-  readonly error?: { readonly message: string };
+  readonly error?:
+    ({ readonly message: string } & Record<string, unknown>) | null;
+  readonly [key: string]: unknown;
 }
 
 export interface CodexTokenUsage {
+  readonly modelContextWindow?: number | null;
   readonly total: {
     readonly totalTokens: number;
     readonly inputTokens: number;
@@ -124,6 +127,7 @@ export interface CodexTokenUsage {
     readonly cacheWriteInputTokens: number;
     readonly outputTokens: number;
     readonly reasoningOutputTokens: number;
+    readonly [key: string]: unknown;
   };
   readonly last: {
     readonly totalTokens: number;
@@ -132,7 +136,9 @@ export interface CodexTokenUsage {
     readonly cacheWriteInputTokens: number;
     readonly outputTokens: number;
     readonly reasoningOutputTokens: number;
+    readonly [key: string]: unknown;
   };
+  readonly [key: string]: unknown;
 }
 
 export type CodexNotification =
@@ -169,6 +175,7 @@ export type CodexNotification =
         readonly turnId: string;
         readonly itemId: string;
         readonly delta: string;
+        readonly [key: string]: unknown;
       };
     }
   | {
@@ -226,12 +233,8 @@ function parseTurn(value: unknown): CodexTurn {
   const parsed = turnSchema.safeParse(value);
   if (!parsed.success) throw new CodexProtocolError("invalid turn payload");
   return {
-    id: parsed.data.id,
-    status: parsed.data.status,
+    ...parsed.data,
     items: parsed.data.items ?? [],
-    ...(parsed.data.error === undefined || parsed.data.error === null
-      ? {}
-      : { error: { message: parsed.data.error.message } }),
   };
 }
 
@@ -292,38 +295,45 @@ function parseKnownNotification(
         itemId: z.string().min(1),
         delta: z.string(),
       })
+      .passthrough()
       .safeParse(params);
     if (!parsed.success)
       throw new CodexProtocolError("invalid agent message delta payload");
     return { method, params: parsed.data };
   }
   if (method === "thread/tokenUsage/updated") {
-    const usage = z
+    const tokenCounts = z
       .object({
-        total: z.object({
-          totalTokens: z.number().finite().nonnegative(),
-          inputTokens: z.number().finite().nonnegative(),
-          cachedInputTokens: z.number().finite().nonnegative(),
-          cacheWriteInputTokens: z.number().finite().nonnegative(),
-          outputTokens: z.number().finite().nonnegative(),
-          reasoningOutputTokens: z.number().finite().nonnegative(),
-        }),
-        last: z.object({
-          totalTokens: z.number().finite().nonnegative(),
-          inputTokens: z.number().finite().nonnegative(),
-          cachedInputTokens: z.number().finite().nonnegative(),
-          cacheWriteInputTokens: z.number().finite().nonnegative(),
-          outputTokens: z.number().finite().nonnegative(),
-          reasoningOutputTokens: z.number().finite().nonnegative(),
-        }),
+        totalTokens: z.number().finite().nonnegative(),
+        inputTokens: z.number().finite().nonnegative(),
+        cachedInputTokens: z.number().finite().nonnegative(),
+        cacheWriteInputTokens: z.number().finite().nonnegative(),
+        outputTokens: z.number().finite().nonnegative(),
+        reasoningOutputTokens: z.number().finite().nonnegative(),
       })
-      .safeParse((params as Record<string, unknown> | undefined)?.tokenUsage);
-    const envelope = z
-      .object({ threadId: z.string().min(1), turnId: z.string().min(1) })
+      .passthrough();
+    const parsed = z
+      .object({
+        threadId: z.string().min(1),
+        turnId: z.string().min(1),
+        tokenUsage: z
+          .object({
+            modelContextWindow: z
+              .number()
+              .int()
+              .nonnegative()
+              .nullable()
+              .optional(),
+            total: tokenCounts,
+            last: tokenCounts,
+          })
+          .passthrough(),
+      })
+      .passthrough()
       .safeParse(params);
-    if (!usage.success || !envelope.success)
+    if (!parsed.success)
       throw new CodexProtocolError("invalid token usage payload");
-    return { method, params: { ...envelope.data, tokenUsage: usage.data } };
+    return { method, params: parsed.data };
   }
   return { method, params };
 }

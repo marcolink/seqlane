@@ -142,12 +142,17 @@ export function loadDirectRunAgentRuntimeFactory(
           url: externalOpenCodeUrl(configuration.host, configuration.port),
         });
       }
-      return async (signal, workspace) => {
+      return async (signal, workspace, factoryOptions) => {
         const service = await startOpenCodeService({
           workspace: workspace ?? process.cwd(),
           signal,
           host: configuration.host,
           port: configuration.port,
+          ...(factoryOptions?.onOwnedProcessAcquired === undefined
+            ? {}
+            : {
+                onOwnedProcessAcquired: factoryOptions.onOwnedProcessAcquired,
+              }),
         });
         try {
           const runtime = await createOpenCodeAgentRuntimeFactory({
@@ -177,7 +182,19 @@ export function loadDirectRunAgentRuntimeFactory(
             },
           };
         } catch (cause) {
-          await service.close();
+          let cleanupFailure: { readonly cause: unknown } | undefined;
+          try {
+            await service.close();
+          } catch (cleanupCause) {
+            cleanupFailure = { cause: cleanupCause };
+          }
+          if (cleanupFailure !== undefined) {
+            throw new AggregateError(
+              [cause, cleanupFailure.cause],
+              "Direct OpenCode runtime startup and cleanup failed",
+              { cause },
+            );
+          }
           throw cause;
         }
       };

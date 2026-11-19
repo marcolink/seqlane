@@ -15,7 +15,7 @@
       "executor": "nx:run-commands",
       "options": {
         "cwd": "actions/setup-opencode",
-        "command": "pnpm exec esbuild src/entrypoint.ts --bundle --platform=node --target=node24 --format=esm --banner:js='import { createRequire } from \"node:module\"; globalThis.require ??= createRequire(import.meta.url);' --outfile=dist/main.js --minify"
+        "command": "node ../../scripts/build-action.mjs src/entrypoint.ts"
       },
       "cache": true,
       "inputs": ["bundleProduction", "^bundleProduction", "bundleGlobals"],

@@ -14,6 +14,5 @@ export type {
   RunnerSupervisionResult,
   RunnerSupervision,
   RunnerSignalSource,
-  RunnerTimer,
   TerminalSeqlaneExecutionEvent,
 } from "./runner-client.js";

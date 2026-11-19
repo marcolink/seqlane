@@ -1,7 +1,11 @@
 import { Args, Flags } from "@oclif/core";
 import type { RunRequest } from "@seqlane/protocol";
 import { parseClassifierCliOptions } from "../classifier-environment.js";
-import { createOutputCapabilities, resolveRendererMode } from "../output.js";
+import {
+  createOutputCapabilities,
+  isCIEnvironment,
+  resolveRendererMode,
+} from "../output.js";
 import { outputModeOptions, parseOutputMode } from "../output-mode.js";
 import {
   runCommandResultSchema,
@@ -111,6 +115,15 @@ export default class RunCommand extends SeqlaneCommand {
     dry: Flags.boolean({
       description: "Print the calculated Plan without executing workflow tasks",
     }),
+    interactive: Flags.boolean({
+      description: "Allow agent tasks to request answers in the terminal",
+      default: false,
+    }),
+    "input-timeout": Flags.integer({
+      description: "Seconds to wait for user input (1-86400)",
+      min: 1,
+      max: 86_400,
+    }),
   };
 
   protected override toErrorJson(error: unknown): RunCommandResult {
@@ -127,6 +140,35 @@ export default class RunCommand extends SeqlaneCommand {
     const jsonMode = this.jsonEnabled();
     if (jsonMode && flags.dry) {
       this.error("--json cannot be combined with --dry", { exit: 1 });
+    }
+    const baseCapabilities = createOutputCapabilities();
+    const capabilities = baseCapabilities;
+    const terminalMode =
+      jsonMode || flags.dry
+        ? undefined
+        : resolveRendererMode(parseOutputMode(flags.output), capabilities);
+    if (flags.interactive) {
+      if (jsonMode)
+        this.error("--interactive cannot be combined with --json", { exit: 1 });
+      if (!flags.dry && isCIEnvironment())
+        this.error("--interactive is unavailable in CI", { exit: 1 });
+      if (
+        !flags.dry &&
+        (terminalMode !== "human" ||
+          !capabilities.isTTY ||
+          !capabilities.hasTerminalInput)
+      ) {
+        this.error("--interactive requires human terminal input and output", {
+          exit: 1,
+        });
+      }
+      if (!flags.dry && flags["input-file"] === "-") {
+        this.error("--interactive cannot read workflow input from stdin", {
+          exit: 1,
+        });
+      }
+    } else if (flags["input-timeout"] !== undefined) {
+      this.error("--input-timeout requires --interactive", { exit: 1 });
     }
     let request: RunRequest;
     let classifierOptions: ReturnType<typeof parseClassifierCliOptions>;
@@ -146,6 +188,15 @@ export default class RunCommand extends SeqlaneCommand {
         flags.workspace,
         flags.dry,
       );
+      if (flags.interactive) {
+        request = {
+          ...request,
+          interactionPolicy: {
+            mode: "user-input",
+            timeoutMs: (flags["input-timeout"] ?? 300) * 1_000,
+          },
+        };
+      }
     } catch (error) {
       if (error instanceof RunInputCancelledError) {
         process.exitCode = 130;
@@ -158,12 +209,6 @@ export default class RunCommand extends SeqlaneCommand {
       });
     }
 
-    const baseCapabilities = createOutputCapabilities();
-    const capabilities = baseCapabilities;
-    const terminalMode =
-      jsonMode || flags.dry
-        ? undefined
-        : resolveRendererMode(parseOutputMode(flags.output), capabilities);
     if (
       terminalMode === "human" &&
       (!capabilities.isTTY || !capabilities.hasTerminalInput)

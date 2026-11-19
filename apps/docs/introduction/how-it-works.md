@@ -41,6 +41,9 @@ The diagram shows agent adapter selection. Classifier tasks use a separate
 Independent tasks can run in parallel. Session and workspace policy determines
 which tasks wait.
 
+Effect v4 owns execution and resource cleanup. Workflow source uses Seqlane
+authoring contracts and Zod schemas; runtime implementation types stay private.
+
 Read [Authoring workflows](/authoring-workflows/overview) for the workflow DSL.
 Read [Plan](/authoring-workflows/plan) for the detailed execution model.
 Read [Adapters](/adapters/overview) to connect an agent runtime.

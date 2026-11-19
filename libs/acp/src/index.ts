@@ -11,6 +11,5 @@ export type {
 export {
   AcpAdapterError,
   AcpLimitError,
-  AcpMalformedStreamError,
   AcpStructuredOutputError,
 } from "./errors.js";

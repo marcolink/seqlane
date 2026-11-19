@@ -1,6 +1,7 @@
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { Effect } from "effect";
 
 import { tryRestore, trySave, type CachePort } from "./cache.js";
 import { installArchive, type ToolCachePort } from "./archive.js";
@@ -9,6 +10,7 @@ import { cacheKey, type SupportedPlatform } from "./platform.js";
 import { parseReleaseMetadata, type ReleaseMetadata } from "./release.js";
 
 const TOOL_NAME = "seqlane-opencode";
+export const SETUP_DEADLINE_MS = 10 * 60 * 1_000;
 
 export interface SetupLogger {
   debug(message: string): void;
@@ -17,8 +19,12 @@ export interface SetupLogger {
 export interface SetupDependencies {
   cache: CachePort;
   toolCache: ToolCachePort;
-  getRelease(version: string): Promise<unknown>;
-  verifyExecutable(executable: string, version: string): Promise<void>;
+  getRelease(version: string, signal?: AbortSignal): Promise<unknown>;
+  verifyExecutable(
+    executable: string,
+    version: string,
+    signal?: AbortSignal,
+  ): Promise<void>;
   logger: SetupLogger;
   temporaryDirectory?: string;
   toolCacheRoot?: string;
@@ -38,71 +44,78 @@ export function installationPath(
   return join(root, TOOL_NAME, version, platform.architecture);
 }
 
-async function verifyCachedExecutable(
+function verifyCachedExecutable(
   path: string,
   version: string,
   verifyExecutable: SetupDependencies["verifyExecutable"],
-): Promise<string | undefined> {
-  try {
-    const executable = await locateExecutable(path);
-    await verifyExecutable(executable, version);
-    return executable;
-  } catch {
-    return undefined;
-  }
+): Effect.Effect<string | undefined, unknown> {
+  return Effect.tryPromise({
+    try: (signal) =>
+      locateExecutable(path).then((executable) =>
+        verifyExecutable(executable, version, signal).then(() => executable),
+      ),
+    catch: (cause) => cause,
+  }).pipe(Effect.catch(() => Effect.succeed(undefined)));
 }
 
-export async function setupOpenCode(
+const io = <A>(run: (signal: AbortSignal) => Promise<A>) =>
+  Effect.tryPromise({ try: run, catch: (cause) => cause });
+
+export function setupOpenCode(
   version: string,
   platform: SupportedPlatform,
   dependencies: SetupDependencies,
-): Promise<string> {
-  const key = cacheKey(platform, version);
-  const destination = installationPath(
-    platform,
-    version,
-    dependencies.toolCacheRoot,
-  );
-  await mkdir(destination, { recursive: true });
-
-  const restored = await tryRestore(
-    dependencies.cache,
-    destination,
-    key,
-    (error) =>
-      dependencies.logger.debug(
-        `OpenCode cache restore was unavailable: ${error instanceof Error ? error.message : String(error)}`,
-      ),
-  );
-  if (restored) {
-    const cachedExecutable = await verifyCachedExecutable(
-      destination,
+): Effect.Effect<string, unknown> {
+  return Effect.gen(function* () {
+    const key = cacheKey(platform, version);
+    const destination = installationPath(
+      platform,
       version,
-      dependencies.verifyExecutable,
+      dependencies.toolCacheRoot,
     );
-    if (cachedExecutable !== undefined) return cachedExecutable;
-    dependencies.logger.debug("Ignoring corrupt OpenCode cache data.");
-  }
+    yield* io(() => mkdir(destination, { recursive: true }));
 
-  await rm(destination, { recursive: true, force: true });
-  const releaseValue = await dependencies.getRelease(version);
-  const metadata: ReleaseMetadata = parseReleaseMetadata(
-    releaseValue,
-    version,
-    platform,
-  );
-  const executable = await installArchive({
-    metadata,
-    platform,
-    version,
-    toolCachePort: dependencies.toolCache,
-    verifyExecutable: dependencies.verifyExecutable,
-    temporaryDirectory: dependencies.temporaryDirectory,
+    const restored = yield* tryRestore(
+      dependencies.cache,
+      destination,
+      key,
+      (error) =>
+        dependencies.logger.debug(
+          `OpenCode cache restore was unavailable: ${error instanceof Error ? error.message : String(error)}`,
+        ),
+    );
+    if (restored) {
+      const cachedExecutable = yield* verifyCachedExecutable(
+        destination,
+        version,
+        dependencies.verifyExecutable,
+      );
+      if (cachedExecutable !== undefined) return cachedExecutable;
+      dependencies.logger.debug("Ignoring corrupt OpenCode cache data.");
+    }
+
+    yield* io(() => rm(destination, { recursive: true, force: true }));
+    const releaseValue = yield* io((signal) =>
+      dependencies.getRelease(version, signal),
+    );
+    const metadata: ReleaseMetadata = parseReleaseMetadata(
+      releaseValue,
+      version,
+      platform,
+    );
+    const executable = yield* installArchive({
+      metadata,
+      platform,
+      version,
+      toolCachePort: dependencies.toolCache,
+      verifyExecutable: dependencies.verifyExecutable,
+      temporaryDirectory: dependencies.temporaryDirectory,
+    });
+    yield* trySave(dependencies.cache, destination, key, (error) =>
+      dependencies.logger.debug(
+        `OpenCode cache save was unavailable: ${error instanceof Error ? error.message : String(error)}`,
+      ),
+    );
+    return executable;
   });
-  await trySave(dependencies.cache, destination, key, (error) =>
-    dependencies.logger.debug(
-      `OpenCode cache save was unavailable: ${error instanceof Error ? error.message : String(error)}`,
-    ),
-  );
-  return executable;
 }

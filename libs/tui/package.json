@@ -39,7 +39,12 @@
   },
   "files": [
     "dist",
-    "!dist/**/*.tsbuildinfo"
+    "!dist/**/*.tsbuildinfo",
+    "!dist/**/*.spec.*",
+    "!dist/**/*.test.*",
+    "!dist/**/*test-support*",
+    "!dist/test-fixtures/**",
+    "!dist/**/*-fixture.*"
   ],
   "publishConfig": {
     "access": "public",

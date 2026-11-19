@@ -10,6 +10,12 @@
   },
   packageRules: [
     {
+      description: "Update Effect and its integrations together",
+      matchDatasources: ["npm"],
+      matchPackageNames: ["effect", "@effect/**"],
+      groupName: "Effect packages",
+    },
+    {
       description: "Automerge mature npm minor and patch updates after CI passes",
       matchDatasources: ["npm"],
       matchUpdateTypes: ["minor", "patch"],

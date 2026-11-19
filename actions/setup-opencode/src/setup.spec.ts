@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { Effect } from "effect";
 import { resolvePlatform } from "./platform.js";
 import { releaseAssetUrl } from "./release.js";
 import {
@@ -71,14 +72,15 @@ describe("setupOpenCode", () => {
     const root = await mkdtemp(join(tmpdir(), "setup-opencode-test-"));
     try {
       const deps = await dependencies(root, true);
-      await expect(setupOpenCode(version, platform, deps)).resolves.toContain(
-        "opencode",
-      );
+      await expect(
+        Effect.runPromise(setupOpenCode(version, platform, deps)),
+      ).resolves.toContain("opencode");
       expect(deps.getRelease).not.toHaveBeenCalled();
       expect(deps.toolCache.downloadTool).not.toHaveBeenCalled();
       expect(deps.verifyExecutable).toHaveBeenCalledWith(
         expect.stringContaining("opencode"),
         version,
+        expect.any(AbortSignal),
       );
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -103,10 +105,13 @@ describe("setupOpenCode", () => {
         assets: [{ ...release().assets[0], digest: `sha256:${actual}` }],
       });
       await writeFile(join(root, "opencode"), "downloaded");
-      await expect(setupOpenCode(version, platform, deps)).resolves.toContain(
-        "opencode",
+      await expect(
+        Effect.runPromise(setupOpenCode(version, platform, deps)),
+      ).resolves.toContain("opencode");
+      expect(deps.getRelease).toHaveBeenCalledWith(
+        version,
+        expect.any(AbortSignal),
       );
-      expect(deps.getRelease).toHaveBeenCalledWith(version);
       expect(deps.cache.save).toHaveBeenCalled();
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -134,13 +139,63 @@ describe("setupOpenCode", () => {
         .mockRejectedValueOnce(new Error("wrong cached version"))
         .mockResolvedValue(undefined);
 
-      await expect(setupOpenCode(version, platform, deps)).resolves.toContain(
-        "opencode",
+      await expect(
+        Effect.runPromise(setupOpenCode(version, platform, deps)),
+      ).resolves.toContain("opencode");
+      expect(deps.getRelease).toHaveBeenCalledWith(
+        version,
+        expect.any(AbortSignal),
       );
-      expect(deps.getRelease).toHaveBeenCalledWith(version);
       expect(deps.toolCache.downloadTool).toHaveBeenCalledWith(
         releaseAssetUrl(version, platform.assetName),
+        expect.any(AbortSignal),
+        expect.any(Function),
       );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("does not continue setup after a cache restore is interrupted", async () => {
+    const root = await mkdtemp(join(tmpdir(), "setup-opencode-test-"));
+    const controller = new AbortController();
+    try {
+      const deps = await dependencies(root);
+      let started!: () => void;
+      const didStart = new Promise<void>((resolve) => {
+        started = resolve;
+      });
+      let finish!: (value: undefined) => void;
+      const restoreSettled = new Promise<undefined>((resolve) => {
+        finish = resolve;
+      });
+      deps.cache.restore = vi.fn(() => {
+        started();
+        return restoreSettled;
+      });
+      const running = Effect.runPromise(
+        setupOpenCode(version, platform, deps),
+        {
+          signal: controller.signal,
+        },
+      );
+      await didStart;
+      controller.abort(new Error("test cancellation"));
+      let settled = false;
+      void running.then(
+        () => {
+          settled = true;
+        },
+        () => {
+          settled = true;
+        },
+      );
+      await Promise.resolve();
+      expect(settled).toBe(false);
+      finish(undefined);
+      await expect(running).rejects.toBeDefined();
+      expect(deps.getRelease).not.toHaveBeenCalled();
+      expect(deps.toolCache.downloadTool).not.toHaveBeenCalled();
     } finally {
       await rm(root, { recursive: true, force: true });
     }

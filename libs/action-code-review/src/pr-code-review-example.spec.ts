@@ -6,6 +6,7 @@ import { readFile } from "node:fs/promises";
 import type { TaskContext, TaskDefinition } from "@seqlane/core";
 import { buildWorkflow } from "@seqlane/core";
 import {
+  codeReviewReportSchema,
   reviewStateSchema,
   synthesizedReviewFindingSchema,
 } from "@seqlane/code-review-workflow/contracts";
@@ -229,20 +230,8 @@ describe("pull-request code review example workflow", () => {
     expect(workflow).toContain(
       '{"adapter":"opencode","url":"${{ steps.opencode.outputs.url }}"}',
     );
-    const mastraSecretMappings =
-      workflow.match(
-        /^\s+MASTRA_[A-Z_]+: \$\{\{ secrets\.MASTRA_[A-Z_]+ \}\}$/gm,
-      ) ?? [];
-    expect(mastraSecretMappings).toHaveLength(3);
-    expect(mastraSecretMappings).toEqual(
-      expect.arrayContaining([
-        "          MASTRA_PLATFORM_ACCESS_TOKEN: ${{ secrets.MASTRA_PLATFORM_ACCESS_TOKEN }}",
-        "          MASTRA_PLATFORM_OBSERVABILITY_ENDPOINT: ${{ secrets.MASTRA_PLATFORM_OBSERVABILITY_ENDPOINT }}",
-        "          MASTRA_PROJECT_ID: ${{ secrets.MASTRA_PROJECT_ID }}",
-      ]),
-    );
     expect(workflow).toContain(
-      "SEQLANE_REDACT_VALUES: |-\n            ${{ secrets.OPENAI_API_KEY }}\n            ${{ steps.ripwire.outputs.mcp-token }}\n            ${{ secrets.MASTRA_PLATFORM_ACCESS_TOKEN }}",
+      "SEQLANE_REDACT_VALUES: |-\n            ${{ secrets.OPENAI_API_KEY }}\n            ${{ steps.ripwire.outputs.mcp-token }}",
     );
     expect(workflow).not.toContain(
       './apps/cli/bin/dev.js run "$PWD/workflows/code-review/workflow.ts"',
@@ -1464,7 +1453,9 @@ describe("pull-request code review example workflow", () => {
     );
 
     expect(
-      task.output.parse(result).findings.map((finding) => finding.status),
+      codeReviewReportSchema
+        .parse(result)
+        .findings.map((finding) => finding.status),
     ).toEqual([
       "reopened",
       "open",
@@ -1529,7 +1520,9 @@ describe("pull-request code review example workflow", () => {
       report: createReport([]),
     });
 
-    expect(task.output.parse(result).findings[0].status).toBe("open");
+    const findings = codeReviewReportSchema.parse(result).findings;
+    expect(findings).toHaveLength(1);
+    expect(findings[0]?.status).toBe("open");
     expect(result.verdict).toBe("request-changes");
   });
 
