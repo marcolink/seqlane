@@ -103,6 +103,9 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
+      - name: Audit runtime before generating release metadata
+        run: pnpm verify:runtime
+
       - name: Create release tag and GitHub release
         id: release
         run: |
@@ -139,9 +142,7 @@ jobs:
 
       - name: Verify release packages
         if: steps.release.outputs.released == 'true'
-        run: |
-          node scripts/verify-release-packages.mjs
-          pnpm verify:runtime
+        run: node scripts/verify-release-packages.mjs
 
       - name: Publish release packages
         if: steps.release.outputs.released == 'true'
