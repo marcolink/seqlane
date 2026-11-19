@@ -25,3 +25,6 @@ path explicitly:
 
 The `executable` input is required. This action does not install OpenCode and
 does not provide a default executable name.
+
+The hosted CI smoke test starts the pinned OpenCode executable through this
+Action and checks its health response. It makes no model calls.
