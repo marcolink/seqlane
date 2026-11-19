@@ -55,6 +55,7 @@ export function createDirectRunV2AgentRuntimeFactory(
     const service = await startOpenCodeV2Service({
       workspace: workspace ?? process.cwd(),
       signal,
+      environment,
       host: configuration.host,
       port: configuration.port,
       ...(factoryOptions?.onOwnedProcessAcquired === undefined

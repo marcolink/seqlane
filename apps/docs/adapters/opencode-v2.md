@@ -26,6 +26,19 @@ Use `--opencode-v2-host` and `--opencode-v2-port` to change the loopback endpoin
 Port `0` selects an ephemeral port. Managed mode never selects a shared native
 service.
 
+Managed runs inherit runtime paths and locale settings. Other variables require
+explicit selection. If a provider uses an environment credential, list its
+variable name in `SEQLANE_OPENCODE_V2_ENV` before the run:
+
+```sh
+export SEQLANE_OPENCODE_V2_ENV=OPENAI_API_KEY
+```
+
+The list accepts at most 128 comma-separated names and no wildcards. Select only
+variables that the provider or service needs. Selected values and the generated
+server password remain available to native tools. Credential files remain
+accessible through the native configuration directories.
+
 ## External service
 
 Set the same `OPENCODE_SERVER_PASSWORD` for the native service and Seqlane.

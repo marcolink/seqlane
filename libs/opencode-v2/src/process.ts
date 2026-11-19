@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { setTimeout } from "node:timers/promises";
 import { z } from "zod";
 import { OpenCodeV2Error } from "./errors.js";
+import type { ServerEnvironment } from "./environment.js";
 
 /** Own exactly one foreground process group and its bounded startup output. */
 export function spawnOwnedServer(
@@ -11,6 +12,7 @@ export function spawnOwnedServer(
     host: string;
     port: number;
     password: string;
+    environment: ServerEnvironment;
   },
 ) {
   const child = spawn(
@@ -27,7 +29,7 @@ export function spawnOwnedServer(
       detached: true,
       stdio: ["ignore", "pipe", "pipe"],
       env: {
-        ...process.env,
+        ...configuration.environment,
         OPENCODE_SERVER_PASSWORD: configuration.password,
         OPENCODE_SERVER_USERNAME: "opencode",
       },
