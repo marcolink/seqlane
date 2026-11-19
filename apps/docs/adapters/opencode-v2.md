@@ -35,9 +35,10 @@ export SEQLANE_OPENCODE_V2_ENV=OPENAI_API_KEY
 ```
 
 The list accepts at most 128 comma-separated names and no wildcards. Select only
-variables that the provider or service needs. Selected values and the generated
-server password remain available to native tools. Credential files remain
-accessible through the native configuration directories.
+variables that the provider or service needs. Selected provider values remain
+available to native tools. Managed mode removes the server password from the
+environment before native tools start. Seqlane keeps authenticated client access.
+Credential files remain accessible through the native configuration directories.
 
 ## External service
 

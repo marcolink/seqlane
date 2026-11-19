@@ -206,6 +206,86 @@ export default createFlow({id:'v2-probe',input:z.object({}),output,model:{model:
     workspace,
     signal: AbortSignal.timeout(30_000),
   });
+  const headers = { authorization: external.authorization };
+  const credentialProbe = join(workspace, "credential-probe.mjs");
+  await writeFile(
+    credentialProbe,
+    `const password = process.env.OPENCODE_SERVER_PASSWORD ?? process.env.OPENCODE_PASSWORD;
+const response = await fetch(${JSON.stringify(`${external.url}/api/info`)}, {
+  headers: { authorization: 'Basic ' + Buffer.from('opencode:' + (password ?? '')).toString('base64') },
+  signal: AbortSignal.timeout(5000),
+});
+console.log(JSON.stringify({ credentialPresent: password !== undefined, serviceStatus: response.status }));
+`,
+  );
+  const shellQuote = (value) => `'${value.replaceAll("'", "'\\''")}'`;
+  const probeSignal = AbortSignal.timeout(10_000);
+  const shellSchema = z.object({
+    data: z.object({
+      id: z.string(),
+      status: z.enum(["running", "exited", "timeout", "killed"]),
+      exit: z.number().int().optional(),
+    }),
+  });
+  const createdShell = shellSchema.parse(
+    await (
+      await fetch(`${external.url}/api/shell`, {
+        method: "POST",
+        headers: { ...headers, "content-type": "application/json" },
+        body: JSON.stringify({
+          location: { directory: workspace },
+          command: `${shellQuote(process.execPath)} ${shellQuote(credentialProbe)}`,
+          timeout: 5_000,
+        }),
+        signal: probeSignal,
+      })
+    ).json(),
+  );
+  const shellURL = `${external.url}/api/shell/${encodeURIComponent(createdShell.data.id)}`;
+  try {
+    while (true) {
+      const shell = shellSchema.parse(
+        await (await fetch(shellURL, { headers, signal: probeSignal })).json(),
+      );
+      if (shell.data.status !== "running") {
+        assert.equal(shell.data.status, "exited");
+        assert.equal(shell.data.exit, 0);
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    const output = z
+      .object({ data: z.object({ output: z.string() }) })
+      .parse(
+        await (
+          await fetch(`${shellURL}/output`, { headers, signal: probeSignal })
+        ).json(),
+      );
+    z.object({
+      credentialPresent: z.literal(false),
+      serviceStatus: z.literal(401),
+    }).parse(JSON.parse(output.data.output.trim()));
+    assert.equal(
+      (
+        await fetch(`${external.url}/api/info`, {
+          headers,
+          signal: probeSignal,
+        })
+      ).status,
+      200,
+      "owned client must retain authenticated access",
+    );
+    assert.equal(agentCalls, 2, "credential probe must make no model calls");
+    console.log(
+      "PASS native shell: no server password, unauthorized access, authenticated client preserved",
+    );
+  } finally {
+    await fetch(shellURL, {
+      method: "DELETE",
+      headers,
+      signal: AbortSignal.timeout(5_000),
+    });
+  }
   const url = new URL(external.url);
   const credential = Buffer.from(
     external.authorization.slice(6),
@@ -223,7 +303,6 @@ export default createFlow({id:'v2-probe',input:z.object({}),output,model:{model:
     url.port,
   ]);
   assert.equal(agentCalls, 4);
-  const headers = { authorization: external.authorization };
   assert.equal(
     (await fetch(`${external.url}/api/info`, { headers })).status,
     200,

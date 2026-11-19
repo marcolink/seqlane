@@ -36,6 +36,18 @@ const startupSchema = z.strictObject({
     )
     .optional(),
 });
+const readinessSchema = z
+  .string()
+  .transform((line, context) => {
+    try {
+      const value: unknown = JSON.parse(line);
+      return value;
+    } catch {
+      context.addIssue({ code: "custom", message: "invalid readiness JSON" });
+      return z.NEVER;
+    }
+  })
+  .pipe(z.strictObject({ url: z.url() }));
 
 /** A foreground server owned by this run. No native shared-service discovery. */
 export async function startOpenCodeV2Service(options: {
@@ -116,11 +128,13 @@ export async function startOpenCodeV2Service(options: {
           "execution",
           "owned server exited during startup",
         );
-      const match = /server listening on (https?:\/\/[^\s]+)/.exec(
-        owned.output,
-      );
-      if (match?.[1] !== undefined) {
-        const endpoint = new URL(match[1]);
+      const frame = owned.stdout
+        .split("\n")
+        .slice(0, -1)
+        .map((line) => readinessSchema.safeParse(line))
+        .find((parsed) => parsed.success);
+      if (frame?.success) {
+        const endpoint = new URL(frame.data.url);
         const requestedHost = configuration.host.includes(":")
           ? `[${configuration.host}]`
           : configuration.host;

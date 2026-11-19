@@ -41,9 +41,11 @@ export SEQLANE_OPENCODE_V2_ENV=OPENAI_API_KEY,HTTPS_PROXY
 
 The list accepts at most 128 comma-separated variable names. It does not accept
 wildcards. Unlisted credentials and process hooks do not enter the server or
-its inherited shell environment. Explicitly selected values and the generated
-server password remain available to native tools. This policy does not restrict
-access to credential files under `HOME` or the XDG directories. External mode
+its inherited shell environment. Managed mode uses native stdio startup, which
+removes both server password variables before tools start. The owned client
+keeps authenticated access. Explicitly selected provider values remain available
+to native tools. This policy does not restrict access to credential files under
+`HOME` or the XDG directories. External mode
 uses the environment of the existing service.
 
 Responses are bounded to 1 MiB before client JSON decoding. One invocation
@@ -70,5 +72,6 @@ SEQLANE_OPENCODE_V2_EXECUTABLE=/absolute/path/to/opencode node scripts/opencode-
 ```
 
 The probe covers managed and external compiled CLI execution, ordered reuse,
-typed output, Basic authentication, native parent/child background-shell ownership, and
-cancellation cleanup. The separate CI job runs it on the pinned Linux binary.
+typed output, Basic authentication, server password isolation from native shells,
+native parent/child background-shell ownership, and cancellation cleanup.
+The separate CI job runs it on the pinned Linux binary.

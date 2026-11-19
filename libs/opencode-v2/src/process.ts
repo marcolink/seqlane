@@ -19,6 +19,7 @@ export function spawnOwnedServer(
     executable,
     [
       "serve",
+      "--stdio",
       "--hostname",
       configuration.host,
       "--port",
@@ -27,7 +28,7 @@ export function spawnOwnedServer(
     {
       cwd: configuration.workspace,
       detached: true,
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: ["pipe", "pipe", "pipe"],
       env: {
         ...configuration.environment,
         OPENCODE_SERVER_PASSWORD: configuration.password,
@@ -35,14 +36,15 @@ export function spawnOwnedServer(
       },
     },
   );
-  let output = "";
+  let stdout = "";
   let startupError: unknown;
   let closing: Promise<void> | undefined;
   const collect = (chunk: Buffer): void => {
-    output = (output + chunk.toString("utf8")).slice(-16_384);
+    stdout = (stdout + chunk.toString("utf8")).slice(-16_384);
   };
   child.stdout.on("data", collect);
-  child.stderr.on("data", collect);
+  // Readiness frames use stdout. Drain stderr without mixing logs into frames.
+  child.stderr.resume();
   child.on("error", (cause) => {
     startupError = cause;
   });
@@ -72,16 +74,16 @@ export function spawnOwnedServer(
         "termination",
         "owned server process tree did not stop",
       );
+    child.stdin.destroy();
     child.stdout.off("data", collect);
-    child.stderr.off("data", collect);
   }
   const close = (): Promise<void> => (closing ??= stop());
   return {
     get pid() {
       return child.pid;
     },
-    get output() {
-      return output;
+    get stdout() {
+      return stdout;
     },
     get startupError() {
       return startupError;
