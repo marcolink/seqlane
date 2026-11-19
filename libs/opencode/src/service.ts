@@ -1,8 +1,12 @@
+import {
+  HttpReadinessError,
+  waitForHttpHealth,
+} from "@seqlane/agent-adapter/private/owned-process";
 import { acquireOpenCodeServiceProcess } from "./service-process.js";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
 
 import { randomBytes } from "node:crypto";
-import { Effect, Exit, Option, Scope } from "effect";
+import { Effect, Exit, Scope } from "effect";
 import { OpenCodeServiceStartupError } from "./errors.js";
 
 const OPENCODE_HOST = "127.0.0.1";
@@ -102,66 +106,58 @@ function waitForOpenCodeReady(options: {
   readonly fetch: typeof fetch;
   readonly authorization: string;
 }): Promise<string> {
-  let readyUrl: string | undefined;
-  const check = Effect.gen(function* () {
-    if (options.signal.aborted) {
-      return yield* Effect.fail(
-        new OpenCodeServiceStartupError("OpenCode startup was cancelled"),
-      );
-    }
-    const startupFailure = options.startupFailure();
-    if (startupFailure !== undefined)
-      return yield* Effect.fail(startupFailure.cause);
-    if (options.child.exitCode !== null || options.child.signalCode !== null) {
-      return yield* Effect.fail(
-        new OpenCodeServiceStartupError(
-          "OpenCode exited before becoming ready",
-        ),
-      );
-    }
-    const url = options.url();
-    if (url !== undefined) {
-      const response = yield* Effect.tryPromise({
-        try: (signal) =>
-          options.fetch(`${url}/global/health`, {
-            headers: { authorization: options.authorization },
-            signal: AbortSignal.any([options.signal, signal]),
-          }),
-        catch: (cause) => cause,
-      }).pipe(
-        Effect.timeoutOption(2_000),
-        Effect.catch(() => Effect.succeed(Option.none())),
-      );
-      if (Option.isSome(response)) {
-        yield* Effect.tryPromise({
-          try: () =>
-            Promise.resolve(response.value.body?.cancel()).then(
-              () => undefined,
-            ),
-          catch: (cause: unknown) => cause,
-        }).pipe(Effect.catch(() => Effect.void));
-        if (response.value.ok) readyUrl = url;
+  const healthPath = "/global/health";
+  const readiness = waitForHttpHealth({
+    url: () => {
+      const url = options.url();
+      return url === undefined ? undefined : `${url}${healthPath}`;
+    },
+    timeoutMs: options.timeoutMs,
+    pollIntervalMs: 50,
+    headers: { authorization: options.authorization },
+    fetch: options.fetch,
+    beforeAttempt: Effect.gen(function* () {
+      if (options.signal.aborted) {
+        return yield* Effect.fail(
+          new OpenCodeServiceStartupError("OpenCode startup was cancelled"),
+        );
       }
-    }
-    if (readyUrl === undefined) yield* Effect.sleep("50 millis");
-  });
-  const poll = Effect.whileLoop({
-    while: () => readyUrl === undefined && !options.signal.aborted,
-    body: () => check,
-    step: () => undefined,
-  }).pipe(Effect.timeoutOption(options.timeoutMs));
-  return Effect.runPromise(poll).then((result) => {
-    if (readyUrl !== undefined) return readyUrl;
-    if (options.signal.aborted) {
-      throw new OpenCodeServiceStartupError("OpenCode startup was cancelled");
-    }
-    if (Option.isNone(result)) {
-      throw new OpenCodeServiceStartupError(
-        "OpenCode did not become ready before the startup timeout",
-      );
-    }
-    throw new OpenCodeServiceStartupError("OpenCode did not become ready");
-  });
+      const startupFailure = options.startupFailure();
+      if (startupFailure !== undefined)
+        return yield* Effect.fail(startupFailure.cause);
+      if (
+        options.child.exitCode !== null ||
+        options.child.signalCode !== null
+      ) {
+        return yield* Effect.fail(
+          new OpenCodeServiceStartupError(
+            "OpenCode exited before becoming ready",
+          ),
+        );
+      }
+    }),
+  }).pipe(
+    Effect.map((url) => url.slice(0, -healthPath.length)),
+    Effect.mapError((cause) =>
+      cause instanceof HttpReadinessError
+        ? new OpenCodeServiceStartupError(
+            "OpenCode did not become ready before the startup timeout",
+            cause,
+          )
+        : cause,
+    ),
+  );
+  return Effect.runPromise(readiness, { signal: options.signal }).catch(
+    (cause) => {
+      if (options.signal.aborted) {
+        throw new OpenCodeServiceStartupError(
+          "OpenCode startup was cancelled",
+          cause,
+        );
+      }
+      throw cause;
+    },
+  );
 }
 
 /** Starts one private OpenCode service without changing its native configuration. */

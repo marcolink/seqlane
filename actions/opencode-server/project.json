@@ -3,7 +3,7 @@
   "name": "action-opencode-server",
   "projectType": "application",
   "sourceRoot": "actions/opencode-server/src",
-  "implicitDependencies": ["action-service-lifecycle"],
+  "implicitDependencies": ["action-service-lifecycle", "adapter"],
   "targets": {
     "typecheck": {
       "executor": "nx:run-commands",

@@ -13,6 +13,7 @@
   "dependencies": {
     "@actions/core": "3.0.1",
     "@seqlane/action-service-lifecycle": "workspace:*",
+    "@seqlane/agent-adapter": "workspace:*",
     "effect": "4.1.4",
     "zod": "4.6.6"
   },

@@ -155,6 +155,50 @@ describe("OpenCode process lifecycle", () => {
     }
   });
 
+  it("retries an injected stalled health request and stops its owned process", async () => {
+    const state: OpenCodeProcessState = { safeToDelete: true };
+    let attempts = 0;
+    let aborted = false;
+    let child: ChildProcess | undefined;
+    await Effect.runPromise(
+      Effect.scoped(
+        startOpenCodeProcess(
+          process.execPath,
+          process.cwd(),
+          ["-e", "setInterval(() => {}, 1000)"],
+          { PATH: process.env.PATH ?? "" },
+          "http://127.0.0.1:4096/global/health",
+          {
+            start: observeSpawn((acquired) => {
+              child = acquired;
+            }),
+            healthcheck: async (_url, signal) => {
+              attempts++;
+              if (attempts > 1) return true;
+              return new Promise<boolean>((_resolve, reject) => {
+                signal?.addEventListener(
+                  "abort",
+                  () => {
+                    aborted = true;
+                    reject(signal.reason);
+                  },
+                  { once: true },
+                );
+              });
+            },
+            readinessTimeoutMs: 5_000,
+            pollIntervalMs: 10,
+          },
+          state,
+        ),
+      ),
+    );
+    expect(attempts).toBe(2);
+    expect(aborted).toBe(true);
+    expect(state.safeToDelete).toBe(true);
+    expect(child?.signalCode).toBe("SIGTERM");
+  }, 10_000);
+
   it("cancels startup and closes its acquired process scope", async () => {
     const scope = Effect.runSync(Scope.make());
     const controller = new AbortController();

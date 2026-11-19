@@ -185,6 +185,9 @@ importers:
       '@seqlane/action-service-lifecycle':
         specifier: workspace:*
         version: link:../../libs/action-service-lifecycle
+      '@seqlane/agent-adapter':
+        specifier: workspace:*
+        version: link:../../libs/adapter
       effect:
         specifier: 4.1.4
         version: 4.1.4
