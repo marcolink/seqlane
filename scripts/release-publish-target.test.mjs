@@ -264,6 +264,21 @@ test("CI delegates release state after quality and hosted Action gates", () => {
   assert.equal(nxConfig.release.git.push, true);
 });
 
+test("release audits runtime before generating changelog and verifies versioned packages after", () => {
+  const download = publishWorkflow.indexOf(
+    "- name: Download release package builds",
+  );
+  const audit = publishWorkflow.indexOf("run: pnpm verify:runtime");
+  const prepare = publishWorkflow.indexOf(
+    "- name: Create release tag and GitHub release",
+  );
+  const verify = publishWorkflow.indexOf("- name: Verify release packages");
+  const publish = publishWorkflow.indexOf("- name: Publish release packages");
+  assert.ok(download >= 0 && download < audit);
+  assert.ok(audit < prepare && prepare < verify && verify < publish);
+  assert.equal(publishWorkflow.match(/pnpm verify:runtime/g)?.length, 1);
+});
+
 test("release client disables Git writes for recovery operations", () => {
   const config = releaseClientConfig(nxConfig);
   assert.equal(config.git, undefined);

@@ -30,6 +30,10 @@ release workflow starts only after all quality gates pass. Its read-only build
 job uploads the release packages for the publish job.
 
 The publish job checks out the same commit and does not run dependency scripts.
+It audits runtime source, dependencies, and downloaded builds before generating
+release metadata. Generated changelog text can name retired dependencies from
+commit history. Versioned package verification runs after release preparation
+and before npm publication.
 It stops a new release if its branch advanced after the workflow started. A retry
 for a validated existing tag remains valid after its branch advances. Nx then updates all
 package versions and preserves internal `workspace:*` dependencies. It also
