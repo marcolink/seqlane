@@ -8,3 +8,8 @@ export {
   terminateOwnedProcess,
 } from "./identity.js";
 export { observeChildLifecycle } from "./child-lifecycle.js";
+export {
+  HttpHealthcheckError,
+  HttpReadinessError,
+  waitForHttpHealth,
+} from "./http-readiness.js";

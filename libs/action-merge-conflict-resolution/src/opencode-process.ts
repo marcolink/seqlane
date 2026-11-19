@@ -2,6 +2,9 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { Effect, Scope } from "effect";
 
 import {
+  HttpHealthcheckError,
+  HttpReadinessError,
+  waitForHttpHealth,
   captureOwnedProcessIdentity,
   observeChildLifecycle,
   confirmOwnedProcessGroupStopped,
@@ -40,48 +43,6 @@ function runtimeError(message: string, cause?: unknown): ActionResolutionError {
 
 const promise = <A>(run: (signal: AbortSignal) => Promise<A>) =>
   Effect.tryPromise({ try: run, catch: (cause) => cause });
-
-function defaultHealthcheck(url: string) {
-  return Effect.gen(function* () {
-    const response = yield* promise((signal) => fetch(url, { signal }));
-    yield* promise(() => response.body?.cancel() ?? Promise.resolve());
-    return response.ok;
-  }).pipe(
-    Effect.timeout("2 seconds"),
-    Effect.catch(() => Effect.succeed(false)),
-  );
-}
-
-function waitForOpenCodeReady(
-  child: ChildProcess,
-  healthcheck: Effect.Effect<boolean, unknown>,
-  timeoutMs: number,
-  pollIntervalMs: number,
-) {
-  const poll = Effect.gen(function* () {
-    while (true) {
-      if (child.exitCode !== null || child.signalCode !== null) {
-        return yield* Effect.fail(
-          runtimeError("OpenCode exited before becoming ready.", {
-            processId: child.pid,
-          }),
-        );
-      }
-      if (yield* healthcheck) return;
-      yield* Effect.sleep(`${pollIntervalMs} millis`);
-    }
-  });
-  return poll.pipe(
-    Effect.timeoutOption(`${timeoutMs} millis`),
-    Effect.flatMap((result) =>
-      result._tag === "Some"
-        ? Effect.succeed(result.value)
-        : Effect.fail(
-            runtimeError("OpenCode did not become ready before the timeout."),
-          ),
-    ),
-  );
-}
 
 export interface OwnedOpenCodeChild {
   readonly child: ChildProcess;
@@ -223,18 +184,31 @@ export function startOpenCodeProcess(
       },
       state,
     );
-    const check = options.healthcheck;
-    const healthcheck =
-      check === undefined
-        ? defaultHealthcheck(readinessUrl)
-        : promise((signal) => check(readinessUrl, signal)).pipe(
-            Effect.timeout("2 seconds"),
+    yield* waitForHttpHealth({
+      url: readinessUrl,
+      timeoutMs: options.readinessTimeoutMs ?? 120_000,
+      pollIntervalMs: options.pollIntervalMs ?? 1_000,
+      healthcheck: options.healthcheck,
+      beforeAttempt: Effect.gen(function* () {
+        if (owned.child.exitCode !== null || owned.child.signalCode !== null) {
+          return yield* Effect.fail(
+            runtimeError("OpenCode exited before becoming ready.", {
+              processId: owned.child.pid,
+            }),
           );
-    yield* waitForOpenCodeReady(
-      owned.child,
-      healthcheck,
-      options.readinessTimeoutMs ?? 120_000,
-      options.pollIntervalMs ?? 1_000,
+        }
+      }),
+    }).pipe(
+      Effect.mapError((cause) =>
+        cause instanceof HttpHealthcheckError
+          ? cause.cause
+          : cause instanceof HttpReadinessError
+            ? runtimeError(
+                "OpenCode did not become ready before the timeout.",
+                cause,
+              )
+            : cause,
+      ),
     );
     return owned.child;
   });
