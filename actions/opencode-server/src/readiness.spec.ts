@@ -18,10 +18,63 @@ describe("OpenCode readiness", () => {
 
     await expect(
       Effect.runPromise(waitForHttpHealth("http://127.0.0.1:1", 10)),
-    ).rejects.toThrow("Service did not become ready");
+    ).rejects.toThrow("OpenCode health returned HTTP 503");
 
     expect(cancel).toHaveBeenCalledOnce();
   });
+
+  it("retries a real unhealthy response until the server becomes ready", async () => {
+    let requests = 0;
+    const server = createServer((_request, response) => {
+      requests++;
+      response.writeHead(requests === 1 ? 503 : 200).end("health");
+    });
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(0, "127.0.0.1", resolve);
+    });
+    const address = server.address();
+    if (!address || typeof address === "string")
+      throw new Error("no test port");
+    try {
+      await Effect.runPromise(
+        waitForHttpHealth(`http://127.0.0.1:${address.port}`, 3_000),
+      );
+      expect(requests).toBe(2);
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  it("recovers when the listening server drops its first health request", async () => {
+    const server = createServer();
+    let connections = 0;
+    let handlerTimer: ReturnType<typeof setTimeout> | undefined;
+    server.on("connection", () => connections++);
+    server.once("connection", () => {
+      handlerTimer = setTimeout(() => {
+        server.on("request", (_request, response) => response.end("healthy"));
+      }, 100);
+    });
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(0, "127.0.0.1", resolve);
+    });
+    const address = server.address();
+    if (!address || typeof address === "string")
+      throw new Error("no test port");
+    try {
+      await Effect.runPromise(
+        waitForHttpHealth(`http://127.0.0.1:${address.port}`, 5_000),
+      );
+      expect(connections).toBeGreaterThanOrEqual(2);
+    } finally {
+      clearTimeout(handlerTimer);
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  }, 10_000);
 
   it("aborts a real HTTP readiness request at the Effect deadline", async () => {
     const server = createServer((_request, response) => {

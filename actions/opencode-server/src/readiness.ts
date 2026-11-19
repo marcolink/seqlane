@@ -20,6 +20,13 @@ function probe(url: string): Effect.Effect<void, Error> {
         ),
       ),
     ),
+    // OpenCode 1.x can drop requests accepted before its routes are ready.
+    Effect.timeout("2 seconds"),
+    Effect.catchTag("TimeoutError", (cause) =>
+      Effect.fail(
+        new Error(`OpenCode health request timed out: ${url}`, { cause }),
+      ),
+    ),
   );
 }
 
@@ -27,11 +34,28 @@ export function waitForHttpHealth(
   url: string,
   timeoutMilliseconds: number,
 ): Effect.Effect<void, Error | Cause.TimeoutError> {
-  const polling = Effect.retry(probe(url), Schedule.spaced("1 second"));
+  return Effect.suspend(() => {
+    let lastFailure: Error | undefined;
+    const polling = Effect.retry(
+      probe(url).pipe(
+        Effect.tapError((error) =>
+          Effect.sync(() => {
+            lastFailure = error;
+          }),
+        ),
+      ),
+      Schedule.spaced("1 second"),
+    );
 
-  return Effect.timeout(polling, timeoutMilliseconds).pipe(
-    Effect.catchTag("TimeoutError", () =>
-      Effect.fail(new Error(`Service did not become ready: ${url}`)),
-    ),
-  );
+    return Effect.timeout(polling, timeoutMilliseconds).pipe(
+      Effect.catchTag("TimeoutError", () =>
+        Effect.fail(
+          new Error(
+            `Service did not become ready: ${url}. ${lastFailure?.message ?? "The health request did not complete"}`,
+            { cause: lastFailure },
+          ),
+        ),
+      ),
+    );
+  });
 }
