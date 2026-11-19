@@ -1,12 +1,12 @@
 # OpenCode 2
 
-Select `opencode-v2` for OpenCode 2. The adapter uses `@opencode/client`.
-The verified client and server version is **2.1.2**. Other versions fail before
-agent work starts. The `opencode` adapter continues to use OpenCode 1.
+Select `opencode-v2` for OpenCode 2. The adapter uses `@opencode/client` and
+checks server compatibility before agent work starts. The `opencode` adapter
+continues to use OpenCode 1.
 
 ## Managed service
 
-Install OpenCode 2.1.2 separately. Seqlane does not install or upgrade OpenCode.
+Install OpenCode 2 separately. Seqlane does not install or upgrade OpenCode.
 Both major versions use the `opencode` command. Use an absolute executable path
 when both versions are installed.
 
@@ -56,7 +56,8 @@ permissions and forms fail the task. Seqlane never answers them.
 
 Authored provider, model, and reasoning selections must exist in the native
 catalog. The model must support tools. Ordered session reuse preserves the
-native session and model. Failed sessions cannot be reused.
+native session and model. Responses from another provider or model fail the
+task. Failed sessions cannot be reused.
 
 Checkpoint, fork, and session UI are unavailable. A workflow that requires an
 unsupported capability fails before that agent work starts.
@@ -72,7 +73,8 @@ Cancellation interrupts owned sessions, removes owned shells, and checks their
 termination. Unconfirmed cleanup fails the run.
 
 Activity and assistant usage map to Seqlane events. Usage belongs to the current
-invocation, including reused sessions. Polling can combine rapid intermediate
-updates. It does not provide token streaming or a native transcript view.
+invocation, including reused sessions. The adapter waits one second between
+status polls, so polling can combine rapid intermediate updates. It does not
+provide token streaming or a native transcript view.
 
 Deterministic and dry runs start no service and make no model calls.

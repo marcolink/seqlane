@@ -4,6 +4,25 @@ import type { sessionSchema } from "./schemas.js";
 import { nativeModel } from "./models.js";
 import { OpenCodeV2Error } from "./errors.js";
 
+export type PinnedNativeModel = NonNullable<
+  z.infer<typeof sessionSchema>["model"]
+>;
+
+export function assertAssistantModel(
+  actual: PinnedNativeModel,
+  expected: PinnedNativeModel,
+): void {
+  if (
+    actual.providerID !== expected.providerID ||
+    actual.id !== expected.id ||
+    (actual.variant !== undefined && actual.variant !== expected.variant)
+  )
+    throw new OpenCodeV2Error(
+      "protocol",
+      "native assistant changed the selected model",
+    );
+}
+
 /** Reject native substitution, including a model changed outside this run. */
 export function assertSessionModel(
   session: z.infer<typeof sessionSchema>,

@@ -351,7 +351,7 @@ seqlane run ./workflow.ts \
 
 ## OpenCode 2 flags
 
-Use `--adapter opencode-v2` with OpenCode 2.1.2. The V1 adapter keeps the
+Use `--adapter opencode-v2` with OpenCode 2. The V1 adapter keeps the
 `opencode` identity. Read [OpenCode 2](/adapters/opencode-v2) for setup.
 
 | Flag | Meaning |
