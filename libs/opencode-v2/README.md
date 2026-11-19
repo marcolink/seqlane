@@ -31,6 +31,10 @@ ownership fails closed. It never kills unrelated external work. Managed mode
 owns one authenticated foreground process group on macOS or Linux. External
 mode never stops the supplied service.
 
+Each started tool activity receives a terminal event. If observation ends before
+native tool completion, the adapter closes that activity as failed. Cancellation
+uses the same terminal state. Native cleanup still requires termination proof.
+
 Managed version probing and server startup inherit only `PATH`, `HOME`,
 temporary-directory variables, `LANG`, `LC_ALL`, `TZ`, the four XDG directory
 variables, and `OPENCODE_DISABLE_PROJECT_CONFIG`. To pass provider credentials

@@ -77,6 +77,7 @@ async function fixture() {
     usage: true,
     text: '{"answer":"ok"}',
     pending: "",
+    runningTool: false,
     delayed: false,
     malformed: false,
     disconnect: false,
@@ -220,7 +221,10 @@ async function fixture() {
             ? {}
             : { variant: state.responseVariant }),
         },
-        time: { created: 1, completed: 2 },
+        time: {
+          created: 1,
+          ...(state.runningTool ? {} : { completed: 2 }),
+        },
         ...(state.usage
           ? {
               cost: 0.01,
@@ -238,8 +242,11 @@ async function fixture() {
             id: `tool_${state.prompts}`,
             type: "tool",
             name: "read",
-            time: { created: 1, completed: 2 },
-            state: { status: "completed" },
+            time: {
+              created: 1,
+              ...(state.runningTool ? {} : { completed: 2 }),
+            },
+            state: { status: state.runningTool ? "running" : "completed" },
           },
         ],
       };
@@ -605,6 +612,45 @@ describe("OpenCode V2 real-client execution", () => {
         );
         expect(h.state.removed).toBe(true);
       } finally {
+        await h.close();
+      }
+    },
+  );
+  it.each(["permission", "form", "cancellation"])(
+    "closes running tool activity after %s",
+    async (mode) => {
+      const h = await fixture();
+      const controller = new AbortController();
+      const onActivity =
+        vi.fn<NonNullable<AgentAdapterRequest["onActivity"]>>();
+      try {
+        h.state.active = true;
+        h.state.runningTool = true;
+        const settled = h.adapter
+          .execute(request({ signal: controller.signal, onActivity }))
+          .catch((cause: unknown) => cause);
+        await vi.waitFor(() => expect(onActivity).toHaveBeenCalled(), {
+          timeout: 4000,
+        });
+        if (mode === "cancellation") controller.abort();
+        else h.state.pending = mode;
+        const result = await settled;
+        expect(result).toBeInstanceOf(
+          mode === "cancellation" ? Error : InteractionRequiredError,
+        );
+        expect(
+          onActivity.mock.calls.map(([event]) => ({
+            activityId: event.activityId,
+            state: event.state,
+          })),
+        ).toEqual([
+          { activityId: "tool_1", state: "started" },
+          { activityId: "tool_1", state: "failed" },
+        ]);
+        expect(h.state.prompts).toBe(1);
+        expect(h.state.removed).toBe(true);
+      } finally {
+        controller.abort();
         await h.close();
       }
     },

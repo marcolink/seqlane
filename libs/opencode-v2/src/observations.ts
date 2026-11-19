@@ -1,4 +1,7 @@
-import type { AgentAdapterRequest } from "@seqlane/agent-adapter";
+import type {
+  AgentActivity,
+  AgentAdapterRequest,
+} from "@seqlane/agent-adapter";
 import type { SeqlaneInvocationMetrics } from "@seqlane/core";
 import type { NativeAssistant, NativeMessage } from "./schemas.js";
 
@@ -8,7 +11,9 @@ export function createObserver(
   redact: (text: string) => string = (text) => text,
 ) {
   const tools = new Map<string, string>();
+  const activeTools = new Map<string, AgentActivity>();
   const models = new Set<string>();
+  let finished = false;
   let metrics: SeqlaneInvocationMetrics = {};
   const notify = (callback: () => void): void => {
     try {
@@ -30,9 +35,12 @@ export function createObserver(
         name,
         startedAt: tool.time.created,
       };
-      if (previous === undefined)
+      if (previous === undefined) {
+        activeTools.set(tool.id, { ...activity, state: "started" });
         notify(() => request.onActivity?.({ ...activity, state: "started" }));
+      }
       if (tool.state.status === "completed" || tool.state.status === "error") {
+        activeTools.delete(tool.id);
         notify(() =>
           request.onActivity?.({
             ...activity,
@@ -94,10 +102,24 @@ export function createObserver(
   }
   return {
     observe(messages: readonly NativeMessage[]) {
+      if (finished) return;
       for (const message of messages)
         if (message.type === "assistant") assistant(message);
     },
     finish() {
+      if (finished) return;
+      finished = true;
+      for (const activity of activeTools.values())
+        notify(() =>
+          request.onActivity?.({
+            ...activity,
+            state: "failed",
+            message: request.signal.aborted
+              ? "Tool activity cancelled"
+              : "Tool observation ended before completion",
+          }),
+        );
+      activeTools.clear();
       if (models.size > 0) notify(() => request.onMetrics?.(metrics));
     },
   };

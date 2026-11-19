@@ -92,8 +92,12 @@ Cancellation interrupts owned sessions, removes owned shells, and checks their
 termination. Unconfirmed cleanup fails the run.
 
 Activity and assistant usage map to Seqlane events. Usage belongs to the current
-invocation, including reused sessions. The adapter waits one second between
-status polls, so polling can combine rapid intermediate updates. It does not
+invocation, including reused sessions. Each started tool activity receives a
+terminal event. Unfinished activities end as failed when observation stops,
+including cancellation. Native cleanup still requires termination proof.
+
+The adapter waits one second between status polls, so polling can combine rapid
+intermediate updates. It does not
 provide token streaming or a native transcript view.
 
 Deterministic and dry runs start no service and make no model calls.
