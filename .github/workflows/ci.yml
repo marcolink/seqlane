@@ -1,305 +1,36 @@
+# Temporary validation branch: isolate package growth from the existing ACP failure.
 name: CI
-
 on:
-  pull_request:
-  push:
-    branches:
-      - main
-      - next
   workflow_dispatch:
-
 permissions:
-  actions: read
   contents: read
-
-concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
 jobs:
-  quality:
-    name: Quality gates
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Validate workflows
-        uses: raven-actions/actionlint@5ed673bc77a975c2402fdcd464706912c56b103b # v2
-        with:
-          version: 1.7.12
-          cache: false
-          shellcheck: false
-          pyflakes: false
-          # Local Action bundles are materialized before use.
-          flags: -ignore file.*dist/(main|post)[.]js.*does.not.exist
-
-      - name: Determine affected range
-        uses: nrwl/nx-set-shas@afb73a62d26e41464e9254689e1fd6122ee683c1 # v5.0.1
-
-      - name: Classify changed paths
-        id: classify
-        run: node scripts/classify-ci-paths.mjs --base "$NX_BASE" --head "$NX_HEAD" >> "$GITHUB_OUTPUT"
-
-      - name: Set up pnpm
-        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
-        env:
-          # Avoid the retired audit endpoint during the integrity-locked bootstrap.
-          NPM_CONFIG_AUDIT: "false"
-        with:
-          version: 10.33.0
-
-      - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 24
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile --prefer-offline
-
-      - name: Check formatting
-        run: pnpm exec nx format:check --base="$NX_BASE" --head="$NX_HEAD"
-
-      - name: Test local verification tooling
-        run: pnpm test:tooling
-
-      - name: Check test mappings
-        run: pnpm test:mapping
-
-      - name: Audit runtime source and production dependencies
-        run: pnpm verify:runtime --source
-
-      - name: Test workflow helper
-        run: pnpm test:workflow-helper
-
-      - name: Lint affected projects
-        run: pnpm exec nx affected -t lint --output-style=static
-
-      - name: Build affected projects
-        if: ${{ !cancelled() }}
-        run: pnpm exec nx affected -t build --output-style=static
-
-      - name: Test affected projects
-        if: ${{ !cancelled() }}
-        run: pnpm exec nx affected -t test --output-style=static
-
-      - name: Build and consume production packages
-        run: |
-          pnpm exec nx run-many -t build --output-style=static
-          pnpm verify:installed
-          pnpm verify:runtime --distributions
-
-      - name: Materialize Ripwire Action
-        if: steps.classify.outputs.ripwire_relevant != 'false'
-        run: >-
-          pnpm exec nx run action-ripwire-server:build
-          --output-style=static
-
-      - name: Start Ripwire MCP server
-        if: steps.classify.outputs.ripwire_relevant != 'false'
-        id: ripwire
-        uses: ./actions/ripwire-server
-        with:
-          working-directory: ${{ github.workspace }}
-
-      - name: Verify Ripwire outputs and initialize MCP
-        if: steps.classify.outputs.ripwire_relevant != 'false'
-        env:
-          MCP_URL: ${{ steps.ripwire.outputs.mcp-url }}
-          RIPWIRE_TOKEN: ${{ steps.ripwire.outputs.mcp-token }}
-          RIPWIRE_VERSION: ${{ steps.ripwire.outputs.version }}
-          RIPWIRE_BINARY: ${{ steps.ripwire.outputs.binary-path }}
-          RIPWIRE_LOG: ${{ steps.ripwire.outputs.log-path }}
-        run: |
-          test "$RIPWIRE_VERSION" = "0.4.0"
-          test -n "$RIPWIRE_TOKEN"
-          test -x "$RIPWIRE_BINARY"
-          test -f "$RIPWIRE_LOG"
-          case "$MCP_URL" in
-            http://127.0.0.1:*\/mcp) ;;
-            *) echo "Unexpected MCP URL: $MCP_URL" >&2; exit 1 ;;
-          esac
-          node --input-type=module <<'NODE'
-          const url = process.env.MCP_URL;
-          const token = process.env.RIPWIRE_TOKEN;
-          const headers = {
-            Accept: "application/json, text/event-stream",
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          };
-          const response = await fetch(url, {
-            method: "POST",
-            headers,
-            body: JSON.stringify({
-              jsonrpc: "2.0",
-              id: 1,
-              method: "initialize",
-              params: {
-                protocolVersion: "2025-06-18",
-                capabilities: {},
-                clientInfo: { name: "seqlane-ripwire-smoke", version: "1.0.0" },
-              },
-            }),
-          });
-          if (response.status !== 200) throw new Error(`MCP initialize returned HTTP ${response.status}`);
-          const text = await response.text();
-          let payload;
-          try {
-            payload = JSON.parse(text);
-          } catch {
-            const events = text
-              .split(/\r?\n\r?\n/)
-              .map((event) => event
-                .split(/\r?\n/)
-                .filter((line) => line.startsWith("data:"))
-                .map((line) => line.slice(5).trim()))
-              .filter((data) => data.length > 0);
-            if (events.length !== 1) throw new Error("MCP initialize SSE response was not one event");
-            payload = JSON.parse(events[0].join("\n"));
-          }
-          if (
-            payload.jsonrpc !== "2.0" ||
-            payload.id !== 1 ||
-            payload.result?.protocolVersion !== "2025-06-18" ||
-            payload.result?.serverInfo?.name !== "ripwire" ||
-            payload.result?.serverInfo?.version !== "1.0"
-          ) {
-            throw new Error("MCP initialize response was not a valid JSON-RPC result");
-          }
-          NODE
-
-  action-smoke:
-    name: Hosted Action entrypoints
+  package-growth:
+    name: Hosted package-growth validation
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Check out trusted Action source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
           persist-credentials: false
-
-      - name: Set up pnpm
-        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86
         env:
-          # Avoid the retired audit endpoint during the integrity-locked bootstrap.
           NPM_CONFIG_AUDIT: "false"
         with:
           version: 10.33.0
-
-      - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: 24
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
-
-      - name: Install and build Action bundles
-        run: |
-          pnpm install --frozen-lockfile --prefer-offline
-          pnpm exec nx run-many -t build -p action-setup-opencode,action-opencode-server,action-zvec-grep-server,action-ripwire-server,action-code-review,action-resolve-merge-conflicts --output-style=static
-
-      - name: Verify bundled main and post process lifetimes
-        run: pnpm verify:actions
-
-      - name: Prepare isolated Git and HTTP fixtures
-        run: node scripts/action-hosted-smoke.mjs prepare
-
-      - name: Install exact OpenCode without a model call
-        id: setup
-        uses: ./actions/setup-opencode
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        with:
-          version: 1.18.27
-
-      - name: Verify installed executable
-        env:
-          EXECUTABLE: ${{ steps.setup.outputs.executable }}
-        run: 'test "$("$EXECUTABLE" --version)" = "1.18.27"'
-
-      - name: Start pinned OpenCode without a model call
-        id: real-opencode
-        uses: ./actions/opencode-server
-        with:
-          working-directory: ${{ env.SMOKE_TARGET }}
-          executable: ${{ steps.setup.outputs.executable }}
-          port: "4096"
-          startup-timeout-seconds: "30"
-        env:
-          OPENCODE_DISABLE_PROJECT_CONFIG: "true"
-          OPENCODE_DISABLE_EXTERNAL_SKILLS: "true"
-
-      - name: Verify pinned OpenCode health
-        env:
-          OPENCODE_URL: ${{ steps.real-opencode.outputs.url }}
-        run: node scripts/action-hosted-smoke.mjs opencode-health
-
-      - name: Start OpenCode executable fixture
-        id: opencode
-        uses: ./actions/opencode-server
-        with:
-          working-directory: ${{ env.SMOKE_TARGET }}
-          executable: ${{ env.SMOKE_EXECUTABLE }}
-          port: ${{ env.SMOKE_OPENCODE_PORT }}
-
-      - name: Start zvec package-manager fixture
-        uses: ./actions/zvec-grep-server
-        with:
-          working-directory: ${{ env.SMOKE_TARGET }}
-          package-manager: ${{ env.SMOKE_EXECUTABLE }}
-          listen: ${{ env.SMOKE_ZVEC_LISTEN }}
-          model-cache: false
-
-      - name: Review stale fixture without model or publication
-        id: review
-        uses: ./actions/code-review
-        env:
-          NODE_OPTIONS: --require=${{ env.SMOKE_API_PRELOAD }}
-        with:
-          github-token: hosted-fixture-token
-          repository: ${{ github.repository }}
-          pull-request-number: 1
-          review-target: ${{ env.SMOKE_TARGET }}
-          base-branch: main
-          base-revision: ${{ env.SMOKE_SHA }}
-          head-revision: ${{ env.SMOKE_SHA }}
-          runtime: ${{ steps.opencode.outputs.url }}
-
-      - name: Integrate clean Git fixture without commit or push
-        id: conflicts
-        uses: ./actions/resolve-merge-conflicts
-        env:
-          NODE_OPTIONS: --require=${{ env.SMOKE_API_PRELOAD }}
-          GITHUB_TOKEN: hosted-fixture-token
-        with:
-          pull-request-number: 2
-          source-directory: ${{ env.SMOKE_SOURCE_DIRECTORY }}
-          target-directory: ${{ env.SMOKE_TARGET_DIRECTORY }}
-          commit: false
-          push: false
-
-      - name: Verify outputs and deny all publication writes
-        env:
-          SMOKE_OPENCODE_URL: ${{ steps.opencode.outputs.url }}
-          SMOKE_REVIEW_VERDICT: ${{ steps.review.outputs.verdict }}
-          SMOKE_REVIEW_PUBLICATION: ${{ steps.review.outputs.publication-status }}
-          SMOKE_CONFLICT_RESULT: ${{ steps.conflicts.outputs.result }}
-          SMOKE_CONFLICT_PUSHED: ${{ steps.conflicts.outputs.pushed }}
-        run: node scripts/action-hosted-smoke.mjs verify
-
-  publish:
-    name: Publish npm packages
-    needs: [quality, action-smoke]
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/next') && github.event.repository.private == false
-    uses: ./.github/workflows/publish.yml
-    permissions:
-      contents: write
-      id-token: write
+      - name: Install exact workspace dependencies
+        run: pnpm install --frozen-lockfile --prefer-offline
+      - name: Audit the expanded production graph
+        run: pnpm verify:runtime --source
+      - name: Build production packages
+        run: pnpm exec nx run-many -t build --output-style=static
+      - name: Install and consume all release packages
+        run: pnpm verify:installed
+      - name: Audit built packages and archives
+        run: pnpm verify:runtime --distributions
