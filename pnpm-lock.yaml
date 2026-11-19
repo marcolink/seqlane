@@ -171,8 +171,8 @@ importers:
         specifier: workspace:*
         version: link:../../libs/opencode
       effect:
-        specifier: 4.0.5
-        version: 4.0.5
+        specifier: 4.1.4
+        version: 4.1.4
       zod:
         specifier: 4.6.6
         version: 4.6.6
@@ -186,8 +186,8 @@ importers:
         specifier: workspace:*
         version: link:../../libs/action-service-lifecycle
       effect:
-        specifier: 4.0.5
-        version: 4.0.5
+        specifier: 4.1.4
+        version: 4.1.4
       zod:
         specifier: 4.6.6
         version: 4.6.6
@@ -207,8 +207,8 @@ importers:
         specifier: workspace:*
         version: link:../../workflows/resolve-merge-conflicts
       effect:
-        specifier: 4.0.5
-        version: 4.0.5
+        specifier: 4.1.4
+        version: 4.1.4
 
   actions/ripwire-server:
     dependencies:
@@ -216,14 +216,14 @@ importers:
         specifier: 3.0.1
         version: 3.0.1
       '@effect/platform-node':
-        specifier: 4.0.5
-        version: 4.0.5(effect@4.0.5)
+        specifier: 4.1.4
+        version: 4.1.4(effect@4.1.4)
       '@seqlane/action-service-lifecycle':
         specifier: workspace:*
         version: link:../../libs/action-service-lifecycle
       effect:
-        specifier: 4.0.5
-        version: 4.0.5
+        specifier: 4.1.4
+        version: 4.1.4
       zod:
         specifier: 4.6.6
         version: 4.6.6
@@ -240,8 +240,8 @@ importers:
         specifier: 4.0.0
         version: 4.0.0
       effect:
-        specifier: 4.0.5
-        version: 4.0.5
+        specifier: 4.1.4
+        version: 4.1.4
       zod:
         specifier: 4.6.6
         version: 4.6.6
@@ -255,8 +255,8 @@ importers:
         specifier: workspace:*
         version: link:../../libs/action-service-lifecycle
       effect:
-        specifier: 4.0.5
-        version: 4.0.5
+        specifier: 4.1.4
+        version: 4.1.4
       zod:
         specifier: 4.6.6
         version: 4.6.6
@@ -288,8 +288,8 @@ importers:
         specifier: workspace:*
         version: link:../../libs/tui
       effect:
-        specifier: 4.0.5
-        version: 4.0.5
+        specifier: 4.1.4
+        version: 4.1.4
       get-tsconfig:
         specifier: 4.14.3
         version: 4.14.3
@@ -319,8 +319,8 @@ importers:
         specifier: 2.0.0
         version: 2.0.0(zod@4.6.6)
       '@effect/platform-node':
-        specifier: 4.0.5
-        version: 4.0.5(effect@4.0.5)
+        specifier: 4.1.4
+        version: 4.1.4(effect@4.1.4)
       '@seqlane/agent-adapter':
         specifier: workspace:*
         version: link:../adapter
@@ -328,8 +328,8 @@ importers:
         specifier: workspace:*
         version: link:../core
       effect:
-        specifier: 4.0.5
-        version: 4.0.5
+        specifier: 4.1.4
+        version: 4.1.4
       zod:
         specifier: 4.6.6
         version: 4.6.6
@@ -349,8 +349,8 @@ importers:
         specifier: workspace:*
         version: link:../runtime
       effect:
-        specifier: 4.0.5
-        version: 4.0.5
+        specifier: 4.1.4
+        version: 4.1.4
       zod:
         specifier: 4.6.6
         version: 4.6.6
@@ -358,8 +358,8 @@ importers:
   libs/action-merge-conflict-resolution:
     dependencies:
       '@effect/platform-node':
-        specifier: 4.0.5
-        version: 4.0.5(effect@4.0.5)
+        specifier: 4.1.4
+        version: 4.1.4(effect@4.1.4)
       '@seqlane/agent-adapter':
         specifier: workspace:*
         version: link:../adapter
@@ -376,8 +376,8 @@ importers:
         specifier: workspace:*
         version: link:../runtime
       effect:
-        specifier: 4.0.5
-        version: 4.0.5
+        specifier: 4.1.4
+        version: 4.1.4
       zod:
         specifier: 4.6.6
         version: 4.6.6
@@ -385,11 +385,11 @@ importers:
   libs/action-service-lifecycle:
     dependencies:
       '@effect/platform-node':
-        specifier: 4.0.5
-        version: 4.0.5(effect@4.0.5)
+        specifier: 4.1.4
+        version: 4.1.4(effect@4.1.4)
       effect:
-        specifier: 4.0.5
-        version: 4.0.5
+        specifier: 4.1.4
+        version: 4.1.4
       zod:
         specifier: 4.6.6
         version: 4.6.6
@@ -403,8 +403,8 @@ importers:
         specifier: workspace:*
         version: link:../protocol
       effect:
-        specifier: 4.0.5
-        version: 4.0.5
+        specifier: 4.1.4
+        version: 4.1.4
       zod:
         specifier: 4.6.6
         version: 4.6.6
@@ -418,8 +418,8 @@ importers:
         specifier: workspace:*
         version: link:../core
       effect:
-        specifier: 4.0.5
-        version: 4.0.5
+        specifier: 4.1.4
+        version: 4.1.4
       zod:
         specifier: 4.6.6
         version: 4.6.6
@@ -442,8 +442,8 @@ importers:
   libs/opencode:
     dependencies:
       '@effect/platform-node':
-        specifier: 4.0.5
-        version: 4.0.5(effect@4.0.5)
+        specifier: 4.1.4
+        version: 4.1.4(effect@4.1.4)
       '@opencode-ai/sdk':
         specifier: 1.18.27
         version: 1.18.27
@@ -457,8 +457,8 @@ importers:
         specifier: workspace:*
         version: link:../protocol
       effect:
-        specifier: 4.0.5
-        version: 4.0.5
+        specifier: 4.1.4
+        version: 4.1.4
       zod:
         specifier: 4.6.6
         version: 4.6.6
@@ -475,11 +475,11 @@ importers:
   libs/runtime:
     dependencies:
       '@effect/platform-node':
-        specifier: 4.0.5
-        version: 4.0.5(effect@4.0.5)
+        specifier: 4.1.4
+        version: 4.1.4(effect@4.1.4)
       '@effect/sql-sqlite-node':
-        specifier: 4.0.5
-        version: 4.0.5(effect@4.0.5)
+        specifier: 4.1.4
+        version: 4.1.4(effect@4.1.4)
       '@seqlane/agent-adapter':
         specifier: workspace:*
         version: link:../adapter
@@ -490,8 +490,8 @@ importers:
         specifier: workspace:*
         version: link:../protocol
       effect:
-        specifier: 4.0.5
-        version: 4.0.5
+        specifier: 4.1.4
+        version: 4.1.4
       zod:
         specifier: 4.6.6
         version: 4.6.6
@@ -1270,23 +1270,23 @@ packages:
   '@docsearch/sidepanel-js@4.7.0':
     resolution: {integrity: sha512-A8r34jCU8kcIk2viECEn2msA28ojUF1BLi/3v5OWWc5G2N3jOuuumBXoeYjfr8dA0UxgFSy5R2bt12dnFJQSyA==, tarball: https://registry.npmjs.org/@docsearch/sidepanel-js/-/sidepanel-js-4.7.0.tgz}
 
-  '@effect/platform-node-shared@4.0.5':
-    resolution: {integrity: sha512-a8rCdEkfZBGe9C6bsIjxVZuRp73svIyK5IHwHdDAVsvZXjrbkxusfI+rZ8WlX31RP1mKizwI/E72GQTNfdMWHw==, tarball: https://registry.npmjs.org/@effect/platform-node-shared/-/platform-node-shared-4.0.5.tgz}
-    engines: {node: '>=18.0.0'}
+  '@effect/platform-node-shared@4.1.4':
+    resolution: {integrity: sha512-DWdfphHGOFJNj/mYadgpT3jIm8aRXDcPrQiGXFBH4p2H4XmA7iYMrPsI8NxVgZ7kNX0q1+FGJZJama0tINHRAg==, tarball: https://registry.npmjs.org/@effect/platform-node-shared/-/platform-node-shared-4.1.4.tgz}
+    engines: {node: '>=22.19.0'}
     peerDependencies:
-      effect: ^4.0.5
+      effect: ^4.1.4
 
-  '@effect/platform-node@4.0.5':
-    resolution: {integrity: sha512-v4KD5fWvEUa4QmWFpZFbBsRhmfnTP6ETCME2r9ifyXVDPjhfpxpTZl41prjgQFMqZBHdWWCl7YC5ImbXv5ui5g==, tarball: https://registry.npmjs.org/@effect/platform-node/-/platform-node-4.0.5.tgz}
-    engines: {node: '>=18.0.0'}
+  '@effect/platform-node@4.1.4':
+    resolution: {integrity: sha512-h7QExTPq/RfYtHP/8tMlgfBvqYsuJKhxfkU6w0+NaF/ihqQ8Y3GH9t28ltupQjoqMM7P6W5gy8rOji7F0qVrmg==, tarball: https://registry.npmjs.org/@effect/platform-node/-/platform-node-4.1.4.tgz}
+    engines: {node: '>=22.19.0'}
     peerDependencies:
-      effect: ^4.0.5
-      redis: '>=5.0.0 <7.0.0'
+      effect: ^4.1.4
+      redis: '>=5.1.0 <7.0.0'
 
-  '@effect/sql-sqlite-node@4.0.5':
-    resolution: {integrity: sha512-SHza5qNwiI4dRtUk45wvUfvZq7vB950DW2wD6npzt2aH/tesFfPlZJSDBIvwhazoK+gvDknBOONfKyFZsIF+tg==, tarball: https://registry.npmjs.org/@effect/sql-sqlite-node/-/sql-sqlite-node-4.0.5.tgz}
+  '@effect/sql-sqlite-node@4.1.4':
+    resolution: {integrity: sha512-vEB3Xv7TftvZscuyee8doM1rXr0Dle5jxpuvjaEBlZkGAsUt0YvGudnOfEvUHMicE8wEuDQfpjWXM1q9HjNKUA==, tarball: https://registry.npmjs.org/@effect/sql-sqlite-node/-/sql-sqlite-node-4.1.4.tgz}
     peerDependencies:
-      effect: ^4.0.5
+      effect: ^4.1.4
 
   '@emnapi/core@1.10.0':
     resolution: {integrity: sha512-yq6OkJ4p82CAfPl0u9mQebQHKPJkY7WrIuk205cTYnYe+k2Z8YBh11FrbRG/H6ihirqcacOgl2BIO8oyMQLeXw==, tarball: https://registry.npmjs.org/@emnapi/core/-/core-1.10.0.tgz}
@@ -3133,8 +3133,8 @@ packages:
   eastasianwidth@0.2.0:
     resolution: {integrity: sha512-I88TYZWc9XiYHRQ4/3c5rjjfgkjhLyW2luGIheGERbNQ6OY7yTybanSpDXZa8y7VUP9YmDcYa+eyq4ca7iLqWA==, tarball: https://registry.npmjs.org/eastasianwidth/-/eastasianwidth-0.2.0.tgz}
 
-  effect@4.0.5:
-    resolution: {integrity: sha512-BY4/28NlpOd99yzmV741xbVGmp+1U7tks4oB7F/Png64bTa5tm5eCA6W0RiXsnuLDDoJpjfVSo4Dnq4BZb/89Q==, tarball: https://registry.npmjs.org/effect/-/effect-4.0.5.tgz}
+  effect@4.1.4:
+    resolution: {integrity: sha512-Tgrv/9FN+TZYyOn8XSli+fVqAfwDrDAkiX5Uu9vztINb675VTQdhD0gWI5Kzvhlh9QqzjZvw72iugqw5pwoghQ==, tarball: https://registry.npmjs.org/effect/-/effect-4.1.4.tgz}
 
   ejs@5.0.1:
     resolution: {integrity: sha512-COqBPFMxuPTPspXl2DkVYaDS3HtrD1GpzOGkNTJ1IYkifq/r9h8SVEFrjA3D9/VJGOEoMQcrlhpntcSUrM8k6A==, tarball: https://registry.npmjs.org/ejs/-/ejs-5.0.1.tgz}
@@ -4569,8 +4569,8 @@ packages:
     resolution: {integrity: sha512-zWpdTVD54H48CIybL0rWQ3ukpb9d23wM7eH5RtfdmeP70cWHNjtfo7P4vZX+5CoDcO53J4Pu5uXp7lNfjc6DRA==, tarball: https://registry.npmjs.org/undici/-/undici-6.28.1.tgz}
     engines: {node: '>=18.17'}
 
-  undici@8.12.3:
-    resolution: {integrity: sha512-+fdndUTwBP86cVjihTp21hZHo7d6oj1c/47XPA3lL8mM0XHs+C4EkcjmgRsFnFk2f/UONGDy9ItBItmXsLOQHw==, tarball: https://registry.npmjs.org/undici/-/undici-8.12.3.tgz}
+  undici@8.12.4:
+    resolution: {integrity: sha512-8Mx+uNKKER2bA4AdtedkqRbwUCIJFr2nJckXRe5yrDqzePqwLP7VNcctN8/XdmDSbF7mS+jJKIszlL+vbam1VA==, tarball: https://registry.npmjs.org/undici/-/undici-8.12.4.tgz}
     engines: {node: '>=22.19.0'}
 
   unicode-canonical-property-names-ecmascript@2.0.1:
@@ -4798,8 +4798,8 @@ packages:
       utf-8-validate:
         optional: true
 
-  ws@8.22.0:
-    resolution: {integrity: sha512-Ydggc987+RO0AnWtZ/7Wq9FtNvcrL1b/RO0ud9mWjUPgDrsAAwQSF51sm2hm1XofbU/4jkpGEsLFsZZxU+1DOg==, tarball: https://registry.npmjs.org/ws/-/ws-8.22.0.tgz}
+  ws@8.23.0:
+    resolution: {integrity: sha512-wCkmX8QMOrKjgO8HW2WyDbTSGeqkocxgDzS9iR79rEAexty6/2qzilx3Ag8Tqf9ykop3irLKle0MtVn5qjVnoQ==, tarball: https://registry.npmjs.org/ws/-/ws-8.23.0.tgz}
     engines: {node: '>=10.0.0'}
     peerDependencies:
       bufferutil: ^4.0.1
@@ -5836,27 +5836,27 @@ snapshots:
 
   '@docsearch/sidepanel-js@4.7.0': {}
 
-  '@effect/platform-node-shared@4.0.5(effect@4.0.5)':
+  '@effect/platform-node-shared@4.1.4(effect@4.1.4)':
     dependencies:
       '@types/ws': 8.18.2
-      effect: 4.0.5
-      ws: 8.22.0
+      effect: 4.1.4
+      ws: 8.23.0
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
 
-  '@effect/platform-node@4.0.5(effect@4.0.5)':
+  '@effect/platform-node@4.1.4(effect@4.1.4)':
     dependencies:
-      '@effect/platform-node-shared': 4.0.5(effect@4.0.5)
-      effect: 4.0.5
-      undici: 8.12.3
+      '@effect/platform-node-shared': 4.1.4(effect@4.1.4)
+      effect: 4.1.4
+      undici: 8.12.4
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
 
-  '@effect/sql-sqlite-node@4.0.5(effect@4.0.5)':
+  '@effect/sql-sqlite-node@4.1.4(effect@4.1.4)':
     dependencies:
-      effect: 4.0.5
+      effect: 4.1.4
 
   '@emnapi/core@1.10.0':
     dependencies:
@@ -7732,7 +7732,7 @@ snapshots:
 
   eastasianwidth@0.2.0: {}
 
-  effect@4.0.5: {}
+  effect@4.1.4: {}
 
   ejs@5.0.1: {}
 
@@ -9403,7 +9403,7 @@ snapshots:
 
   undici@6.28.1: {}
 
-  undici@8.12.3: {}
+  undici@8.12.4: {}
 
   unicode-canonical-property-names-ecmascript@2.0.1: {}
 
@@ -9663,7 +9663,7 @@ snapshots:
 
   ws@8.21.3: {}
 
-  ws@8.22.0: {}
+  ws@8.23.0: {}
 
   wsl-utils@0.4.0:
     dependencies:

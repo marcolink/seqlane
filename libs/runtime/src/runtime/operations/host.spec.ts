@@ -37,7 +37,7 @@ import * as operationalStoreModule from "./sqlite-store.js";
 
 const mcpResponseSchema = z.strictObject({
   jsonrpc: z.literal("2.0"),
-  id: z.number().int(),
+  id: z.number().int().nullable(),
   result: z.record(z.string(), z.unknown()).optional(),
   error: z.record(z.string(), z.unknown()).optional(),
 });
@@ -353,9 +353,9 @@ describe("native hosted HTTP transport", () => {
       structuredContent: { status: "succeeded", output: "" },
     });
     const oversizedMcpOutcome = await new Promise<{
-      readonly status?: number;
-      readonly error?: string;
-    }>((resolveOutcome) => {
+      readonly status: number;
+      readonly body: string;
+    }>((resolveOutcome, rejectOutcome) => {
       const request = httpRequest(
         mcpEndpoint,
         {
@@ -368,24 +368,44 @@ describe("native hosted HTTP transport", () => {
           },
         },
         (response) => {
-          response.resume();
-          resolveOutcome({ status: response.statusCode ?? 0 });
+          let body = "";
+          response.setEncoding("utf8");
+          response.on("data", (chunk: string) => {
+            body += chunk;
+          });
+          response.on("error", rejectOutcome);
+          response.on("end", () =>
+            resolveOutcome({ status: response.statusCode ?? 0, body }),
+          );
         },
       );
-      request.on("error", (cause: NodeJS.ErrnoException) =>
-        resolveOutcome({ error: cause.code }),
-      );
+      request.on("error", rejectOutcome);
       request.write("{");
       request.write(" ".repeat(1024 * 1024));
-      request.end("}");
+      request.end(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: 3,
+          method: "initialize",
+          params: {
+            protocolVersion: "2025-11-25",
+            capabilities: {},
+            clientInfo: { name: "oversized-test", version: "1" },
+          },
+        }).slice(1),
+      );
     });
     const rejectedMcpBody = z
       .strictObject({
-        status: z.number().int().optional(),
-        error: z.literal("ECONNRESET").optional(),
+        status: z.literal(200),
+        body: z.string(),
       })
       .parse(oversizedMcpOutcome);
-    expect(rejectedMcpBody.error).toBe("ECONNRESET");
+    expect(readMcpResponse(rejectedMcpBody.body)).toMatchObject({
+      jsonrpc: "2.0",
+      id: null,
+      error: { code: -32700, message: "Parse error" },
+    });
   }, 30_000);
 
   it("marks a killed hosted run interrupted after restart without replaying its task", async () => {

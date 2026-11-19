@@ -23,11 +23,11 @@
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "2.0.0",
-    "effect": "4.0.5",
+    "effect": "4.1.4",
     "@seqlane/agent-adapter": "workspace:*",
     "@seqlane/core": "workspace:*",
     "zod": "4.6.6",
-    "@effect/platform-node": "4.0.5"
+    "@effect/platform-node": "4.1.4"
   },
   "files": [
     "dist"
