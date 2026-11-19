@@ -20,6 +20,13 @@ function probe(url: string): Effect.Effect<void, Error> {
         ),
       ),
     ),
+    // OpenCode 1.x can drop requests accepted before its routes are ready.
+    Effect.timeout("2 seconds"),
+    Effect.catchTag("TimeoutError", (cause) =>
+      Effect.fail(
+        new Error(`OpenCode health request timed out: ${url}`, { cause }),
+      ),
+    ),
   );
 }
 
