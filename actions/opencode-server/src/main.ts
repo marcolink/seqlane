@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import * as core from "@actions/core";
 import { Effect } from "effect";
 import { startOpenCodeEffect } from "./lifecycle.js";
+import { readStartupDiagnostics } from "./startup-diagnostics.js";
 
 function runnerTempPath(fileName: string): string {
   return resolve(process.env.RUNNER_TEMP ?? "/tmp", fileName);
@@ -48,6 +49,7 @@ export async function run(): Promise<void> {
   }
 
   const logPath = runnerTempPath("opencode.log");
+  core.setOutput("log-path", logPath);
   await runWithActionSignals(
     startOpenCodeEffect(
       {
@@ -62,10 +64,18 @@ export async function run(): Promise<void> {
       },
       { saveState: core.saveState },
     ),
-  );
+  ).catch(async (error: unknown) => {
+    core.warning(
+      await readStartupDiagnostics(logPath, [
+        process.env.OPENAI_API_KEY ?? "",
+        process.env.OPENCODE_SERVER_PASSWORD ?? "",
+        ...(process.env.SEQLANE_REDACT_VALUES ?? "").split("\n"),
+      ]),
+    );
+    throw error;
+  });
 
   core.setOutput("url", `http://${hostname}:${port}`);
-  core.setOutput("log-path", logPath);
 }
 
 if (process.env.NODE_ENV !== "test") {
