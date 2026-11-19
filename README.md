@@ -378,6 +378,12 @@ production dependencies, and rebuilt distributions. Documentation and tests have
 no exceptions. The distribution gate requires all eight package archives and
 all six Actions' entrypoint assets.
 
+## Documentation
+
+See the [documentation index](docs/index.md) for usage guides and workflow examples.
+Planning records, architecture decisions, specifications, and task tracking live
+outside this repository.
+
 ## License
 
 Seqlane is licensed under the [Apache License 2.0](LICENSE).

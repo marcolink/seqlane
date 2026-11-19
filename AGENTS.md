@@ -5,7 +5,7 @@
 - TypeScript monorepo using pnpm and Nx.
 - `libs/core` owns public, engine-independent authoring contracts and Plan IR.
 - `libs/protocol` owns consumer-agnostic serialized execution events and runner IPC contracts. It is a published CLI dependency, not a supported authoring API.
-- `libs/runtime` owns the private Effect v4 execution path. CLI, direct, HTTP, and MCP callers use one Plan program. Follow [spec.effect-v4-execution-and-operations](docs/sdlc/specs/2026-10-21-effect-v4-execution-and-operations.md).
+- `libs/runtime` owns the private Effect v4 execution path. CLI, direct, HTTP, and MCP callers use one Plan program.
 - Name concrete agent adapter packages `@seqlane/<id>-adapter` and give their
   Nx projects the `adapter:concrete` tag. Keep `libs/runtime` tagged
   `boundary:generic-runtime` so module-boundary lint rejects concrete adapter
@@ -13,14 +13,12 @@
 - `libs/fixtures` owns private test fixtures and fixture contract tests; expose only intentional fixture subpaths.
 - GitHub Action code is CI and platform integration code, not Seqlane application code. New Action-specific libraries must use short, purpose-specific directory names. Do not create a generic Action support library for one Action.
 - Keep runtime-engine types and dependencies out of core, serialized Plans, and public workflow-author APIs.
-- Keep executor implementations, including OpenCode, out of workflow definitions, serialized Plans, public APIs, runner IPC, and documented CLI/configuration. Follow [adr.executor-neutral-workflow-authoring](docs/sdlc/adrs/2026-09-02-executor-neutral-workflow-authoring.md) when changing these boundaries.
-- For standalone CLI runs, `--adapter <id>` is the explicit operator-facing exception. Adapter connection details and implementation types remain private. Follow [adr.standalone-cli-runs](docs/sdlc/adrs/2026-09-16-standalone-cli-runs.md); this decision does not establish runtime delivery.
+- Keep executor implementations, including OpenCode, out of workflow definitions, serialized Plans, public APIs, runner IPC, and documented CLI/configuration.
+- For standalone CLI runs, `--adapter <id>` is the explicit operator-facing exception. Adapter connection details and implementation types remain private.
 - Effect v4 owns execution, concurrency, resource lifetime, HTTP, SQL, and telemetry. Seqlane owns its public DSL, coding-task semantics, session and workspace policy, Work identity and provenance, executor contracts, and CLI experience.
 - Keep Effect runtime types behind the private runtime boundary. They must not leak into public DSL types, serialized definitions, executor-independent contracts, or stable CLI results. Keep Zod as the canonical public and wire-contract validator, and keep Oclif for CLI commands and conventions.
-- Read [prd.seqlane-runtime](docs/sdlc/prd/2026-10-21-seqlane-runtime.md), [rfc.effect-v4-migration](docs/sdlc/rfcs/2026-10-21-effect-v4-migration.md), and [spec.effect-v4-execution-and-operations](docs/sdlc/specs/2026-10-21-effect-v4-execution-and-operations.md) before changing runtime boundaries. These define requirements and architecture; delivery needs source and verification evidence.
-- For SDLC documents, follow [the SDLC agent instructions](docs/sdlc/AGENTS.md).
-- Treat SDLC lifecycle states as document metadata, not as proof that code is delivered. An accepted ADR records a decision. An active spec defines a contract. A completed task records a historical document claim. None of these states alone proves implementation on the current target branch.
-- For delivery claims, inspect the current target-branch source, tests, and configuration. Require a reachable delivery commit or a merged pull request whose result is reachable from that target branch. Do not use a local branch, disconnected worktree, task or spec status, index row, or pull-request label as sole evidence.
+- Keep planning records, architecture decisions, specifications, and task tracking outside this repository. Keep usage guides and implementation guidance beside the code.
+- For delivery claims, inspect the current target-branch source, tests, and configuration. Require a reachable delivery commit or a merged pull request whose result is reachable from that target branch. Do not use a local branch, disconnected worktree, planning document or pull-request label as sole evidence.
 - Use pnpm and keep `pnpm-lock.yaml` synchronized.
 - Breaking changes are allowed in this phase. Preserve observable behavior unless a behavior change is intentional, documented, and tested.
 
@@ -36,7 +34,7 @@
 
 ## Runtime integration
 
-- Follow the active runtime spec and the installed pinned Effect APIs. Verify package exports, declarations, official documentation, and focused behavior before relying on an API.
+- Use the installed pinned Effect APIs. Verify package exports, declarations, official documentation, and focused behavior before relying on an API.
 - Use Effect for application execution, concurrency, resource ownership, time, retries, streams, and operational telemetry. Preserve Seqlane's Plan semantics and public behavior.
 - Keep pure transformations pure. Keep SDK Promise/callback interop at owned integration edges, and evaluate Effect programs only at documented boundaries.
 - `defineShellTask` and `context.exec` must use the Effect process integration without constructing an agent or invoking a model.
