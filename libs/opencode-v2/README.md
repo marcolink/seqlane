@@ -15,6 +15,10 @@ responses with Zod and returns one locally validated JSON value. It never
 repairs output by replaying task instructions. Native configuration controls
 tools and permissions. Pending forms or permissions fail without a reply.
 
+Each prompt includes task input under `Task input:`. Input must be a JSON value.
+Cyclic values, `undefined`, BigInt, and non-finite numbers fail before native
+session creation. Serialized input has a 1 MiB UTF-8 limit.
+
 Ordered reuse, model and variant validation, activity, and per-invocation usage
 are supported. Checkpoint, fork, and session UI remain disabled. Native V2
 fork boundaries require separate compatibility proof.
@@ -32,7 +36,7 @@ or other required runtime settings, list their names in the private
 `SEQLANE_OPENCODE_V2_ENV` variable:
 
 ```sh
-SEQLANE_OPENCODE_V2_ENV=OPENAI_API_KEY,HTTPS_PROXY
+export SEQLANE_OPENCODE_V2_ENV=OPENAI_API_KEY,HTTPS_PROXY
 ```
 
 The list accepts at most 128 comma-separated variable names. It does not accept

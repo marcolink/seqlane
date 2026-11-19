@@ -90,6 +90,7 @@ async function fixture() {
   };
   const server = createServer(async (req, res) => {
     let body = "";
+    req.setEncoding("utf8");
     for await (const chunk of req) body += chunk;
     const url = new URL(req.url ?? "/", "http://fixture");
     const path = url.pathname;
@@ -331,6 +332,81 @@ async function fixture() {
 }
 
 describe("OpenCode V2 real-client execution", () => {
+  it("submits task input that is absent from the goal and instructions", async () => {
+    const h = await fixture();
+    try {
+      const input = { issue: 188, files: ["src/example.ts"], enabled: true };
+      await expect(h.adapter.execute(request({ input }))).resolves.toEqual({
+        answer: "ok",
+      });
+      const prompt = z
+        .object({ text: z.string() })
+        .parse(h.calls.find((call) => call.path.endsWith("/prompt"))?.body);
+      expect(prompt.text).toContain(`Task input:\n${JSON.stringify(input)}`);
+    } finally {
+      await h.close();
+    }
+  });
+  it.each([
+    { name: "undefined", input: undefined },
+    { name: "nested undefined", input: { value: undefined } },
+    { name: "BigInt", input: { value: 1n } },
+    { name: "NaN", input: { value: NaN } },
+  ])(
+    "rejects non-JSON task input before creating native work: $name",
+    async ({ input }) => {
+      const h = await fixture();
+      try {
+        await expect(
+          h.adapter.execute(request({ input })),
+        ).rejects.toMatchObject({ code: "configuration" });
+        expect(h.state.creates).toBe(0);
+        expect(h.state.prompts).toBe(0);
+      } finally {
+        await h.close();
+      }
+    },
+  );
+  it("rejects cyclic task input with the original cause", async () => {
+    const h = await fixture();
+    const input: { self?: unknown } = {};
+    input.self = input;
+    try {
+      await expect(h.adapter.execute(request({ input }))).rejects.toMatchObject(
+        { code: "configuration", cause: expect.any(Error) },
+      );
+      expect(h.state.creates).toBe(0);
+    } finally {
+      await h.close();
+    }
+  });
+  it("bounds serialized task input by UTF-8 bytes before creating native work", async () => {
+    const h = await fixture();
+    try {
+      await expect(
+        h.adapter.execute(request({ input: "é".repeat(524_288) })),
+      ).rejects.toMatchObject({ code: "limit" });
+      expect(h.state.creates).toBe(0);
+      expect(h.state.prompts).toBe(0);
+    } finally {
+      await h.close();
+    }
+  });
+  it("accepts task input at the serialized JSON byte limit", async () => {
+    const h = await fixture();
+    try {
+      const input = "é".repeat(524_287);
+      await expect(h.adapter.execute(request({ input }))).resolves.toEqual({
+        answer: "ok",
+      });
+      const prompt = z
+        .object({ text: z.string() })
+        .parse(h.calls.find((call) => call.path.endsWith("/prompt"))?.body);
+      expect(prompt.text.includes(JSON.stringify(input))).toBe(true);
+    } finally {
+      await h.close();
+    }
+  });
   it("applies the model, validates JSON, maps observations, and reuses one session", async () => {
     const h = await fixture();
     try {
