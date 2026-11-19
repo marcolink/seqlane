@@ -8,6 +8,10 @@ import { z } from "zod";
 import { createClient, OPENCODE_V2_VERSION, verifyServer } from "./client.js";
 import { spawnOwnedServer } from "./process.js";
 import { OpenCodeV2Error } from "./errors.js";
+import {
+  createServerEnvironment,
+  serverEnvironmentSchema,
+} from "./environment.js";
 
 export const loopbackHostSchema = z.string().transform((host, context) => {
   if (host === "localhost") return "127.0.0.1";
@@ -40,10 +44,20 @@ export async function startOpenCodeV2Service(options: {
   host?: string;
   port?: number;
   executable?: string;
+  environment?: Readonly<z.input<typeof serverEnvironmentSchema>>;
   onOwnedProcessAcquired?: (pid: number) => Promise<void>;
 }) {
-  const { signal, onOwnedProcessAcquired, ...input } = options;
+  const {
+    signal,
+    onOwnedProcessAcquired,
+    environment = process.env,
+    ...input
+  } = options;
   const configuration = startupSchema.parse(input);
+  // Node's process.env has a special prototype; materialize it before validation.
+  const serverEnvironment = createServerEnvironment(
+    environment === process.env ? { ...environment } : environment,
+  );
   signal.throwIfAborted();
   if (!["darwin", "linux"].includes(process.platform))
     throw new OpenCodeV2Error(
@@ -54,6 +68,7 @@ export async function startOpenCodeV2Service(options: {
   try {
     const version = await promisify(execFile)(executable, ["--version"], {
       signal,
+      env: serverEnvironment,
       timeout: 10_000,
       maxBuffer: 16_384,
     });
@@ -76,7 +91,11 @@ export async function startOpenCodeV2Service(options: {
   }
   const password = randomBytes(32).toString("base64url");
   const authorization = `Basic ${Buffer.from(`opencode:${password}`).toString("base64")}`;
-  const owned = spawnOwnedServer(executable, { ...configuration, password });
+  const owned = spawnOwnedServer(executable, {
+    ...configuration,
+    password,
+    environment: serverEnvironment,
+  });
   const close = owned.close;
   try {
     if (owned.pid === undefined)

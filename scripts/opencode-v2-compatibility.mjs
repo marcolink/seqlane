@@ -128,6 +128,7 @@ try {
   }
   process.env.OPENCODE_DISABLE_PROJECT_CONFIG = "1";
   process.env.SEQLANE_V2_FIXTURE_KEY = "fixture-only";
+  process.env.SEQLANE_OPENCODE_V2_ENV = "SEQLANE_V2_FIXTURE_KEY";
   provider.listen(0, "127.0.0.1");
   await once(provider, "listening");
   const address = provider.address();
