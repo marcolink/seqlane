@@ -16,7 +16,3 @@ These instructions apply to all files under `libs/runtime/`.
 - Concrete adapter packages own configuration validation and diagnostic
   redaction. The composition root owns runtime creation. The generic runtime
   owns run-scoped adapter and runtime cleanup.
-
-Follow
-[the engine-opaque adapter ADR](../../docs/sdlc/adrs/2026-09-18-engine-opaque-agent-adapter-contracts.md)
-when changing this boundary.
