@@ -28,16 +28,18 @@ export async function waitForResult(
       client,
       (id) => owned.has(id),
       request.signal,
-      async (signal) => {
+      async (signal, hint) => {
         signal.throwIfAborted();
-        const ids = await ownedSessions(client, id, workspace, signal);
-        owned = ids;
-        await checkQuestions(ids, signal);
+        if (hint === "full") {
+          owned = await ownedSessions(client, id, workspace, signal);
+          await checkQuestions(owned, signal);
+        }
         const messages = await invocationMessages(client, id, inputID, signal);
         for (const message of messages)
           if (message.type === "assistant")
             assertAssistantModel(message.model, expectedModel);
         observer.observe(messages);
+        if (hint === "messages") return undefined;
         const idle =
           messages.at(-1)?.type === "idle" ? messages.at(-1) : undefined;
         if (idle !== undefined) {
@@ -46,7 +48,7 @@ export async function waitForResult(
               "execution",
               "native invocation did not succeed",
             );
-          const work = await runningWork(client, ids, workspace, signal);
+          const work = await runningWork(client, owned, workspace, signal);
           if (!work.active && work.shells.length === 0) {
             const assistant = messages
               .filter((message) => message.type === "assistant")

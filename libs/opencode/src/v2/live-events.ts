@@ -1,4 +1,4 @@
-import { Effect, Queue } from "effect";
+import { Clock, Effect, Queue } from "effect";
 import { z } from "zod";
 import { openCodeEffect } from "../effect-boundary.js";
 import type { V2Client } from "./client.js";
@@ -16,13 +16,18 @@ const sessionEventSchema = z.object({
 const formEventSchema = z.object({
   form: sessionEventSchema,
 });
+const readHintSchema = z.enum(["messages", "full"]);
+type LiveReadHint = z.infer<typeof readHintSchema>;
 
-/** Live events are hints. Bounded message reads remain the completion authority. */
+/** Live events are hints. Only full reads can establish completion. */
 export async function monitorWithLiveEvents(
   client: V2Client,
   ownsSession: (id: string) => boolean,
   signal: AbortSignal,
-  read: (signal: AbortSignal) => Promise<{ value: unknown } | undefined>,
+  read: (
+    signal: AbortSignal,
+    hint: LiveReadHint,
+  ) => Promise<{ value: unknown } | undefined>,
 ): Promise<unknown> {
   let readFailure: unknown;
   try {
@@ -30,17 +35,26 @@ export async function monitorWithLiveEvents(
       Effect.scoped(
         Effect.gen(function* () {
           const wakeups = yield* Queue.sliding<true>(1);
+          let pendingHint: LiveReadHint | undefined;
+          let hint: LiveReadHint = readHintSchema.enum.full;
           let firstEvent = true;
+          let lastFullRead = 0n;
           yield* Effect.forkScoped(
-            monitorEvents(client, ownsSession, () =>
-              Queue.offerUnsafe(wakeups, true),
-            ),
+            monitorEvents(client, ownsSession, (incoming) => {
+              pendingHint =
+                pendingHint === "full" || incoming === "full"
+                  ? "full"
+                  : "messages";
+              Queue.offerUnsafe(wakeups, true);
+            }),
           );
           while (true) {
+            const started = yield* Clock.monotonicTimeNanos;
+            if (hint === "full") lastFullRead = started;
             const result = yield* Effect.acquireUseRelease(
               Effect.sync(() => {
                 const controller = new AbortController();
-                const pending = read(controller.signal);
+                const pending = read(controller.signal, hint);
                 return { controller, pending };
               }),
               ({ pending }) => openCodeEffect(() => pending),
@@ -53,17 +67,32 @@ export async function monitorWithLiveEvents(
                   });
                 }),
             );
-            if (result !== undefined) return result.value;
-            const wakeup = Effect.raceFirst(
-              Queue.take(wakeups).pipe(Effect.map(() => true)),
-              Effect.sleep("1 second").pipe(Effect.map(() => false)),
-            );
-            if (firstEvent) firstEvent = !(yield* wakeup);
-            else
-              // Bound full scans independently of a continuously full event queue.
-              yield* Effect.all([wakeup, Effect.sleep("500 millis")], {
-                concurrency: 2,
-              });
+            if (hint === "full" && result !== undefined) return result.value;
+            while (true) {
+              const now = yield* Clock.monotonicTimeNanos;
+              const cooldownAt = started + 500_000_000n;
+              const fullReadAt = lastFullRead + 1_000_000_000n;
+              const recoveryAt =
+                fullReadAt > cooldownAt ? fullReadAt : cooldownAt;
+              if (now >= recoveryAt) {
+                hint = "full";
+                if (pendingHint !== undefined) firstEvent = false;
+                pendingHint = undefined;
+                break;
+              }
+              const readyAt = pendingHint === "full" ? recoveryAt : cooldownAt;
+              if (pendingHint !== undefined && (firstEvent || now >= readyAt)) {
+                hint = pendingHint;
+                pendingHint = undefined;
+                firstEvent = false;
+                break;
+              }
+              const nextRead = pendingHint === undefined ? recoveryAt : readyAt;
+              yield* Effect.raceFirst(
+                Queue.take(wakeups),
+                Effect.sleep(Number(nextRead - now) / 1_000_000),
+              );
+            }
             // Collapse bursts and bound snapshot reads while output grows quickly.
             yield* Effect.sleep("50 millis");
           }
@@ -79,7 +108,7 @@ export async function monitorWithLiveEvents(
 function monitorEvents(
   client: V2Client,
   ownsSession: (id: string) => boolean,
-  notify: () => void,
+  notify: (hint: LiveReadHint) => void,
 ) {
   return Effect.gen(function* () {
     let delay = 250;
@@ -139,7 +168,13 @@ function monitorEvents(
           if (oldest !== undefined) seen.delete(oldest);
         }
         delay = 250;
-        notify();
+        const messageUpdate = [
+          "session.message.",
+          "session.tool.",
+          "session.text.",
+          "session.reasoning.",
+        ].some((prefix) => type.startsWith(prefix));
+        notify(messageUpdate ? "messages" : "full");
       }
     }
   });

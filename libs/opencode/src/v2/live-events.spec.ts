@@ -52,6 +52,7 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe("live events as completion wakeups", () => {
   it.each([
+    { type: "permission.created", data: { sessionID: "owned" } },
     { type: "form.created", data: { form: { sessionID: "owned" } } },
     { type: "form.replied", data: { sessionID: "owned" } },
     {
@@ -69,8 +70,8 @@ describe("live events as completion wakeups", () => {
         ),
       );
       let ready = false;
-      const read = vi.fn(async () =>
-        ready ? { value: "validated" } : undefined,
+      const read = vi.fn(async (_signal: AbortSignal, kind?: string) =>
+        ready && kind === "full" ? { value: "validated" } : undefined,
       );
       const pending = monitorWithLiveEvents(
         createClient("http://fixture"),
@@ -87,6 +88,7 @@ describe("live events as completion wakeups", () => {
           new Promise((resolve) => setTimeout(() => resolve("missed"), 400)),
         ]),
       ).resolves.toBe("validated");
+      expect(read.mock.calls[1]?.[1]).toBe("full");
     },
   );
   it("delivers owned live events before polling, coalesces duplicates, and closes the reader", async () => {
@@ -98,9 +100,14 @@ describe("live events as completion wakeups", () => {
       ),
     );
     let ready = false;
-    const read = vi.fn(async () =>
-      ready ? { value: "validated result" } : undefined,
-    );
+    const read = vi.fn(async (signal: AbortSignal, kind?: string) => {
+      signal.throwIfAborted();
+      return ready
+        ? {
+            value: kind === "full" ? "validated result" : "message-only result",
+          }
+        : undefined;
+    });
     const pending = monitorWithLiveEvents(
       createClient("http://fixture"),
       (id) => id === "owned",
@@ -110,13 +117,12 @@ describe("live events as completion wakeups", () => {
     await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(1));
     ready = true;
     for (let index = 0; index < 100; index++) events.emit(native());
-    await expect(
-      Promise.race([
-        pending,
-        new Promise((resolve) => setTimeout(() => resolve("missed"), 400)),
-      ]),
-    ).resolves.toBe("validated result");
-    expect(read).toHaveBeenCalledTimes(2);
+    await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(2), {
+      timeout: 400,
+    });
+    expect(read.mock.calls[1]?.[1]).toBe("messages");
+    await expect(pending).resolves.toBe("validated result");
+    expect(read.mock.calls[2]?.[1]).toBe("full");
     await vi.waitFor(() => expect(events.abort).toHaveBeenCalledTimes(1));
   });
 
@@ -160,13 +166,15 @@ describe("live events as completion wakeups", () => {
       ),
     );
     const times: number[] = [];
+    const kinds: (string | undefined)[] = [];
     let eventID = 0;
     const pending = monitorWithLiveEvents(
       createClient("http://fixture"),
       (id) => id === "owned",
       AbortSignal.timeout(5000),
-      async () => {
+      async (_signal, kind) => {
         times.push(Date.now());
+        kinds.push(kind);
         if (times.length === 4) return { value: "bounded" };
         if (times.length > 1)
           for (let index = 0; index < 100; index++)
@@ -180,7 +188,80 @@ describe("live events as completion wakeups", () => {
     expect(times[1]! - times[0]!).toBeLessThan(400);
     expect(times[2]! - times[1]!).toBeGreaterThanOrEqual(450);
     expect(times[3]! - times[2]!).toBeGreaterThanOrEqual(450);
+    expect(kinds).toEqual(["full", "messages", "messages", "full"]);
+    expect(times[3]! - times[0]!).toBeGreaterThanOrEqual(950);
   });
+
+  it("retains a coalesced full hint when later message hints arrive", async () => {
+    const events = stream();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) =>
+        events.connect(init?.signal),
+      ),
+    );
+    const kinds: string[] = [];
+    const pending = monitorWithLiveEvents(
+      createClient("http://fixture"),
+      (id) => id === "owned",
+      AbortSignal.timeout(3000),
+      async (_signal, kind) => {
+        kinds.push(kind);
+        if (kinds.length === 3) return { value: "reconciled" };
+        return undefined;
+      },
+    );
+    await vi.waitFor(() => expect(kinds).toHaveLength(1));
+    events.emit(native());
+    await vi.waitFor(() => expect(kinds).toHaveLength(2));
+    events.emit({
+      id: "child-created",
+      type: "session.created",
+      data: { sessionID: "child", parentID: "owned" },
+    });
+    for (let index = 0; index < 100; index++)
+      events.emit(native("owned", `message_${index}`));
+    await expect(pending).resolves.toBe("reconciled");
+    expect(kinds).toEqual(["full", "messages", "full"]);
+  });
+
+  it.each([0, 1100])(
+    "bounds recurring full scans under form events after a %d ms initial read",
+    async (initialDelay) => {
+      const events = stream();
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) =>
+          events.connect(init?.signal),
+        ),
+      );
+      const times: number[] = [];
+      let eventID = 0;
+      const pending = monitorWithLiveEvents(
+        createClient("http://fixture"),
+        (id) => id === "owned",
+        AbortSignal.timeout(5000),
+        async (_signal, kind) => {
+          times.push(Date.now());
+          expect(kind).toBe("full");
+          if (times.length === 4) return { value: "bounded full scans" };
+          for (let index = 0; index < 100; index++)
+            events.emit({
+              id: `form_${eventID++}`,
+              type: "form.replied",
+              data: { sessionID: "owned" },
+            });
+          if (times.length === 1 && initialDelay > 0)
+            await new Promise((resolve) => setTimeout(resolve, initialDelay));
+          return undefined;
+        },
+      );
+      await expect(pending).resolves.toBe("bounded full scans");
+      expect(times[1]! - times[0]!).toBeLessThan(initialDelay + 400);
+      expect(times[2]! - times[1]!).toBeGreaterThanOrEqual(950);
+      expect(times[3]! - times[2]!).toBeGreaterThanOrEqual(950);
+    },
+  );
 
   it("reconnects a closed stream and resumes immediate snapshot reads", async () => {
     const first = stream();

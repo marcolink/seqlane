@@ -146,15 +146,20 @@ SDK decoding. Closing the stream cancels the underlying response reader.
 One invocation
 read covers at most 1000 messages. A session tree contains at most 128 sessions.
 Child session pages must add a session while a cursor remains. Pending permission
-and form checks cover at most 16 sessions at once. Native global events wake
-message reads for owned sessions. Notifications use a one-item sliding queue
-and a 50-millisecond pause to combine bursts. The first event read is prompt;
-later full scans wait at least 500 milliseconds, even during sustained events.
-The scan limit bounds ownership, question, and message requests together.
+and form checks cover at most 16 sessions at once. Native message, tool, text,
+and reasoning events read invocation messages and emit activity for owned sessions.
+These reads confirm the admitted input and assistant model. They cannot complete
+execution or repeat ownership, permission, and form requests.
+Notifications use a one-item sliding queue and a 50-millisecond pause to combine
+bursts. The first event read is prompt. Later message reads wait at least
+500 milliseconds. Full checks run at most once per second after the first event.
+Permission, form, and child-creation events request full checks. Coalesced full
+requests keep priority over later message events.
 Duplicate event IDs are bounded to 4096 entries.
-Child creation wakes a fresh ownership read.
-Events never decide completion. One-second recovery reads preserve progress
-after missed events, malformed hints, or a stream failure. The stream reconnects
+Only full reads can confirm owned work and return a terminal result.
+Recovery checks continue during sustained message events. They wait for both
+the one-second full-check interval and the message cooldown. These checks preserve
+progress after missed events, malformed hints, or a stream failure. The stream reconnects
 with a delay from 250 milliseconds to two seconds and rotates after 45 seconds.
 Requests have a 10-second bound; task cancellation also bounds monitoring.
 Cleanup has a separate 5-second bound. The native global stream has no replay.

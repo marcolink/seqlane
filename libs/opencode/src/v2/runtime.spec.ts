@@ -541,10 +541,10 @@ async function fixture() {
     url,
     runtime,
     adapter,
-    emitEvent(id: string, sessionID = "ses_owned") {
+    emitEvent(id: string, sessionID = "ses_owned", type = "session.idle") {
       for (const event of events)
         event.write(
-          `data: ${JSON.stringify({ id, type: "session.idle", data: { sessionID } })}\n\n`,
+          `data: ${JSON.stringify({ id, type, data: { sessionID } })}\n\n`,
         );
     },
     async close() {
@@ -1081,7 +1081,7 @@ describe("OpenCode V2 real-client execution", () => {
       expect(onActivity).not.toHaveBeenCalled();
       h.state.delayed = false;
       h.state.runningTool = true;
-      h.emitEvent("tool_hint");
+      h.emitEvent("tool_hint", "ses_owned", "session.tool.called");
       await vi.waitFor(
         () =>
           expect(onActivity).toHaveBeenCalledWith(

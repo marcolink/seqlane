@@ -172,11 +172,13 @@ Tool values have a depth limit of 64 and a node limit of 65,536.
 Invalid native observation data fails before batch events are emitted.
 
 The live native event stream triggers message reads during execution.
-The adapter reconnects lost streams and reads messages each second to recover
-missed events. Events do not decide completion. Message reads confirm the
-admitted input, assistant model, and owned work state.
-The first event triggers a prompt read. Later full reads have a minimum
-500 ms interval, so bursts can combine rapid intermediate updates.
+Message updates confirm the admitted input and assistant model, then emit activity.
+Permission, form, and child-session events also request full checks of owned work.
+Only full checks can complete execution.
+The first event triggers a prompt read. Later message reads have a minimum
+500 ms interval. Full checks run at most once per second after the first event.
+Recovery checks continue during sustained message activity and lost streams.
+Bursts can combine rapid intermediate updates.
 The adapter does not expose token streaming or a native transcript view.
 
 ## Explicit OpenCode 2 selection
