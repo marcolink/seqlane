@@ -23,7 +23,7 @@ const boundedFetch: typeof fetch = async (input, init) => {
     const headers = new Headers(response.headers);
     headers.delete("content-encoding");
     headers.delete("content-length");
-    return new Response(boundedEventBody(response.body), {
+    return new Response(boundedEventBody(response.body, responseLimit), {
       status: response.status,
       headers,
     });

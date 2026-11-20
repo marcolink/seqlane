@@ -1,6 +1,7 @@
 // @test-scope ./event-body.ts
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createClient } from "./client.js";
+import { boundedEventBody } from "./event-body.js";
 
 const encoder = new TextEncoder();
 const synced = 'data: {"type":"log.synced","aggregateID":"ses_test"}\n\n';
@@ -66,10 +67,12 @@ describe("V2 streaming transport", () => {
       vi.fn(async () => response([synced.repeat(count)])),
     );
     let seen = 0;
-    for await (const _ of createClient("http://fixture").session.log({
+    for await (const event of createClient("http://fixture").session.log({
       sessionID: "ses_test",
-    }))
+    })) {
+      expect(event).toHaveProperty("type", "log.synced");
       seen++;
+    }
     expect(seen).toBe(count);
   });
 
@@ -117,7 +120,21 @@ describe("V2 streaming transport", () => {
     await expect(iterator.next()).rejects.toThrow("1 MiB");
   });
 
-  it("still bounds SSE error responses and ordinary JSON responses", async () => {
+  it.each([false, true])(
+    "counts the complete CRLF boundary, split=%s",
+    async (split) => {
+      for (const excess of [0, 1]) {
+        const text = "x".repeat(1_048_576 - 4 + excess) + "\r\n\r\n";
+        const chunks = split ? [text.slice(0, -1), "\n"] : [text];
+        const body = response(chunks).body!;
+        const result = new Response(boundedEventBody(body, 1_048_576)).text();
+        if (excess === 0) await expect(result).resolves.toBe(text);
+        else await expect(result).rejects.toThrow("event frame exceeded 1 MiB");
+      }
+    },
+  );
+
+  it("still bounds SSE error responses", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => response(["x".repeat(1_048_577)], 401)),
@@ -125,9 +142,21 @@ describe("V2 streaming transport", () => {
     const iterator = createClient("http://fixture")
       .session.log({ sessionID: "ses_test" })
       [Symbol.asyncIterator]();
-    await expect(iterator.next()).rejects.toThrow();
-    await expect(
-      createClient("http://fixture").server.info(),
-    ).rejects.toThrow();
+    await expect(iterator.next()).rejects.toThrow("response exceeded 1 MiB");
+  });
+
+  it("bounds successful ordinary JSON responses before decoding", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ value: "x".repeat(1_048_576) }), {
+            headers: { "content-type": "application/json" },
+          }),
+      ),
+    );
+    await expect(createClient("http://fixture").server.info()).rejects.toThrow(
+      "response exceeded 1 MiB",
+    );
   });
 });
