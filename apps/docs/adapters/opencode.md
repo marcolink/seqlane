@@ -140,8 +140,9 @@ variant fail the task. If a response omits a selected variant, the task fails.
 Failed sessions cannot be reused.
 
 Checkpoints and forks preserve a completed task's history and instructions.
-Later reuse of the source does not change that checkpoint. Parallel forks use
-independent sessions. Cancelling one fork preserves its source and peers.
+Later reuse or failure of the source does not change that checkpoint. Earlier
+checkpoints remain available until adapter close or run cleanup. Parallel forks
+use independent sessions. Cancelling one fork preserves its source and peers.
 A fork can select another model or reasoning level before agent work starts.
 Capture and fork make no model calls. The run removes retained snapshots when
 it ends. Session UI remains unavailable.
