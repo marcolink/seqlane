@@ -127,7 +127,8 @@ work starts. Deterministic and dry runs start no service and make no model calls
 Pending permissions fail the task. Seqlane never approves them.
 Enable `--interactive` to answer native questions in the same invocation.
 The native `question` tool supports text and single-choice questions, including
-custom text alternatives. Multiselect questions and arbitrary native forms fail.
+custom text alternatives. Optional fields, multiselect questions, and arbitrary
+native forms fail.
 Without interactivity, pending questions fail the task. Input cancellation or
 timeout cancels the native form before Seqlane stops owned work.
 Read [Interactivity](/interactivity) for terminal requirements and deadlines.

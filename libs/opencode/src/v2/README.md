@@ -18,8 +18,8 @@ forms support text and single-choice answers through `requestUserInput`.
 Without this callback, pending forms fail without a reply.
 
 Question forms require `metadata.kind: "question"` and ordered `q0` field keys.
-The adapter rejects multiselect fields, arbitrary forms, and unsupported field
-constraints. Canonical validation limits each request to eight questions,
+The adapter rejects optional fields, multiselect fields, arbitrary forms, and
+unsupported field constraints. Canonical validation limits each request to eight questions,
 twenty choices per question, and 64 KiB. Display text redacts connection
 credentials. Synthetic question and option IDs map answers to original native
 values. Each form ID receives at most one callback and one reply per invocation.

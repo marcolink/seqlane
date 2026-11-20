@@ -94,6 +94,7 @@ describe("native question translation", () => {
     expect(() => translate(form(fields))).toThrow("64 KiB");
   });
   it.each([
+    { ...field, required: false },
     { ...field, type: "multiselect" },
     { ...field, type: "number" },
     { ...field, key: "__proto__" },

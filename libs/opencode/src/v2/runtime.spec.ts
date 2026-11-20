@@ -829,6 +829,7 @@ describe("OpenCode V2 real-client execution", () => {
     "detail-id",
     "detail-state",
     "detail-fields",
+    "optional-field",
   ])("rejects malformed question %s", async (mode) => {
     const h = await fixture();
     try {
@@ -858,6 +859,14 @@ describe("OpenCode V2 real-client execution", () => {
           fields: [{ key: "q0", type: "multiselect" }],
           state: { status: "pending" },
         };
+      if (mode === "optional-field") {
+        const form = questionForm();
+        h.state.formDetail = {
+          ...form,
+          fields: form.fields.map((field) => ({ ...field, required: false })),
+          state: { status: "pending" },
+        };
+      }
       const callback = vi.fn();
       await expect(
         h.adapter.execute(request({ requestUserInput: callback })),
