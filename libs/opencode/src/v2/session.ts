@@ -22,6 +22,7 @@ export const V2_CAPABILITIES = {
   fork: true,
   activity: true,
   sessionUi: false,
+  userInput: true,
 } as const;
 
 interface SessionOptions {

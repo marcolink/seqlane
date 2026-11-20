@@ -6,7 +6,8 @@ Interactive runs let the agent ask structured questions and continue with
 your answers in the same invocation.
 
 Runs are autonomous by default. Enable interactivity for each run that needs it.
-Currently, only the [Codex adapter](./adapters/codex.md) supports this mode.
+The [Codex adapter](./adapters/codex.md) and
+[OpenCode 2 adapter](./adapters/opencode.md#capabilities) support this mode.
 
 ## Enable questions
 
@@ -26,12 +27,12 @@ A dry run validates the flags without starting an adapter or opening questions.
 
 ## How agents ask
 
-With interactivity enabled, the agent receives an `ask_user` tool and
+With interactivity enabled, Codex receives an `ask_user` tool and
 instructions to use it when required information remains unavailable.
 This applies to skills loaded after the run starts. Questions need no static
 declaration in the workflow, and the task's final output schema stays unchanged.
 
-For example, a skill choosing a preview region can make this tool call:
+For example, a Codex skill choosing a preview region can make this tool call:
 
 ```ts
 ask_user({
@@ -65,6 +66,29 @@ After you select Europe, the tool returns:
 
 The agent continues its current task with this answer. A prose question alone
 does not open the input form.
+
+OpenCode 2 uses its native `question` tool. Seqlane presents text and single-choice
+questions through the same terminal controls. For example:
+
+```ts
+question({
+  questions: [
+    {
+      header: "Region",
+      question: "Which region should host this preview?",
+      options: [
+        { label: "Europe", description: "Use the European region" },
+        { label: "United States", description: "Use the US region" },
+      ],
+      multiple: false,
+      custom: false,
+    },
+  ],
+});
+```
+
+OpenCode receives the selected native option value or custom text.
+Multiselect questions and arbitrary forms are unsupported.
 
 ## Answer questions
 
@@ -101,4 +125,5 @@ the existing permission policy. Do not enter passwords, tokens, or other
 secrets: answers reach the agent and can enter its native transcript.
 
 See the [CLI flag reference](./cli/run.md#interactive-and-input-timeout)
-for command options and the [Codex guide](./adapters/codex.md) for adapter setup.
+for command options. Read the [Codex guide](./adapters/codex.md) or
+[OpenCode guide](./adapters/opencode.md) for adapter setup.

@@ -1,13 +1,12 @@
 import { setTimeout } from "node:timers/promises";
-import { InteractionRequiredError } from "@seqlane/core";
 import type { AgentAdapterRequest } from "@seqlane/agent-adapter";
-import { requestOptions, type V2Client } from "./client.js";
-import { pendingSchema } from "./schemas.js";
+import type { V2Client } from "./client.js";
 import { parseOutput } from "./prompt.js";
 import { invocationMessages } from "./messages.js";
 import { ownedSessions, runningWork } from "./owned-work.js";
 import { createObserver } from "./observations.js";
 import { OpenCodeV2Error } from "./errors.js";
+import { createQuestionMonitor } from "./questions.js";
 import {
   assertAssistantModel,
   type PinnedNativeModel,
@@ -22,33 +21,12 @@ export async function waitForResult(
   expectedModel: PinnedNativeModel,
 ): Promise<unknown> {
   const observer = createObserver(request, redact);
+  const checkQuestions = createQuestionMonitor(client, request, redact);
   try {
     while (true) {
       request.signal.throwIfAborted();
       const ids = await ownedSessions(client, id, workspace, request.signal);
-      const sessionIDs = [...ids];
-      for (let offset = 0; offset < sessionIDs.length; offset += 16) {
-        const pending = await Promise.all(
-          sessionIDs.slice(offset, offset + 16).map(async (sessionID) => {
-            const [permissions, forms] = await Promise.all([
-              client.permission.list(
-                { sessionID },
-                requestOptions(request.signal),
-              ),
-              client.session.form.list(
-                { sessionID },
-                requestOptions(request.signal),
-              ),
-            ]);
-            return (
-              pendingSchema.parse(permissions).length +
-              pendingSchema.parse(forms).length
-            );
-          }),
-        );
-        if (pending.some((count) => count > 0))
-          throw new InteractionRequiredError("user-input");
-      }
+      await checkQuestions(ids);
       const messages = await invocationMessages(
         client,
         id,

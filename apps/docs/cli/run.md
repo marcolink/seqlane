@@ -177,7 +177,7 @@ seqlane run ./workflow.ts \
 
 ### `--interactive` and `--input-timeout`
 
-Enable questions from Codex agent tasks:
+Enable questions from Codex or OpenCode 2 agent tasks:
 
 ```sh
 seqlane run ./workflow.ts \
@@ -189,9 +189,13 @@ seqlane run ./workflow.ts \
 ```
 
 Interactive execution requires human output and terminal input. It rejects CI,
-`--json`, redirected streams, and `--input-file -`. Other adapters currently
-reject this policy. A dry run validates the flags without opening an input
+`--json`, redirected streams, and `--input-file -`. OpenCode 1 rejects this policy.
+A dry run validates the flags without opening an input
 consumer or starting an adapter.
+
+For OpenCode 2, select `--adapter opencode-v2` or use `--adapter opencode` with
+a V2 executable. The native `question` tool accepts text and single-choice answers.
+Question answers do not approve native permissions.
 
 `--input-timeout` accepts 1–86400 seconds and defaults to 300 seconds.
 It requires `--interactive`. Task and run deadlines continue during input waits.
