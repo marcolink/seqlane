@@ -134,6 +134,61 @@ describe("V2 streaming transport", () => {
     },
   );
 
+  it("never yields an oversized event with its final CRLF split across chunks", async () => {
+    const prefix = 'data: {"text":"';
+    const suffix = '"}\r\n\r\n';
+    const text =
+      prefix + "x".repeat(1_048_577 - prefix.length - suffix.length) + suffix;
+    let source: ReadableStreamDefaultController<Uint8Array> | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                source = controller;
+                controller.enqueue(encoder.encode(text.slice(0, -1)));
+              },
+            }),
+            { headers: { "content-type": "text/event-stream" } },
+          ),
+      ),
+    );
+    const iterator = createClient("http://fixture")
+      .session.log({ sessionID: "ses_test" })
+      [Symbol.asyncIterator]();
+    const pending = iterator.next();
+    const early = await Promise.race([
+      pending.then(
+        () => "yielded",
+        () => "rejected",
+      ),
+      new Promise((resolve) => setTimeout(() => resolve("pending"), 100)),
+    ]);
+    source?.enqueue(encoder.encode("\n"));
+    source?.close();
+    expect(early).toBe("pending");
+    await expect(pending).rejects.toThrow("event frame exceeded 1 MiB");
+  });
+
+  it("holds a blank CR line until the following byte is counted", async () => {
+    let source: ReadableStreamDefaultController<Uint8Array> | undefined;
+    const text = "data: {}\r\n\r";
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        source = controller;
+        controller.enqueue(encoder.encode(text));
+      },
+    });
+    const reader = boundedEventBody(body, text.length).getReader();
+    const first = await reader.read();
+    source?.enqueue(encoder.encode("\n"));
+    source?.close();
+    expect(new TextDecoder().decode(first.value)).toBe("data: {}\r\n");
+    await expect(reader.read()).rejects.toThrow("event frame exceeded 1 MiB");
+  });
+
   it("still bounds SSE error responses", async () => {
     vi.stubGlobal(
       "fetch",
