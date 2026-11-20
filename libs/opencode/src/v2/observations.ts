@@ -1,17 +1,40 @@
+import { isDeepStrictEqual } from "node:util";
 import type {
   AgentActivity,
   AgentAdapterRequest,
 } from "@seqlane/agent-adapter";
 import { redactOpaqueValue } from "@seqlane/agent-adapter";
 import { jsonValueSchema, type SeqlaneInvocationMetrics } from "@seqlane/core";
-import type { NativeAssistant, NativeMessage } from "./schemas.js";
+import type { NativeAssistant, NativeMessage, NativeTool } from "./schemas.js";
+import { OpenCodeV2Error } from "./errors.js";
+
+function assertSafePropertyNames(
+  value: unknown,
+  redact: (text: string) => string,
+): void {
+  const pending = [value];
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (typeof current !== "object" || current === null) continue;
+    for (const [key, descriptor] of Object.entries(
+      Object.getOwnPropertyDescriptors(current),
+    )) {
+      if (redact(key) !== key)
+        throw new OpenCodeV2Error(
+          "protocol",
+          "native observation contains a credential in a property name",
+        );
+      if ("value" in descriptor) pending.push(descriptor.value);
+    }
+  }
+}
 
 /** One reducer feeds both activity and usage; repeated snapshots are deduplicated. */
 export function createObserver(
   request: AgentAdapterRequest,
   redact: (text: string) => string = (text) => text,
 ) {
-  const tools = new Map<string, string>();
+  const tools = new Map<string, NativeTool>();
   const activeTools = new Map<string, AgentActivity>();
   const terminalTools = new Set<string>();
   const models = new Set<string>();
@@ -27,10 +50,9 @@ export function createObserver(
   function assistant(message: NativeAssistant): void {
     for (const tool of message.content) {
       if (tool.type !== "tool" || terminalTools.has(tool.id)) continue;
-      const snapshot = JSON.stringify(tool);
-      if (tools.get(tool.id) === snapshot) continue;
       const previous = tools.get(tool.id);
-      tools.set(tool.id, snapshot);
+      if (isDeepStrictEqual(previous, tool)) continue;
+      tools.set(tool.id, tool);
       const name = redact(tool.name);
       const activity = {
         activityId: tool.id,
@@ -53,6 +75,7 @@ export function createObserver(
       }
       if (tool.state.status === "completed" || tool.state.status === "error") {
         terminalTools.add(tool.id);
+        tools.delete(tool.id);
         activeTools.delete(tool.id);
         notify(() =>
           request.onActivity?.({
@@ -132,6 +155,10 @@ export function createObserver(
   return {
     observe(messages: readonly NativeMessage[]) {
       if (finished) return;
+      // Reject the whole batch before either callback can expose a credential in a key.
+      for (const message of messages)
+        if (message.type === "assistant")
+          assertSafePropertyNames(message.content, redact);
       for (const message of messages)
         if (message.type === "assistant") assistant(message);
     },
@@ -149,6 +176,7 @@ export function createObserver(
           }),
         );
       activeTools.clear();
+      tools.clear();
       if (models.size > 0) notify(() => request.onMetrics?.(metrics));
     },
   };
