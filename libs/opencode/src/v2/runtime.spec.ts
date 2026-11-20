@@ -1,6 +1,7 @@
 // @test-scope ./checkpoint.ts
 // @test-scope ./runtime.ts
 // @test-scope ./client.ts
+// @test-scope ./live-events.ts
 // @test-scope ./models.ts
 // @test-scope ./session.ts
 // @test-scope ./session-model.ts
@@ -12,7 +13,7 @@
 // @test-scope ./observations.ts
 // @test-scope ./questions.ts
 import { once } from "node:events";
-import { createServer } from "node:http";
+import { createServer, type ServerResponse } from "node:http";
 import type {
   AgentAdapterRequest,
   UserInputAnswer,
@@ -102,6 +103,7 @@ function deferredAnswer() {
   return { promise, resolve, reject };
 }
 async function fixture() {
+  const events = new Set<ServerResponse>();
   const calls: {
     method: string;
     path: string;
@@ -149,6 +151,8 @@ async function fixture() {
     prompts: 0,
     creates: 0,
     failCleanup: false,
+    eventConnections: 0,
+    eventCloses: 0,
     oversized: false,
     question: false,
     questionOwner: "ses_owned",
@@ -197,6 +201,19 @@ async function fixture() {
     };
     if (path === "/api/info")
       return send({ version: state.version, pid: 1, urls: [] });
+    if (path === "/api/event") {
+      state.eventConnections++;
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      res.write(
+        'data: {"id":"connected","type":"server.connected","data":{}}\n\n',
+      );
+      events.add(res);
+      res.on("close", () => {
+        events.delete(res);
+        state.eventCloses++;
+      });
+      return;
+    }
     if (path === "/api/model")
       return send({
         data: [model, { ...model, id: "branch", variants: [{ id: "low" }] }],
@@ -412,7 +429,9 @@ async function fixture() {
         data: state.malformed
           ? [{ type: "assistant", id: "bad" }]
           : [
-              { id: "idle", type: "idle", outcome: "succeeded" },
+              ...(state.runningTool
+                ? []
+                : [{ id: "idle", type: "idle", outcome: "succeeded" }]),
               assistant,
               ...(state.wrongInput ? [{ id: "other", type: "user" }] : []),
               user,
@@ -506,6 +525,12 @@ async function fixture() {
     url,
     runtime,
     adapter,
+    emitEvent(id: string, sessionID = "ses_owned") {
+      for (const event of events)
+        event.write(
+          `data: ${JSON.stringify({ id, type: "session.idle", data: { sessionID } })}\n\n`,
+        );
+    },
     async close() {
       await runtime.close?.().catch(() => undefined);
       server.closeAllConnections();
@@ -1013,6 +1038,50 @@ describe("OpenCode V2 real-client execution", () => {
       }
     },
   );
+  it("uses live events to expose a running tool but requires a validated answer for completion", async () => {
+    const h = await fixture();
+    h.state.delayed = true;
+    const onActivity = vi.fn();
+    const pending = h.adapter.execute(request({ onActivity }));
+    try {
+      await vi.waitFor(() => expect(h.state.reads).toBe(1), { interval: 5 });
+      await vi.waitFor(() => expect(h.state.eventConnections).toBe(1), {
+        interval: 5,
+      });
+      h.emitEvent("idle_hint");
+      await vi.waitFor(() => expect(h.state.reads).toBe(2), {
+        timeout: 400,
+        interval: 5,
+      });
+      expect(onActivity).not.toHaveBeenCalled();
+      h.state.delayed = false;
+      h.state.runningTool = true;
+      h.emitEvent("tool_hint");
+      await vi.waitFor(
+        () =>
+          expect(onActivity).toHaveBeenCalledWith(
+            expect.objectContaining({ state: "started" }),
+          ),
+        { timeout: 400, interval: 5 },
+      );
+      expect(onActivity).not.toHaveBeenCalledWith(
+        expect.objectContaining({ state: "succeeded" }),
+      );
+      h.state.runningTool = false;
+      h.emitEvent("answer_hint");
+      await expect(pending).resolves.toEqual({ answer: "ok" });
+      expect(onActivity).toHaveBeenCalledWith(
+        expect.objectContaining({ state: "succeeded" }),
+      );
+      await vi.waitFor(() => expect(h.state.eventCloses).toBe(1), {
+        interval: 5,
+      });
+      expect(h.state.prompts).toBe(1);
+    } finally {
+      await h.close();
+      await pending.catch(() => undefined);
+    }
+  });
   it("submits task input that is absent from the goal and instructions", async () => {
     const h = await fixture();
     try {

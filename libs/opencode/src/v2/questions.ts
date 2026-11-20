@@ -75,7 +75,11 @@ function createQuestionHandler(
   redact: (text: string) => string,
 ) {
   const seen = new Map<string, string>();
-  return async (sessionID: string, raw: unknown): Promise<void> => {
+  return async (
+    sessionID: string,
+    raw: unknown,
+    signal: AbortSignal,
+  ): Promise<void> => {
     const identities = questionFormListSchema.parse(raw);
     for (const identity of identities) {
       if (
@@ -98,7 +102,7 @@ function createQuestionHandler(
       const form = parsed.data;
       if (seen.has(form.id)) continue;
       seen.set(form.id, sessionID);
-      await replyToQuestion(client, request, redact, form);
+      await replyToQuestion(client, { ...request, signal }, redact, form);
     }
   };
 }
@@ -173,20 +177,17 @@ export function createQuestionMonitor(
   redact: (text: string) => string,
 ) {
   const handleQuestions = createQuestionHandler(client, request, redact);
-  return async (ids: ReadonlySet<string>): Promise<void> => {
+  return async (
+    ids: ReadonlySet<string>,
+    signal = request.signal,
+  ): Promise<void> => {
     const sessionIDs = [...ids];
     for (let offset = 0; offset < sessionIDs.length; offset += 16) {
       const pending = await Promise.all(
         sessionIDs.slice(offset, offset + 16).map(async (sessionID) => {
           const [permissions, forms] = await Promise.all([
-            client.permission.list(
-              { sessionID },
-              requestOptions(request.signal),
-            ),
-            client.session.form.list(
-              { sessionID },
-              requestOptions(request.signal),
-            ),
+            client.permission.list({ sessionID }, requestOptions(signal)),
+            client.session.form.list({ sessionID }, requestOptions(signal)),
           ]);
           return {
             sessionID,
@@ -201,7 +202,7 @@ export function createQuestionMonitor(
         if (request.requestUserInput === undefined) {
           if (pendingSchema.parse(forms).length > 0)
             throw new InteractionRequiredError("user-input");
-        } else await handleQuestions(sessionID, forms);
+        } else await handleQuestions(sessionID, forms, signal);
       }
     }
   };

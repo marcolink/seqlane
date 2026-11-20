@@ -12,7 +12,8 @@ const boundedFetch: typeof fetch = async (input, init) => {
   if (response.body === null) return response;
   const url = new URL(input instanceof Request ? input.url : String(input));
   const streaming =
-    /^\/api\/experimental\/session\/[^/]+\/log$/.test(url.pathname) &&
+    (url.pathname === "/api/event" ||
+      /^\/api\/experimental\/session\/[^/]+\/log$/.test(url.pathname)) &&
     response.ok &&
     response.headers
       .get("content-type")
