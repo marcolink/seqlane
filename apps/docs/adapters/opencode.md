@@ -129,6 +129,9 @@ Enable `--interactive` to answer native questions in the same invocation.
 The native `question` tool supports text and single-choice questions, including
 custom text alternatives. Optional fields, multiselect questions, and arbitrary
 native forms fail.
+Seqlane validates the permissions and question forms across the owned session
+tree before it asks for answers or sends replies. The pending set supports at
+most 1,024 unique forms across the tree.
 Without interactivity, pending questions fail the task. Input cancellation or
 timeout cancels the native form before Seqlane stops owned work.
 Read [Interactivity](/interactivity) for terminal requirements and deadlines.

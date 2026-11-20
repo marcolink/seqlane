@@ -24,6 +24,9 @@ twenty choices per question, and 64 KiB. Display text redacts connection
 credentials. Synthetic question and option IDs map answers to original native
 values. Each form ID receives at most one callback and one reply per invocation.
 Cancellation cancels the outstanding form before owned session cleanup.
+The monitor validates permissions, form ownership, form details, and canonical
+requests across the owned session tree before any callback or reply.
+The pending set contains at most 1,024 unique forms across the tree.
 
 After building the adapter, run the native question proof:
 

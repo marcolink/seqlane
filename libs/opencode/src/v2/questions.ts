@@ -68,66 +68,70 @@ export function translateQuestionForm(
   };
 }
 
-/** One monitor owns form replies; a failed invocation never retries a reply. */
-function createQuestionHandler(
+type PreparedQuestion = {
+  form: NativeQuestionForm;
+  translated: ReturnType<typeof translateQuestionForm>;
+};
+
+async function cancelFailedQuestion(
   client: V2Client,
-  request: AgentAdapterRequest,
+  form: NativeQuestionForm,
+  cause: unknown,
+): Promise<never> {
+  try {
+    // Cancellation has its own deadline so it finishes before session cleanup.
+    await client.session.form.cancel(
+      { sessionID: form.sessionID, formID: form.id },
+      requestOptions(AbortSignal.timeout(5_000)),
+    );
+  } catch (cleanup) {
+    throw new OpenCodeV2Error(
+      "termination",
+      "native question cancellation is unconfirmed",
+      new AggregateError([cause, cleanup]),
+    );
+  }
+  throw cause;
+}
+
+async function prepareQuestion(
+  client: V2Client,
+  signal: AbortSignal,
   redact: (text: string) => string,
-) {
-  const seen = new Map<string, string>();
-  return async (sessionID: string, raw: unknown): Promise<void> => {
-    const identities = questionFormListSchema.parse(raw);
-    for (const identity of identities) {
-      if (
-        identity.sessionID !== sessionID ||
-        (seen.has(identity.id) && seen.get(identity.id) !== sessionID)
-      )
-        throw new OpenCodeV2Error(
-          "protocol",
-          "native question has a different owner",
-        );
-    }
-    for (const rawForm of identities) {
-      const parsed = questionFormSchema.safeParse(rawForm);
-      if (!parsed.success)
-        throw new OpenCodeV2Error(
-          "protocol",
-          "unsupported or malformed native question form",
-          parsed.error,
-        );
-      const form = parsed.data;
-      if (seen.has(form.id)) continue;
-      seen.set(form.id, sessionID);
-      await replyToQuestion(client, request, redact, form);
-    }
-  };
+  form: NativeQuestionForm,
+): Promise<PreparedQuestion | undefined> {
+  try {
+    const detail = questionFormDetailSchema.parse(
+      await Effect.runPromise(
+        openCodeEffect((signal) =>
+          client.session.form.get(
+            { sessionID: form.sessionID, formID: form.id },
+            requestOptions(signal),
+          ),
+        ),
+        { signal },
+      ),
+    );
+    if (detail.id !== form.id || detail.sessionID !== form.sessionID)
+      throw new OpenCodeV2Error(
+        "protocol",
+        "native question detail has a different identity or owner",
+      );
+    if (detail.state.status !== "pending") return undefined;
+    return { form, translated: translateQuestionForm(detail, redact) };
+  } catch (cause) {
+    return cancelFailedQuestion(client, form, cause);
+  }
 }
 
 async function replyToQuestion(
   client: V2Client,
   request: AgentAdapterRequest,
-  redact: (text: string) => string,
-  form: NativeQuestionForm,
+  { form, translated }: PreparedQuestion,
 ): Promise<void> {
-  const sessionID = form.sessionID;
-  const input = { sessionID, formID: form.id };
   try {
     await Effect.runPromise(
       Effect.gen(function* () {
-        const detail = questionFormDetailSchema.parse(
-          yield* openCodeEffect((signal) =>
-            client.session.form.get(input, requestOptions(signal)),
-          ),
-        );
-        if (detail.id !== form.id || detail.sessionID !== sessionID)
-          return yield* Effect.fail(
-            new OpenCodeV2Error(
-              "protocol",
-              "native question detail has a different identity or owner",
-            ),
-          );
-        if (detail.state.status !== "pending") return;
-        const translated = translateQuestionForm(detail, redact);
         const callback = request.requestUserInput;
         if (callback === undefined)
           return yield* Effect.fail(
@@ -142,7 +146,7 @@ async function replyToQuestion(
         const answer = translated.answer(rawAnswer);
         yield* openCodeEffect((signal) =>
           client.session.form.reply(
-            { ...input, answer },
+            { sessionID: form.sessionID, formID: form.id, answer },
             requestOptions(signal),
           ),
         );
@@ -150,43 +154,29 @@ async function replyToQuestion(
       { signal: request.signal },
     );
   } catch (cause) {
-    try {
-      // Cancellation has its own deadline so it finishes before session cleanup.
-      await client.session.form.cancel(
-        input,
-        requestOptions(AbortSignal.timeout(5_000)),
-      );
-    } catch (cleanup) {
-      throw new OpenCodeV2Error(
-        "termination",
-        "native question cancellation is unconfirmed",
-        new AggregateError([cause, cleanup]),
-      );
-    }
-    throw cause;
+    return cancelFailedQuestion(client, form, cause);
   }
 }
 
+/** Validate the whole owned tree before any callback or native reply. */
 export function createQuestionMonitor(
   client: V2Client,
   request: AgentAdapterRequest,
   redact: (text: string) => string,
 ) {
-  const handleQuestions = createQuestionHandler(client, request, redact);
-  return async (ids: ReadonlySet<string>): Promise<void> => {
+  const seen = new Map<string, string>();
+  return async (
+    ids: ReadonlySet<string>,
+    signal = request.signal,
+  ): Promise<void> => {
     const sessionIDs = [...ids];
+    const forms = new Map<string, NativeQuestionForm>();
     for (let offset = 0; offset < sessionIDs.length; offset += 16) {
       const pending = await Promise.all(
         sessionIDs.slice(offset, offset + 16).map(async (sessionID) => {
           const [permissions, forms] = await Promise.all([
-            client.permission.list(
-              { sessionID },
-              requestOptions(request.signal),
-            ),
-            client.session.form.list(
-              { sessionID },
-              requestOptions(request.signal),
-            ),
+            client.permission.list({ sessionID }, requestOptions(signal)),
+            client.session.form.list({ sessionID }, requestOptions(signal)),
           ]);
           return {
             sessionID,
@@ -197,12 +187,45 @@ export function createQuestionMonitor(
       );
       if (pending.some(({ permissions }) => permissions.length > 0))
         throw new InteractionRequiredError("user-input");
-      for (const { sessionID, forms } of pending) {
+      for (const { sessionID, forms: rawForms } of pending) {
         if (request.requestUserInput === undefined) {
-          if (pendingSchema.parse(forms).length > 0)
+          if (pendingSchema.parse(rawForms).length > 0)
             throw new InteractionRequiredError("user-input");
-        } else await handleQuestions(sessionID, forms);
+          continue;
+        }
+        for (const identity of questionFormListSchema.parse(rawForms)) {
+          const owner =
+            seen.get(identity.id) ?? forms.get(identity.id)?.sessionID;
+          if (
+            identity.sessionID !== sessionID ||
+            (owner !== undefined && owner !== sessionID)
+          )
+            throw new OpenCodeV2Error(
+              "protocol",
+              "native question has a different owner",
+            );
+          const parsed = questionFormSchema.safeParse(identity);
+          if (!parsed.success)
+            throw new OpenCodeV2Error(
+              "protocol",
+              "unsupported or malformed native question form",
+              parsed.error,
+            );
+          if (!forms.has(identity.id)) forms.set(identity.id, parsed.data);
+        }
+        // Bound the aggregate before retaining another session's pending forms.
+        questionFormListSchema.parse([...forms.values()]);
       }
     }
+    const prepared: PreparedQuestion[] = [];
+    for (const form of forms.values()) {
+      if (seen.has(form.id)) continue;
+      const question = await prepareQuestion(client, signal, redact, form);
+      if (question !== undefined) prepared.push(question);
+    }
+    signal.throwIfAborted();
+    for (const form of forms.values()) seen.set(form.id, form.sessionID);
+    for (const question of prepared)
+      await replyToQuestion(client, { ...request, signal }, question);
   };
 }
