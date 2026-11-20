@@ -147,7 +147,7 @@ export interface SessionCheckpointBinding {
 
 interface SessionCheckpointState {
   generation: number;
-  latest?: BoundCheckpoint;
+  readonly issued: Set<unknown>;
 }
 
 export async function executeAgentAdapterRequest(
@@ -221,7 +221,10 @@ export function createAgentSession(
   onAdapterCreated: (adapter: AgentAdapter) => void,
   onOwnedProcessAcquired?: (pid: number) => Promise<void>,
 ): ResolvedExecutorSession {
-  const checkpointState: SessionCheckpointState = { generation: 0 };
+  const checkpointState: SessionCheckpointState = {
+    generation: 0,
+    issued: new Set(),
+  };
   const capture = adapter.captureCheckpoint;
   const captureCheckpoint =
     capture === undefined
@@ -240,7 +243,7 @@ export function createAgentSession(
             generation: checkpointState.generation,
             value,
           });
-          checkpointState.latest = checkpoint;
+          checkpointState.issued.add(checkpoint);
           return checkpoint;
         };
   const fork = adapter.fork;
@@ -249,7 +252,6 @@ export function createAgentSession(
     execute: async (request) => {
       const result = await adapter.execute(request);
       checkpointState.generation += 1;
-      checkpointState.latest = undefined;
       return result;
     },
   };
@@ -280,15 +282,9 @@ export function createAgentSession(
               parsed.data.runId !== checkpointBinding.runId ||
               parsed.data.configurationBinding !==
                 checkpointBinding.configurationBinding ||
-              parsed.data.lineageId !== checkpointState.latest?.lineageId
+              !checkpointState.issued.has(checkpoint)
             ) {
               throw new RuntimeAdapterCheckpointError("foreign");
-            }
-            if (
-              checkpoint !== checkpointState.latest ||
-              parsed.data.generation !== checkpointState.generation
-            ) {
-              throw new RuntimeAdapterCheckpointError("stale");
             }
             const child = await fork({
               checkpoint: parsed.data.value,

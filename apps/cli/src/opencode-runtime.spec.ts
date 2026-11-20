@@ -12,7 +12,7 @@ import {
 describe("automatic OpenCode CLI selection", () => {
   it.each([
     ["1.18.27", "opencode", true],
-    ["2.1.2", "opencode-v2", false],
+    ["2.1.2", "opencode-v2", true],
   ])(
     "selects %s and its actual capabilities before creating sessions",
     async (version, identity, fork) => {
