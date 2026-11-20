@@ -169,6 +169,7 @@ produce progress notifications. Terminal events retain the complete latest
 details. Model observations include available reasoning and tool content.
 Credential redaction applies to nested values as well as text.
 Tool values have a depth limit of 64 and a node limit of 65,536.
+Invalid native observation data fails before batch events are emitted.
 
 The live native event stream triggers message reads during execution.
 The adapter reconnects lost streams and reads messages each second to recover

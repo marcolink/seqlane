@@ -4,7 +4,11 @@ import type {
   AgentAdapterRequest,
 } from "@seqlane/agent-adapter";
 import { redactOpaqueValue } from "@seqlane/agent-adapter";
-import { jsonValueSchema, type SeqlaneInvocationMetrics } from "@seqlane/core";
+import {
+  jsonValueSchema,
+  type JsonValue,
+  type SeqlaneInvocationMetrics,
+} from "@seqlane/core";
 import type { NativeAssistant, NativeMessage, NativeTool } from "./schemas.js";
 import { OpenCodeV2Error } from "./errors.js";
 
@@ -47,7 +51,7 @@ export function createObserver(
       /* Consumer failures must not replay native work. */
     }
   };
-  function assistant(message: NativeAssistant): void {
+  function assistant(message: NativeAssistant, content: JsonValue): void {
     for (const tool of message.content) {
       if (tool.type !== "tool" || terminalTools.has(tool.id)) continue;
       const previous = tools.get(tool.id);
@@ -140,9 +144,7 @@ export function createObserver(
           ...(message.cost === undefined ? {} : { cost: message.cost }),
           ...(message.tokens === undefined ? {} : { usage: message.tokens }),
           response: {
-            content: jsonValueSchema.parse(
-              redactOpaqueValue(message.content, redact),
-            ),
+            content,
             text: message.content
               .filter((part) => part.type === "text")
               .map((part) => redact(part.text))
@@ -159,8 +161,20 @@ export function createObserver(
       for (const message of messages)
         if (message.type === "assistant")
           assertSafePropertyNames(message.content, redact);
-      for (const message of messages)
-        if (message.type === "assistant") assistant(message);
+      const prepared = messages.flatMap((message) => {
+        if (message.type !== "assistant") return [];
+        const content = jsonValueSchema.safeParse(
+          redactOpaqueValue(message.content, redact),
+        );
+        if (!content.success)
+          throw new OpenCodeV2Error(
+            "protocol",
+            "native observation contains invalid JSON data",
+            content.error,
+          );
+        return [{ message, content: content.data }];
+      });
+      for (const { message, content } of prepared) assistant(message, content);
     },
     finish() {
       if (finished) return;
