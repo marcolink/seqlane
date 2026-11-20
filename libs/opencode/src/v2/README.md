@@ -24,12 +24,12 @@ are supported. Assistant responses must match the session's provider, model,
 and reasoning variant. An omitted selected variant fails the invocation.
 Checkpoints and native forks are supported. Session UI remains disabled.
 
-After each successful task, the adapter immediately forks an idle native
-snapshot. The run keeps a Zod-validated registry of opaque checkpoint handles.
-Capture returns the latest handle without native work. Empty, busy, closed,
-and foreign checkpoints fail before native allocation. A snapshot failure
-leaves the successful task result intact, but checkpoint capture fails with
-that cause. The next successful task can create a new checkpoint.
+Checkpoint capture forks an idle native snapshot after a successful task.
+The run keeps a Zod-validated registry of opaque handles, bound to their source
+adapter. Repeated capture returns the same handle until the source runs again.
+Empty, busy, closed, and foreign checkpoints fail before native allocation.
+A snapshot failure leaves the successful task result intact. Capture reports
+the failure and can retry while the source remains idle.
 
 Deferred forks copy the saved snapshot, even after the source session changes.
 Native `fork({ sessionID })` copies the full current history and current
@@ -60,8 +60,8 @@ await branch.execute(third); // History contains first, then third.
 The runtime tracks independent roots as soon as native allocation returns an ID.
 It cleans partially created forks and waits for pending allocations during close.
 Run cleanup removes live sessions, fork sessions, and retained snapshots.
-Snapshots remain available until run cleanup. Each successful task retains one
-snapshot, so native storage grows with the number of completed tasks.
+Snapshots remain available until run cleanup. Native storage grows with the
+number of captured task boundaries. Tasks without capture allocate no snapshot.
 New fork orchestration uses pinned Effect programs at the SDK integration
 boundary. Native allocation has a separate request bound so cancellation cannot
 lose an ID that native allocation returns.

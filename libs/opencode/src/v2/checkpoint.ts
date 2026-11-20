@@ -17,6 +17,7 @@ import { assertSessionModel } from "./session-model.js";
 const rootSchema = sessionSchema.pick({ id: true });
 const checkpointSchema = z.strictObject({ checkpoint: z.uuid() }).readonly();
 const entrySchema = z.strictObject({
+  source: z.string().min(1),
   snapshot: z.string().min(1),
   selection: modelSelectionSchema,
 });
@@ -180,7 +181,7 @@ export function createCheckpointRegistry(client: V2Client, workspace: string) {
       const handle = checkpointSchema.parse({ checkpoint: randomUUID() });
       checkpoints.set(
         handle.checkpoint,
-        entrySchema.parse({ snapshot: snapshot.id, selection }),
+        entrySchema.parse({ source, snapshot: snapshot.id, selection }),
       );
       return handle;
     },

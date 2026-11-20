@@ -167,6 +167,11 @@ try {
       ).json(),
     ).data;
   await invoke(adapter, "IMMUTABLE_SOURCE_FIRST");
+  assert.equal(
+    (await list()).length,
+    1,
+    "tasks without capture allocate no snapshot",
+  );
   const beforeCapture = modelCalls;
   const checkpoint = await adapter.captureCheckpoint();
   assert.equal(modelCalls, beforeCapture, "capture must not call any model");
@@ -202,14 +207,18 @@ try {
   const roots = await list();
   assert.equal(
     roots.length,
-    5,
-    "source, two snapshots, and two fork roots must exist",
+    4,
+    "source, one snapshot, and two fork roots must exist",
   );
   assert(
     roots.every((session) => session.parentID === undefined),
     "native forks must be independent roots",
   );
-  assert.equal(roots.filter((session) => session.fork !== undefined).length, 4);
+  assert.equal(roots.filter((session) => session.fork !== undefined).length, 3);
+  await assert.rejects(
+    left.fork({ checkpoint }),
+    /checkpoint does not belong to this session/,
+  );
   await Promise.all([
     invoke(left, "LEFT_BRANCH"),
     invoke(right, "RIGHT_BRANCH"),

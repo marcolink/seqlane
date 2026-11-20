@@ -59,7 +59,7 @@ export function createSessionAdapter({
   let pinnedSelection = initialSession?.selection;
   let pinnedNativeModel = initialSession?.model;
   let latestCheckpoint: unknown;
-  let checkpointFailure: unknown;
+  let completed = false;
   let inFlight: Promise<unknown> | undefined;
   const stopped = new AbortController();
   let unusable = false;
@@ -97,20 +97,44 @@ export function createSessionAdapter({
         busy ||
         unusable ||
         lifecycleSignal.aborted ||
-        latestCheckpoint === undefined
+        !completed ||
+        sessionID === undefined ||
+        pinnedSelection === undefined
       )
-        throw new OpenCodeV2Error(
-          "execution",
-          "checkpoint is unavailable",
-          checkpointFailure,
-        );
-      return latestCheckpoint;
+        throw new OpenCodeV2Error("execution", "checkpoint is unavailable");
+      if (latestCheckpoint !== undefined) return latestCheckpoint;
+      busy = true;
+      const pending = checkpoints
+        .capture(
+          sessionID,
+          pinnedSelection,
+          AbortSignal.any([stopped.signal, lifecycleSignal]),
+        )
+        .then((checkpoint) => {
+          latestCheckpoint = checkpoint;
+          return checkpoint;
+        })
+        .finally(() => {
+          busy = false;
+          inFlight = undefined;
+        });
+      inFlight = pending;
+      return pending;
     },
     fork({ checkpoint, modelSelection }) {
       if (unusable || lifecycleSignal.aborted)
         return Promise.reject(
           new OpenCodeV2Error("execution", "session is unavailable"),
         );
+      try {
+        if (checkpoints.read(checkpoint).source !== sessionID)
+          throw new OpenCodeV2Error(
+            "configuration",
+            "checkpoint does not belong to this session",
+          );
+      } catch (cause) {
+        return Promise.reject(cause);
+      }
       return forkAdapter(checkpoint, modelSelection, lifecycleSignal);
     },
     async close() {
@@ -125,7 +149,7 @@ export function createSessionAdapter({
       throw new OpenCodeV2Error("execution", "session is busy or unavailable");
     busy = true;
     latestCheckpoint = undefined;
-    checkpointFailure = undefined;
+    completed = false;
     try {
       const prompt = createPrompt(request);
       const selection =
@@ -200,16 +224,7 @@ export function createSessionAdapter({
         admitted.id,
         pinnedNativeModel,
       );
-      try {
-        latestCheckpoint = await checkpoints.capture(
-          sessionID,
-          selection,
-          request.signal,
-        );
-      } catch (cause) {
-        // Snapshot failure cannot change an already successful task result.
-        checkpointFailure = cause;
-      }
+      completed = true;
       return result;
     } catch (cause) {
       try {

@@ -157,7 +157,7 @@ Select the adapter for agent tasks. Supported values are `opencode`, `opencode-v
 `opencode` detects the selected executable or external server version before
 agent work. It selects OpenCode 1 or the pinned OpenCode 2.1.2 implementation.
 `opencode-v2` explicitly requires V2. The detected implementation determines
-capabilities; V2 does not support checkpoint, fork, or session UI.
+capabilities; V2 supports checkpoint and fork, but has no session UI.
 
 ```sh
 seqlane run ./workflow.ts \

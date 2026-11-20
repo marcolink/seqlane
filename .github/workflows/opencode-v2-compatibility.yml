@@ -7,7 +7,7 @@ on:
       - "apps/cli/**"
       - "libs/runtime/**"
       - "libs/adapter/**"
-      - "scripts/opencode-v2-compatibility.mjs"
+      - "scripts/opencode-v2*compatibility.mjs"
       - "pnpm-lock.yaml"
       - ".github/workflows/opencode-v2-compatibility.yml"
   push:
@@ -17,7 +17,7 @@ on:
       - "apps/cli/**"
       - "libs/runtime/**"
       - "libs/adapter/**"
-      - "scripts/opencode-v2-compatibility.mjs"
+      - "scripts/opencode-v2*compatibility.mjs"
       - "pnpm-lock.yaml"
       - ".github/workflows/opencode-v2-compatibility.yml"
   workflow_dispatch:
@@ -52,3 +52,7 @@ jobs:
         env:
           SEQLANE_OPENCODE_V2_EXECUTABLE: ${{ runner.temp }}/opencode-v2/node_modules/.bin/opencode
         run: node scripts/opencode-v2-compatibility.mjs
+      - name: Check native checkpoint and fork behavior
+        env:
+          SEQLANE_OPENCODE_V2_EXECUTABLE: ${{ runner.temp }}/opencode-v2/node_modules/.bin/opencode
+        run: node scripts/opencode-v2-sessions-compatibility.mjs

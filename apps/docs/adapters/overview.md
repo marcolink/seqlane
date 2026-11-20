@@ -31,15 +31,15 @@ structured output. Read [Model selection](/authoring-workflows/models).
 
 | Adapter | Model selection | Reuse session | Fork session | Activity | Session UI |
 | --- | --- | --- | --- | --- | --- |
-| OpenCode | Yes | Yes | OpenCode 1 only | Yes | OpenCode 1, when available |
+| OpenCode | Yes | Yes | Yes | Yes | OpenCode 1, when available |
 | Codex | Yes | Yes | Yes | Yes | Codex app |
 
 Model selection applies a workflow or session model to an agent session. Reuse
 continues a source session. Forking creates a session from a source
 checkpoint.
 
-OpenCode capabilities depend on the detected version. OpenCode 2 does not
-support checkpoints, forks, or session UI. Read the
+OpenCode capabilities depend on the detected version. OpenCode 2 supports
+checkpoints and forks, but has no session UI. Read the
 [OpenCode guide](/adapters/opencode#capabilities) for version differences.
 
 Codex sessions appear as tasks in the Codex app. The Codex adapter does not

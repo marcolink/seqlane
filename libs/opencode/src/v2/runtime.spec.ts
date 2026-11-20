@@ -434,7 +434,10 @@ describe("OpenCode V2 real-client execution", () => {
     const h = await fixture();
     try {
       await h.adapter.execute(request());
+      expect(h.state.forks).toBe(0);
       const checkpoint = await h.adapter.captureCheckpoint!();
+      expect(h.state.forks).toBe(1);
+      expect(await h.adapter.captureCheckpoint!()).toEqual(checkpoint);
       expect(h.state.forks).toBe(1);
       await h.adapter.execute(request());
       const [left, right] = await Promise.all([
@@ -442,8 +445,11 @@ describe("OpenCode V2 real-client execution", () => {
         h.adapter.fork!({ checkpoint }),
       ]);
       expect(h.state.prompts).toBe(2);
+      expect(h.state.sessions.get("ses_fork_2")?.history).toEqual(["usr_1"]);
       expect(h.state.sessions.get("ses_fork_3")?.history).toEqual(["usr_1"]);
-      expect(h.state.sessions.get("ses_fork_4")?.history).toEqual(["usr_1"]);
+      await expect(left.fork!({ checkpoint })).rejects.toThrow(
+        "checkpoint does not belong to this session",
+      );
       expect(
         h.calls
           .filter((c) => c.path.endsWith("/fork"))
@@ -586,6 +592,28 @@ describe("OpenCode V2 real-client execution", () => {
       h.state.forkGate = gate;
       const pending = h.adapter.fork!({ checkpoint }).catch((cause) => cause);
       await vi.waitFor(() => expect(h.state.forks).toBe(2));
+      const closing = h.runtime.close?.();
+      release();
+      expect(await pending).toBeInstanceOf(Error);
+      await closing;
+      expect(h.state.sessions.size).toBe(0);
+    } finally {
+      release();
+      await h.close();
+    }
+  });
+  it("closes a snapshot acquired while runtime cleanup starts", async () => {
+    const h = await fixture();
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    try {
+      await h.adapter.execute(request());
+      h.state.forkGate = gate;
+      const pending = h.adapter.captureCheckpoint!().catch((cause) => cause);
+      await vi.waitFor(() => expect(h.state.forks).toBe(1));
+      await expect(h.adapter.execute(request())).rejects.toThrow();
       const closing = h.runtime.close?.();
       release();
       expect(await pending).toBeInstanceOf(Error);

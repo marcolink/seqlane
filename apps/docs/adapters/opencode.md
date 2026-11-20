@@ -114,7 +114,7 @@ The detected version determines the available capabilities.
 | Model selection | Yes | Yes |
 | Structured output | Yes | Yes |
 | Session reuse | Yes | Yes |
-| Checkpoint and fork | Yes | No |
+| Checkpoint and fork | Yes | Yes |
 | Activity and usage | Yes | Yes |
 | Session UI | When the server provides a browser URL | No |
 
@@ -129,6 +129,13 @@ catalog. The model must support tools. Ordered session reuse preserves the
 native session and model. Responses from another provider, model, or reasoning
 variant fail the task. If a response omits a selected variant, the task fails.
 Failed sessions cannot be reused.
+
+Checkpoints and forks preserve a completed task's history and instructions.
+Later reuse of the source does not change that checkpoint. Parallel forks use
+independent sessions. Cancelling one fork preserves its source and peers.
+A fork can select another model or reasoning level before agent work starts.
+Capture and fork make no model calls. The run removes retained snapshots when
+it ends. Session UI remains unavailable.
 
 ### OpenCode 2 results and activity
 
