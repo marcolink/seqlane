@@ -31,7 +31,10 @@ Empty, busy, closed, and foreign checkpoints fail before native allocation.
 A snapshot failure leaves the successful task result intact. Capture reports
 the failure and can retry while the source remains idle.
 
-Deferred forks copy the saved snapshot, even after the source session changes.
+Deferred forks copy the saved snapshot, even after the source session changes
+or a later execution fails and removes it. A failed source remains unavailable
+for execution and capture. Its earlier checkpoints remain available for forks
+until explicit adapter close or run cleanup.
 Native `fork({ sessionID })` copies the full current history and current
 instruction state. The adapter omits `before` because that boundary excludes
 a message and still inherits current instructions. Freezing both in a separate
