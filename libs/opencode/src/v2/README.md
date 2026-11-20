@@ -13,7 +13,17 @@ Execution creates a native session with the selected model, admits one input,
 then polls bounded message pages through that exact input. It validates native
 responses with Zod and returns one locally validated JSON value. It never
 repairs output by replaying task instructions. Native configuration controls
-tools and permissions. Pending forms or permissions fail without a reply.
+tools and permissions. Pending permissions fail without a reply. Native question
+forms support text and single-choice answers through `requestUserInput`.
+Without this callback, pending forms fail without a reply.
+
+Question forms require `metadata.kind: "question"` and ordered `q0` field keys.
+The adapter rejects multiselect fields, arbitrary forms, and unsupported field
+constraints. Canonical validation limits each request to eight questions,
+twenty choices per question, and 64 KiB. Display text redacts connection
+credentials. Synthetic question and option IDs map answers to original native
+values. Each form ID receives at most one callback and one reply per invocation.
+Cancellation cancels the outstanding form before owned session cleanup.
 
 Each prompt includes task input under `Task input:`. Input must be a JSON value.
 Cyclic values, `undefined`, BigInt, and non-finite numbers fail before native

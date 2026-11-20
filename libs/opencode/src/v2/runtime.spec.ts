@@ -10,9 +10,13 @@
 // @test-scope ./owned-work.ts
 // @test-scope ./prompt.ts
 // @test-scope ./observations.ts
+// @test-scope ./questions.ts
 import { once } from "node:events";
 import { createServer } from "node:http";
-import type { AgentAdapterRequest } from "@seqlane/agent-adapter";
+import type {
+  AgentAdapterRequest,
+  UserInputAnswer,
+} from "@seqlane/agent-adapter";
 import { defineTask, InteractionRequiredError } from "@seqlane/core";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
@@ -52,6 +56,50 @@ function request(
     onExecutionStarted: vi.fn(),
     ...overrides,
   };
+}
+function questionForm() {
+  return {
+    id: "form_native",
+    sessionID: "ses_owned",
+    title: "Questions",
+    metadata: {
+      kind: "question",
+      tool: { messageID: "msg_tool", id: "tool_question" },
+    },
+    fields: [
+      {
+        key: "q0",
+        title: "Name Basic fixture-secret",
+        description: "What name?",
+        type: "string",
+        custom: true,
+        options: [],
+      },
+      {
+        key: "q1",
+        title: "Region",
+        description: "Where?",
+        type: "string",
+        custom: true,
+        options: [
+          {
+            label: "Europe Basic fixture-secret",
+            description: "Nearby",
+            value: "native value / Europe",
+          },
+        ],
+      },
+    ],
+  };
+}
+function deferredAnswer() {
+  let resolve!: (value: UserInputAnswer) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<UserInputAnswer>((accept, fail) => {
+    resolve = accept;
+    reject = fail;
+  });
+  return { promise, resolve, reject };
 }
 async function fixture() {
   const calls: {
@@ -102,6 +150,13 @@ async function fixture() {
     creates: 0,
     failCleanup: false,
     oversized: false,
+    question: false,
+    questionOwner: "ses_owned",
+    formList: [questionForm()] as unknown[],
+    formDetail: { ...questionForm(), state: { status: "pending" } } as unknown,
+    repeatForm: false,
+    failFormCancel: false,
+    failFormReply: false,
   };
   const server = createServer(async (req, res) => {
     let body = "";
@@ -135,7 +190,8 @@ async function fixture() {
         path.endsWith("/fork") ||
         path.endsWith("/prompt") ||
         path.endsWith("/permission") ||
-        path.endsWith("/form");
+        path.endsWith("/form") ||
+        path.includes("/form/");
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify(wrapped ? { data: value } : value));
     };
@@ -264,8 +320,37 @@ async function fixture() {
       return send(
         state.pending === "permission" ? [{ id: "permission_1" }] : [],
       );
+    if (path.includes("/form/")) {
+      if (path.endsWith("/reply")) {
+        if (state.failFormReply) {
+          res.writeHead(503);
+          res.end("unavailable");
+          return;
+        }
+        if (!state.repeatForm) state.question = false;
+        res.writeHead(204);
+        res.end();
+        return;
+      }
+      if (req.method === "DELETE") {
+        if (state.failFormCancel) {
+          res.writeHead(503);
+          res.end("unavailable");
+          return;
+        }
+        state.question = false;
+        return send({});
+      }
+      return send(state.formDetail);
+    }
     if (path.endsWith("/form"))
-      return send(state.pending === "form" ? [{ id: "form_1" }] : []);
+      return send(
+        state.question && path === `/api/session/${state.questionOwner}/form`
+          ? state.formList
+          : state.pending === "form"
+            ? [{ id: "form_1" }]
+            : [],
+      );
     if (path.endsWith("/message")) {
       state.reads++;
       if (state.disconnect) {
@@ -624,6 +709,310 @@ describe("OpenCode V2 real-client execution", () => {
       await h.close();
     }
   });
+  it("pauses for a native question, redacts display text, and resumes one prompt", async () => {
+    const h = await fixture();
+    try {
+      h.state.question = true;
+      const answer = deferredAnswer();
+      const callback = vi.fn<
+        NonNullable<AgentAdapterRequest["requestUserInput"]>
+      >(() => answer.promise);
+      const done = vi.fn();
+      const execution = h.adapter
+        .execute(request({ requestUserInput: callback }))
+        .then(done);
+      await vi.waitFor(() => expect(callback).toHaveBeenCalledTimes(1));
+      expect(done).not.toHaveBeenCalled();
+      expect(h.state.prompts).toBe(1);
+      const question = callback.mock.calls[0]![0];
+      expect(JSON.stringify(question)).not.toContain("fixture-secret");
+      expect(JSON.stringify(question)).toContain("[REDACTED]");
+      expect(question.questions).toMatchObject([
+        { id: "question_0", allowFreeText: true },
+        {
+          id: "question_1",
+          options: [{ value: "option_0" }],
+          allowFreeText: true,
+        },
+      ]);
+      answer.resolve({
+        status: "answered",
+        answers: { question_0: "Ada", question_1: "option_0" },
+      });
+      await execution;
+      expect(done).toHaveBeenCalledWith({ answer: "ok" });
+      expect(
+        h.calls.filter((call) => call.path.endsWith("/reply")),
+      ).toMatchObject([
+        {
+          path: "/api/session/ses_owned/form/form_native/reply",
+          body: { answer: { q0: "Ada", q1: "native value / Europe" } },
+        },
+      ]);
+      expect(h.state.prompts).toBe(1);
+      expect(h.adapter.capabilities.userInput).toBe(true);
+    } finally {
+      await h.close();
+    }
+  });
+  it("deduplicates repeated form IDs and snapshots", async () => {
+    const h = await fixture();
+    try {
+      h.state.question = true;
+      h.state.repeatForm = true;
+      h.state.active = true;
+      h.state.formList.push(questionForm());
+      const callback = vi.fn().mockResolvedValue({
+        status: "answered",
+        answers: { question_0: "Ada", question_1: "custom region" },
+      });
+      const execution = h.adapter.execute(
+        request({ requestUserInput: callback }),
+      );
+      await vi.waitFor(() => expect(h.state.reads).toBeGreaterThan(1), {
+        timeout: 4000,
+      });
+      h.state.active = false;
+      await execution;
+      expect(callback).toHaveBeenCalledTimes(1);
+      expect(
+        h.calls.filter((call) => call.path.endsWith("/reply")),
+      ).toHaveLength(1);
+      expect(
+        h.calls.filter((call) => call.path.endsWith("/form/form_native")),
+      ).toHaveLength(1);
+      expect(h.state.prompts).toBe(1);
+    } finally {
+      await h.close();
+    }
+  });
+  it("answers only the child session that owns the question", async () => {
+    const h = await fixture();
+    try {
+      h.state.question = true;
+      h.state.childSessions = ["ses_child"];
+      h.state.questionOwner = "ses_child";
+      const form = { ...questionForm(), sessionID: "ses_child" };
+      h.state.formList = [form];
+      h.state.formDetail = { ...form, state: { status: "pending" } };
+      await h.adapter.execute(
+        request({
+          requestUserInput: async () => ({
+            status: "answered",
+            answers: { question_0: "Ada", question_1: "custom" },
+          }),
+        }),
+      );
+      expect(
+        h.calls.filter((call) => call.path.endsWith("/reply")),
+      ).toMatchObject([
+        { path: "/api/session/ses_child/form/form_native/reply" },
+      ]);
+      expect(h.state.prompts).toBe(1);
+    } finally {
+      await h.close();
+    }
+  });
+  it.each([
+    "list-owner",
+    "detail-owner",
+    "detail-id",
+    "detail-state",
+    "detail-fields",
+  ])("rejects malformed question %s", async (mode) => {
+    const h = await fixture();
+    try {
+      h.state.question = true;
+      if (mode === "list-owner")
+        h.state.formList = [{ ...questionForm(), sessionID: "ses_unrelated" }];
+      if (mode === "detail-owner")
+        h.state.formDetail = {
+          ...questionForm(),
+          sessionID: "ses_unrelated",
+          state: { status: "pending" },
+        };
+      if (mode === "detail-id")
+        h.state.formDetail = {
+          ...questionForm(),
+          id: "other",
+          state: { status: "pending" },
+        };
+      if (mode === "detail-state")
+        h.state.formDetail = {
+          ...questionForm(),
+          state: { status: "invalid" },
+        };
+      if (mode === "detail-fields")
+        h.state.formDetail = {
+          ...questionForm(),
+          fields: [{ key: "q0", type: "multiselect" }],
+          state: { status: "pending" },
+        };
+      const callback = vi.fn();
+      await expect(
+        h.adapter.execute(request({ requestUserInput: callback })),
+      ).rejects.toThrow();
+      expect(callback).not.toHaveBeenCalled();
+      expect(h.calls.some((call) => call.path.endsWith("/reply"))).toBe(false);
+      expect(h.state.removed).toBe(true);
+    } finally {
+      await h.close();
+    }
+  });
+  it.each(["abort", "timeout", "callback-timeout", "cancel-failure"])(
+    "cancels the native form before owned cleanup after %s",
+    async (mode) => {
+      const h = await fixture();
+      const controller = new AbortController();
+      try {
+        h.state.question = true;
+        h.state.failFormCancel = mode === "cancel-failure";
+        const late = deferredAnswer();
+        const callback = vi.fn(() => late.promise);
+        const execution = h.adapter
+          .execute(
+            request({
+              requestUserInput: callback,
+              signal:
+                mode === "timeout"
+                  ? AbortSignal.timeout(200)
+                  : controller.signal,
+            }),
+          )
+          .catch((cause: unknown) => cause);
+        await vi.waitFor(() => expect(callback).toHaveBeenCalledTimes(1));
+        if (mode === "callback-timeout")
+          late.reject(new Error("input deadline"));
+        else if (mode !== "timeout") controller.abort();
+        const error = await execution;
+        expect(error).toBeInstanceOf(Error);
+        if (mode === "cancel-failure")
+          expect(error).toMatchObject({
+            code: "termination",
+            cause: expect.any(AggregateError),
+          });
+        const cancel = h.calls.findIndex(
+          (call) =>
+            call.path.endsWith("/form/form_native") && call.method === "DELETE",
+        );
+        const interrupt = h.calls.findIndex((call) =>
+          call.path.endsWith("/interrupt"),
+        );
+        expect(cancel).toBeGreaterThan(-1);
+        expect(interrupt).toBeGreaterThan(cancel);
+        expect(h.state.removed).toBe(true);
+        late.resolve({
+          status: "answered",
+          answers: { question_0: "late", question_1: "late" },
+        });
+        await new Promise((resolve) => setImmediate(resolve));
+        expect(h.calls.some((call) => call.path.endsWith("/reply"))).toBe(
+          false,
+        );
+        expect(h.state.prompts).toBe(1);
+      } finally {
+        controller.abort();
+        await h.close();
+      }
+    },
+  );
+  it("rejects permissions even with a question callback", async () => {
+    const h = await fixture();
+    try {
+      h.state.pending = "permission";
+      h.state.question = true;
+      const callback = vi.fn();
+      await expect(
+        h.adapter.execute(request({ requestUserInput: callback })),
+      ).rejects.toBeInstanceOf(InteractionRequiredError);
+      expect(callback).not.toHaveBeenCalled();
+      expect(h.calls.some((call) => call.path.endsWith("/reply"))).toBe(false);
+      expect(h.state.removed).toBe(true);
+    } finally {
+      await h.close();
+    }
+  });
+  it.each([
+    { status: "cancelled" },
+    { status: "answered", answers: {} },
+    {
+      status: "answered",
+      answers: { question_0: "Ada", question_1: ["option_0"] },
+    },
+    {
+      status: "answered",
+      answers: { question_0: "Ada", question_1: "option_0", extra: "bad" },
+    },
+  ])(
+    "cancels malformed callback answers without a native reply",
+    async (answer) => {
+      const h = await fixture();
+      try {
+        h.state.question = true;
+        await expect(
+          h.adapter.execute(
+            request({ requestUserInput: vi.fn().mockResolvedValue(answer) }),
+          ),
+        ).rejects.toThrow();
+        expect(h.calls.some((call) => call.path.endsWith("/reply"))).toBe(
+          false,
+        );
+        expect(
+          h.calls.some(
+            (call) =>
+              call.path.endsWith("/form/form_native") &&
+              call.method === "DELETE",
+          ),
+        ).toBe(true);
+        expect(h.state.removed).toBe(true);
+        expect(h.state.prompts).toBe(1);
+      } finally {
+        await h.close();
+      }
+    },
+  );
+  it("never retries a failed native reply", async () => {
+    const h = await fixture();
+    try {
+      h.state.question = true;
+      h.state.failFormReply = true;
+      const callback = vi.fn().mockResolvedValue({
+        status: "answered",
+        answers: { question_0: "Ada", question_1: "option_0" },
+      });
+      await expect(
+        h.adapter.execute(request({ requestUserInput: callback })),
+      ).rejects.toThrow();
+      expect(callback).toHaveBeenCalledTimes(1);
+      expect(
+        h.calls.filter((call) => call.path.endsWith("/reply")),
+      ).toHaveLength(1);
+      expect(h.state.removed).toBe(true);
+      expect(h.state.prompts).toBe(1);
+    } finally {
+      await h.close();
+    }
+  });
+  it.each(["answered", "cancelled"])(
+    "does not answer a native form that is already %s",
+    async (status) => {
+      const h = await fixture();
+      try {
+        h.state.question = true;
+        h.state.formDetail = { ...questionForm(), state: { status } };
+        const callback = vi.fn();
+        await expect(
+          h.adapter.execute(request({ requestUserInput: callback })),
+        ).resolves.toEqual({ answer: "ok" });
+        expect(callback).not.toHaveBeenCalled();
+        expect(h.calls.some((call) => call.path.endsWith("/reply"))).toBe(
+          false,
+        );
+      } finally {
+        await h.close();
+      }
+    },
+  );
   it("submits task input that is absent from the goal and instructions", async () => {
     const h = await fixture();
     try {

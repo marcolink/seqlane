@@ -136,6 +136,66 @@ export const sessionPageSchema = z.object({
   cursor: cursorSchema,
 });
 export const pendingSchema = z.array(z.object({ id: identity })).max(1024);
+export const questionFormIdentitySchema = z.object({
+  id: identity,
+  sessionID: identity,
+});
+const questionKeySchema = z.string().regex(/^q[0-7]$/);
+const questionFieldSchema = z.strictObject({
+  key: questionKeySchema,
+  title: z.string().max(4096),
+  description: z.string().max(4096).optional(),
+  type: z.literal("string"),
+  required: z.boolean().optional(),
+  custom: z.boolean().optional(),
+  options: z
+    .array(
+      z.strictObject({
+        value: z.string().min(1).max(8192),
+        label: z.string().min(1).max(256),
+        description: z.string().max(256).optional(),
+      }),
+    )
+    .max(20)
+    .optional(),
+});
+export const questionFormSchema = questionFormIdentitySchema
+  .extend({
+    title: z.string().max(4096),
+    metadata: z.object({ kind: z.literal("question") }),
+    fields: z.array(questionFieldSchema).min(1).max(8),
+  })
+  .superRefine((form, context) => {
+    for (const [index, field] of form.fields.entries()) {
+      if (field.key !== `q${index}`)
+        context.addIssue({
+          code: "custom",
+          message: "Question keys must follow native question order",
+        });
+      const values = field.options?.map(({ value }) => value) ?? [];
+      if (new Set(values).size !== values.length)
+        context.addIssue({
+          code: "custom",
+          message: "Question option values must be unique",
+        });
+      if (field.options?.length === 0 && field.custom !== true)
+        context.addIssue({
+          code: "custom",
+          message: "An empty option list must allow custom answers",
+        });
+    }
+  });
+export const questionFormListSchema = z
+  .array(questionFormIdentitySchema.passthrough())
+  .max(1024);
+export const questionFormDetailSchema = questionFormSchema.safeExtend({
+  state: z.object({ status: z.enum(["pending", "answered", "cancelled"]) }),
+});
+export type NativeQuestionForm = z.infer<typeof questionFormSchema>;
+export const questionFormAnswerSchema = z.record(
+  questionKeySchema,
+  z.string().min(1).max(8192),
+);
 export const activeSchema = z.record(z.string(), z.unknown());
 export const shellPageSchema = z.object({
   data: z
