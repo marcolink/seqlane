@@ -1,6 +1,8 @@
 // @test-scope ./client.ts
+// @test-scope ./live-event-dispatcher.ts
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createClient } from "./client.js";
+import { createLiveEventDispatcher } from "./live-event-dispatcher.js";
 import { monitorWithLiveEvents } from "./live-events.js";
 
 const encoder = new TextEncoder();
@@ -51,6 +53,53 @@ const native = (sessionID = "owned", id = "evt_live") => ({
 afterEach(() => vi.unstubAllGlobals());
 
 describe("live events as completion wakeups", () => {
+  it("shares one stream across concurrent invocation monitors", async () => {
+    const connections: ReturnType<typeof stream>[] = [];
+    const fetch = vi.fn(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        const events = stream();
+        connections.push(events);
+        return events.connect(init?.signal);
+      },
+    );
+    vi.stubGlobal("fetch", fetch);
+    const client = createClient("http://fixture");
+    const dispatcher = createLiveEventDispatcher(client);
+    const subscribe = vi.spyOn(client.event, "subscribe");
+    const controllers = [new AbortController(), new AbortController()];
+    const reads = [vi.fn(async () => undefined), vi.fn(async () => undefined)];
+    const pending = controllers.map((controller, index) =>
+      monitorWithLiveEvents(
+        dispatcher,
+        (id) => id === `owned_${index}`,
+        controller.signal,
+        reads[index]!,
+      ).catch((cause: unknown) => cause),
+    );
+    try {
+      await vi.waitFor(() => {
+        for (const read of reads) expect(read).toHaveBeenCalledTimes(1);
+        expect(connections.length).toBeGreaterThanOrEqual(1);
+      });
+      connections[0]!.emit(native("owned_0"));
+      await vi.waitFor(() => expect(reads[0]).toHaveBeenCalledTimes(2), {
+        timeout: 400,
+      });
+      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(subscribe).toHaveBeenCalledTimes(1);
+      expect(reads[1]).toHaveBeenCalledTimes(1);
+      controllers[0]!.abort();
+      await pending[0];
+      expect(connections[0]!.abort).not.toHaveBeenCalled();
+      connections[0]!.emit(native("owned_1", "peer-event"));
+      await vi.waitFor(() => expect(reads[1]).toHaveBeenCalledTimes(2), {
+        timeout: 400,
+      });
+    } finally {
+      for (const controller of controllers) controller.abort();
+      await Promise.all(pending);
+    }
+  });
   it.each([
     { type: "permission.created", data: { sessionID: "owned" } },
     { type: "form.created", data: { form: { sessionID: "owned" } } },
@@ -74,7 +123,7 @@ describe("live events as completion wakeups", () => {
         ready && kind === "full" ? { value: "validated" } : undefined,
       );
       const pending = monitorWithLiveEvents(
-        createClient("http://fixture"),
+        createLiveEventDispatcher(createClient("http://fixture")),
         (id) => id === "owned",
         AbortSignal.timeout(3000),
         read,
@@ -109,7 +158,7 @@ describe("live events as completion wakeups", () => {
         : undefined;
     });
     const pending = monitorWithLiveEvents(
-      createClient("http://fixture"),
+      createLiveEventDispatcher(createClient("http://fixture")),
       (id) => id === "owned",
       AbortSignal.timeout(3000),
       read,
@@ -137,7 +186,7 @@ describe("live events as completion wakeups", () => {
     const controller = new AbortController();
     const read = vi.fn(async () => undefined);
     const pending = monitorWithLiveEvents(
-      createClient("http://fixture"),
+      createLiveEventDispatcher(createClient("http://fixture")),
       (id) => id === "owned",
       controller.signal,
       read,
@@ -169,7 +218,7 @@ describe("live events as completion wakeups", () => {
     const kinds: (string | undefined)[] = [];
     let eventID = 0;
     const pending = monitorWithLiveEvents(
-      createClient("http://fixture"),
+      createLiveEventDispatcher(createClient("http://fixture")),
       (id) => id === "owned",
       AbortSignal.timeout(5000),
       async (_signal, kind) => {
@@ -202,7 +251,7 @@ describe("live events as completion wakeups", () => {
     );
     const kinds: string[] = [];
     const pending = monitorWithLiveEvents(
-      createClient("http://fixture"),
+      createLiveEventDispatcher(createClient("http://fixture")),
       (id) => id === "owned",
       AbortSignal.timeout(3000),
       async (_signal, kind) => {
@@ -238,7 +287,7 @@ describe("live events as completion wakeups", () => {
       const times: number[] = [];
       let eventID = 0;
       const pending = monitorWithLiveEvents(
-        createClient("http://fixture"),
+        createLiveEventDispatcher(createClient("http://fixture")),
         (id) => id === "owned",
         AbortSignal.timeout(5000),
         async (_signal, kind) => {
@@ -277,7 +326,7 @@ describe("live events as completion wakeups", () => {
     vi.stubGlobal("fetch", fetch);
     let ready = false;
     const pending = monitorWithLiveEvents(
-      createClient("http://fixture"),
+      createLiveEventDispatcher(createClient("http://fixture")),
       (id) => id === "owned",
       AbortSignal.timeout(3000),
       async () => (ready ? { value: "recovered" } : undefined),
@@ -298,7 +347,7 @@ describe("live events as completion wakeups", () => {
     );
     let reads = 0;
     const result = await monitorWithLiveEvents(
-      createClient("http://fixture"),
+      createLiveEventDispatcher(createClient("http://fixture")),
       (id) => id === "owned",
       AbortSignal.timeout(3000),
       async () => (++reads === 2 ? { value: "polled result" } : undefined),
@@ -318,7 +367,7 @@ describe("live events as completion wakeups", () => {
     const controller = new AbortController();
     let readSignal: AbortSignal | undefined;
     const pending = monitorWithLiveEvents(
-      createClient("http://fixture"),
+      createLiveEventDispatcher(createClient("http://fixture")),
       (id) => id === "owned",
       controller.signal,
       (signal) =>

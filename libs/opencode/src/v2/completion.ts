@@ -1,4 +1,5 @@
 import type { AgentAdapterRequest } from "@seqlane/agent-adapter";
+import type { LiveEventDispatcher } from "./live-event-dispatcher.js";
 import type { V2Client } from "./client.js";
 import { createQuestionMonitor } from "./questions.js";
 import { parseOutput } from "./prompt.js";
@@ -19,13 +20,14 @@ export async function waitForResult(
   id: string,
   inputID: string,
   expectedModel: PinnedNativeModel,
+  events: LiveEventDispatcher,
 ): Promise<unknown> {
   const observer = createObserver(request, redact);
   const checkQuestions = createQuestionMonitor(client, request, redact);
   let owned = new Set([id]);
   try {
     return await monitorWithLiveEvents(
-      client,
+      events,
       (id) => owned.has(id),
       request.signal,
       async (signal, hint) => {

@@ -2,14 +2,22 @@ import { OpenCode, type OpenCodeClient } from "@opencode/client";
 import { OpenCodeV2Error } from "./errors.js";
 import { serverInfoSchema } from "./schemas.js";
 import { boundedEventBody } from "./event-body.js";
+import { trackedEventBody } from "./tracked-event-body.js";
 
 export const OPENCODE_V2_VERSION = "2.1.2";
 const responseLimit = 1_048_576;
 
 /** Bounds bytes before SDK decoding, including error responses. */
-const boundedFetch: typeof fetch = async (input, init) => {
+async function boundedFetch(
+  input: Parameters<typeof fetch>[0],
+  init: Parameters<typeof fetch>[1],
+  onClosed?: () => void,
+) {
   const response = await fetch(input, { ...init, redirect: "error" });
-  if (response.body === null) return response;
+  if (response.body === null) {
+    onClosed?.();
+    return response;
+  }
   const url = new URL(input instanceof Request ? input.url : String(input));
   const streaming =
     (url.pathname === "/api/event" ||
@@ -24,7 +32,11 @@ const boundedFetch: typeof fetch = async (input, init) => {
     const headers = new Headers(response.headers);
     headers.delete("content-encoding");
     headers.delete("content-length");
-    return new Response(boundedEventBody(response.body, responseLimit), {
+    const body =
+      onClosed === undefined
+        ? response.body
+        : trackedEventBody(response.body, init?.signal, onClosed);
+    return new Response(boundedEventBody(body, responseLimit), {
       status: response.status,
       headers,
     });
@@ -44,6 +56,7 @@ const boundedFetch: typeof fetch = async (input, init) => {
   } finally {
     await reader.cancel().catch(() => undefined);
     reader.releaseLock();
+    onClosed?.();
   }
   const body = Buffer.concat(chunks, length);
   const headers = new Headers(response.headers);
@@ -54,17 +67,43 @@ const boundedFetch: typeof fetch = async (input, init) => {
     statusText: response.statusText,
     headers,
   });
-};
+}
 
 export function createClient(
   url: string,
   authorization?: string,
-): OpenCodeClient {
-  return OpenCode.make({
+): OpenCodeClient & { waitForEventStreams(): Promise<void> } {
+  const streams = new Set<Promise<void>>();
+  const ownedFetch: typeof fetch = async (input, init) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    if (url.pathname !== "/api/event") return boundedFetch(input, init);
+    let resolveClosed: () => void = () => undefined;
+    const closed = new Promise<void>((resolve) => {
+      resolveClosed = resolve;
+    });
+    streams.add(closed);
+    const finish = () => {
+      streams.delete(closed);
+      resolveClosed();
+    };
+    try {
+      return await boundedFetch(input, init, finish);
+    } catch (cause) {
+      finish();
+      throw cause;
+    }
+  };
+  const client = OpenCode.make({
     baseUrl: url,
-    fetch: boundedFetch,
+    fetch: ownedFetch,
     ...(authorization === undefined ? {} : { headers: { authorization } }),
   });
+  return {
+    ...client,
+    async waitForEventStreams() {
+      await Promise.all([...streams]);
+    },
+  };
 }
 
 export type V2Client = ReturnType<typeof createClient>;

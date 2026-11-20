@@ -4,6 +4,7 @@ import type {
   AgentAdapterRequest,
   AgentRuntimeModelCapabilities,
 } from "@seqlane/agent-adapter";
+import type { LiveEventDispatcher } from "./live-event-dispatcher.js";
 import type { CheckpointRegistry } from "./checkpoint.js";
 import { requestOptions, type V2Client } from "./client.js";
 import { admissionSchema, sessionSchema } from "./schemas.js";
@@ -27,6 +28,7 @@ export const V2_CAPABILITIES = {
 
 interface SessionOptions {
   readonly checkpoints: CheckpointRegistry;
+  readonly events: LiveEventDispatcher;
   readonly forkAdapter: (
     checkpoint: unknown,
     selection: ModelSelection | undefined,
@@ -46,6 +48,7 @@ interface SessionOptions {
 }
 export function createSessionAdapter({
   client,
+  events,
   checkpoints,
   forkAdapter,
   initialSession,
@@ -226,6 +229,7 @@ export function createSessionAdapter({
         sessionID,
         admitted.id,
         pinnedNativeModel,
+        events,
       );
       completed = true;
       return result;

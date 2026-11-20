@@ -1,27 +1,13 @@
 import { Clock, Effect, Queue } from "effect";
-import { z } from "zod";
 import { openCodeEffect } from "../effect-boundary.js";
-import type { V2Client } from "./client.js";
-import { sessionSchema } from "./schemas.js";
-
-const eventSchema = z.object({
-  id: sessionSchema.shape.id,
-  type: z.string().min(1).max(256),
-  data: z.unknown(),
-});
-const sessionEventSchema = z.object({
-  sessionID: sessionSchema.shape.id,
-  parentID: sessionSchema.shape.id.optional(),
-});
-const formEventSchema = z.object({
-  form: sessionEventSchema,
-});
-const readHintSchema = z.enum(["messages", "full"]);
-type LiveReadHint = z.infer<typeof readHintSchema>;
+import type {
+  LiveEventDispatcher,
+  LiveReadHint,
+} from "./live-event-dispatcher.js";
 
 /** Live events are hints. Only full reads can establish completion. */
 export async function monitorWithLiveEvents(
-  client: V2Client,
+  events: LiveEventDispatcher,
   ownsSession: (id: string) => boolean,
   signal: AbortSignal,
   read: (
@@ -36,17 +22,20 @@ export async function monitorWithLiveEvents(
         Effect.gen(function* () {
           const wakeups = yield* Queue.sliding<true>(1);
           let pendingHint: LiveReadHint | undefined;
-          let hint: LiveReadHint = readHintSchema.enum.full;
+          let hint: LiveReadHint = "full";
           let firstEvent = true;
           let lastFullRead = 0n;
-          yield* Effect.forkScoped(
-            monitorEvents(client, ownsSession, (incoming) => {
-              pendingHint =
-                pendingHint === "full" || incoming === "full"
-                  ? "full"
-                  : "messages";
-              Queue.offerUnsafe(wakeups, true);
-            }),
+          yield* Effect.acquireRelease(
+            Effect.sync(() =>
+              events.subscribe(ownsSession, (incoming) => {
+                pendingHint =
+                  pendingHint === "full" || incoming === "full"
+                    ? "full"
+                    : "messages";
+                Queue.offerUnsafe(wakeups, true);
+              }),
+            ),
+            (unsubscribe) => Effect.promise(unsubscribe),
           );
           while (true) {
             const started = yield* Clock.monotonicTimeNanos;
@@ -103,79 +92,4 @@ export async function monitorWithLiveEvents(
   } catch (cause) {
     throw readFailure ?? cause;
   }
-}
-
-function monitorEvents(
-  client: V2Client,
-  ownsSession: (id: string) => boolean,
-  notify: (hint: LiveReadHint) => void,
-) {
-  return Effect.gen(function* () {
-    let delay = 250;
-    const seen = new Set<string>();
-    while (true) {
-      const connection = Effect.acquireUseRelease(
-        Effect.sync(() => {
-          const controller = new AbortController();
-          const pending = consume(controller.signal);
-          return { controller, pending };
-        }),
-        ({ pending }) => openCodeEffect(() => pending),
-        ({ controller, pending }) =>
-          Effect.promise(async () => {
-            controller.abort();
-            await pending.catch(() => undefined);
-          }),
-      );
-      // The global stream has no replay. Rotation cannot replace recovery reads.
-      yield* Effect.raceFirst(connection, Effect.sleep("45 seconds")).pipe(
-        Effect.catch(() => Effect.void),
-      );
-      yield* Effect.sleep(delay);
-      delay = Math.min(delay * 2, 2_000);
-    }
-
-    async function consume(signal: AbortSignal): Promise<void> {
-      for await (const value of client.event.subscribe({ signal })) {
-        const event = eventSchema.safeParse(value);
-        if (!event.success) continue;
-        const { type, data } = event.data;
-        const parsed =
-          type === "form.created"
-            ? formEventSchema.safeParse(data)
-            : sessionEventSchema.safeParse(data);
-        if (!parsed.success) continue;
-        const id =
-          "form" in parsed.data
-            ? parsed.data.form.sessionID
-            : parsed.data.sessionID;
-        const ownedParent =
-          type === "session.created" &&
-          "parentID" in parsed.data &&
-          parsed.data.parentID !== undefined &&
-          ownsSession(parsed.data.parentID);
-        if (!ownsSession(id) && !ownedParent) continue;
-        if (
-          !type.startsWith("session.") &&
-          !type.startsWith("permission.") &&
-          !type.startsWith("form.")
-        )
-          continue;
-        if (seen.has(event.data.id)) continue;
-        seen.add(event.data.id);
-        if (seen.size > 4096) {
-          const oldest = seen.values().next().value;
-          if (oldest !== undefined) seen.delete(oldest);
-        }
-        delay = 250;
-        const messageUpdate = [
-          "session.message.",
-          "session.tool.",
-          "session.text.",
-          "session.reasoning.",
-        ].some((prefix) => type.startsWith(prefix));
-        notify(messageUpdate ? "messages" : "full");
-      }
-    }
-  });
 }

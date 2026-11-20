@@ -176,6 +176,8 @@ Tool values have a depth limit of 64 and a node limit of 65,536.
 Invalid native observation data fails before batch events are emitted.
 
 The live native event stream triggers message reads during execution.
+Concurrent tasks share one event subscription. Cancelling one task keeps the
+stream open for its peers. The last task waits for the stream to close.
 Message updates confirm the admitted input and assistant model, then emit activity.
 Permission, form, and child-session events also request full checks of owned work.
 Only full checks can complete execution.

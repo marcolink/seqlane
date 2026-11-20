@@ -1,10 +1,12 @@
 // @test-scope ./client.ts
 // @test-scope ./live-events.ts
+// @test-scope ./live-event-dispatcher.ts
 import type { AgentAdapterRequest } from "@seqlane/agent-adapter";
 import { defineTask, InteractionRequiredError } from "@seqlane/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { createClient } from "./client.js";
+import { createLiveEventDispatcher } from "./live-event-dispatcher.js";
 import { waitForResult } from "./completion.js";
 
 const workspace = "/fixture";
@@ -107,6 +109,8 @@ function fixture() {
     signal: controller.signal,
     onExecutionStarted: vi.fn(),
   };
+  const client = createClient("http://fixture");
+  const dispatcher = createLiveEventDispatcher(client);
   return {
     calls,
     state,
@@ -127,13 +131,14 @@ function fixture() {
     },
     run() {
       return waitForResult(
-        createClient("http://fixture"),
+        client,
         workspace,
         (text) => text,
         request,
         "owned",
         "input",
         model,
+        dispatcher,
       );
     },
   };

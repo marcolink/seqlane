@@ -156,6 +156,12 @@ and form checks cover at most 16 sessions at once. Native message, tool, text,
 and reasoning events read invocation messages and emit activity for owned sessions.
 These reads confirm the admitted input and assistant model. They cannot complete
 execution or repeat ownership, permission, and form requests.
+
+Each runtime owns one lazy SDK event subscription. The dispatcher parses each
+event once and routes read hints to monitors that own the session. Cancelling
+one monitor preserves its peers. The last monitor waits for the native reader
+to close. Reconnection, rotation, and runtime close also join reader cleanup.
+
 Notifications use a one-item sliding queue and a 50-millisecond pause to combine
 bursts. The first event read is prompt. Later message reads wait at least
 500 milliseconds. Full checks run at most once per second after the first event.
