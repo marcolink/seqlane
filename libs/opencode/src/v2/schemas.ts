@@ -146,7 +146,7 @@ const questionFieldSchema = z.strictObject({
   title: z.string().max(4096),
   description: z.string().max(4096).optional(),
   type: z.literal("string"),
-  required: z.boolean().optional(),
+  required: z.literal(true).optional(),
   custom: z.boolean().optional(),
   options: z
     .array(

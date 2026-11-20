@@ -29,8 +29,8 @@ CLI support for `events: { persist: true }`. Live hints and finite message reads
 provide current activity and recovery without that capability.
 
 Question forms require `metadata.kind: "question"` and ordered `q0` field keys.
-The adapter rejects multiselect fields, arbitrary forms, and unsupported field
-constraints. Canonical validation limits each request to eight questions,
+The adapter rejects optional fields, multiselect fields, arbitrary forms, and
+unsupported field constraints. Canonical validation limits each request to eight questions,
 twenty choices per question, and 64 KiB. Display text redacts connection
 credentials. Synthetic question and option IDs map answers to original native
 values. Each form ID receives at most one callback and one reply per invocation.
@@ -111,8 +111,11 @@ produce small progress notifications while the tool runs. Terminal events
 preserve the complete latest details. Opaque tool values have a depth limit
 of 64 and a node limit of 65,536 before serialization or redaction.
 Model observations preserve native reasoning and tool content. Nested values
-use the same credential redaction as
-text output. Repeated snapshots do not duplicate terminal activity or usage.
+use the same credential redaction as text output. If a nested property name
+contains a configured credential, the adapter rejects the entire observation
+batch before it emits activity or model observations. It reports a typed
+protocol error without the unsafe name. It does not rename keys or merge
+colliding names. Repeated snapshots do not duplicate terminal activity or usage.
 
 Managed version probing and server startup inherit only `PATH`, `HOME`,
 temporary-directory variables, `LANG`, `LC_ALL`, `TZ`, the four XDG directory
