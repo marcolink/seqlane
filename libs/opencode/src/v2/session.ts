@@ -4,12 +4,12 @@ import type {
   AgentAdapterRequest,
   AgentRuntimeModelCapabilities,
 } from "@seqlane/agent-adapter";
+import type { CheckpointRegistry } from "./checkpoint.js";
 import { requestOptions, type V2Client } from "./client.js";
 import { admissionSchema, sessionSchema } from "./schemas.js";
 import { assertSessionModel, type PinnedNativeModel } from "./session-model.js";
 import { nativeModel } from "./models.js";
 import { createPrompt } from "./prompt.js";
-import { terminateOwnedSession } from "./owned-work.js";
 import { waitForResult } from "./completion.js";
 import { OpenCodeV2Error } from "./errors.js";
 
@@ -18,13 +18,24 @@ export const V2_CAPABILITIES = {
   modelSelection: true,
   structuredOutput: true,
   sessionReuse: true,
-  checkpoint: false,
-  fork: false,
+  checkpoint: true,
+  fork: true,
   activity: true,
   sessionUi: false,
 } as const;
 
 interface SessionOptions {
+  readonly checkpoints: CheckpointRegistry;
+  readonly forkAdapter: (
+    checkpoint: unknown,
+    selection: ModelSelection | undefined,
+    signal: AbortSignal,
+  ) => Promise<AgentAdapter>;
+  readonly initialSession?: {
+    id: string;
+    model: PinnedNativeModel;
+    selection: ModelSelection;
+  };
   readonly client: V2Client;
   readonly workspace: string;
   readonly models: AgentRuntimeModelCapabilities;
@@ -34,16 +45,21 @@ interface SessionOptions {
 }
 export function createSessionAdapter({
   client,
+  checkpoints,
+  forkAdapter,
+  initialSession,
   workspace,
   models,
   configuredSelection,
   lifecycleSignal,
   redact,
 }: SessionOptions): AgentAdapter {
-  let sessionID: string | undefined;
+  let sessionID = initialSession?.id;
   let busy = false;
-  let pinnedSelection: ModelSelection | undefined;
-  let pinnedNativeModel: PinnedNativeModel | undefined;
+  let pinnedSelection = initialSession?.selection;
+  let pinnedNativeModel = initialSession?.model;
+  let latestCheckpoint: unknown;
+  let checkpointFailure: unknown;
   let inFlight: Promise<unknown> | undefined;
   const stopped = new AbortController();
   let unusable = false;
@@ -52,7 +68,7 @@ export function createSessionAdapter({
     unusable = true;
     if (sessionID === undefined) return;
     const id = sessionID;
-    closing ??= terminateOwnedSession(client, id, workspace).then(() => {
+    closing ??= checkpoints.remove(id).then(() => {
       sessionID = undefined;
     });
     return closing;
@@ -76,6 +92,27 @@ export function createSessionAdapter({
       });
       return inFlight;
     },
+    async captureCheckpoint() {
+      if (
+        busy ||
+        unusable ||
+        lifecycleSignal.aborted ||
+        latestCheckpoint === undefined
+      )
+        throw new OpenCodeV2Error(
+          "execution",
+          "checkpoint is unavailable",
+          checkpointFailure,
+        );
+      return latestCheckpoint;
+    },
+    fork({ checkpoint, modelSelection }) {
+      if (unusable || lifecycleSignal.aborted)
+        return Promise.reject(
+          new OpenCodeV2Error("execution", "session is unavailable"),
+        );
+      return forkAdapter(checkpoint, modelSelection, lifecycleSignal);
+    },
     async close() {
       unusable = true;
       stopped.abort();
@@ -87,11 +124,14 @@ export function createSessionAdapter({
     if (busy || unusable)
       throw new OpenCodeV2Error("execution", "session is busy or unavailable");
     busy = true;
+    latestCheckpoint = undefined;
+    checkpointFailure = undefined;
     try {
       const prompt = createPrompt(request);
       const selection =
         request.modelSelection ??
         configuredSelection ??
+        pinnedSelection ??
         (await models.resolveDefaultModel());
       await models.validateModelSelection?.(selection);
       if (
@@ -105,16 +145,15 @@ export function createSessionAdapter({
         );
       request.signal.throwIfAborted();
       if (sessionID === undefined) {
-        const session = sessionSchema.parse(
-          await client.session.create(
-            {
-              location: { directory: workspace },
-              model: nativeModel(selection),
-            },
-            requestOptions(request.signal),
-          ),
+        const raw = await client.session.create(
+          {
+            location: { directory: workspace },
+            model: nativeModel(selection),
+          },
+          requestOptions(),
         );
-        sessionID = session.id;
+        sessionID = checkpoints.track(raw);
+        const session = sessionSchema.parse(raw);
         pinnedSelection = selection;
         pinnedNativeModel = assertSessionModel(session, selection);
         if (session.location.directory !== workspace)
@@ -126,6 +165,11 @@ export function createSessionAdapter({
       const current = sessionSchema.parse(
         await client.session.get({ sessionID }, requestOptions(request.signal)),
       );
+      if (current.id !== sessionID || current.location.directory !== workspace)
+        throw new OpenCodeV2Error(
+          "protocol",
+          "native session changed identity or workspace",
+        );
       const currentModel = assertSessionModel(current, selection);
       if (pinnedNativeModel === undefined)
         throw new OpenCodeV2Error("protocol", "session model was not pinned");
@@ -147,7 +191,7 @@ export function createSessionAdapter({
           "protocol",
           "input was admitted to a different session",
         );
-      return await waitForResult(
+      const result = await waitForResult(
         client,
         workspace,
         redact,
@@ -156,6 +200,17 @@ export function createSessionAdapter({
         admitted.id,
         pinnedNativeModel,
       );
+      try {
+        latestCheckpoint = await checkpoints.capture(
+          sessionID,
+          selection,
+          request.signal,
+        );
+      } catch (cause) {
+        // Snapshot failure cannot change an already successful task result.
+        checkpointFailure = cause;
+      }
+      return result;
     } catch (cause) {
       try {
         await destroy();

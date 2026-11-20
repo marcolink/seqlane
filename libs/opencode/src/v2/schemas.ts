@@ -15,6 +15,15 @@ export const serverInfoSchema = z.object({
 export const sessionSchema = z.object({
   id: identity,
   parentID: identity.optional(),
+  fork: z
+    .object({
+      sessionID: identity,
+      boundary: z.object({
+        type: z.enum(["before", "through"]),
+        messageID: identity,
+      }),
+    })
+    .optional(),
   location: z.object({ directory: z.string().min(1) }),
   model: nativeModelSchema.optional(),
   outcome: z.enum(["succeeded", "failed", "interrupted"]).optional(),

@@ -1,11 +1,16 @@
 import { resolve } from "node:path";
 import { z } from "zod";
+import { Effect } from "effect";
+import type { ModelSelection } from "@seqlane/core";
 import {
   redactAgentAdapter,
   redactAgentRuntimeModelCapabilities,
   redactOpaqueValue,
+  type AgentAdapter,
   type AgentRuntimeFactory,
 } from "@seqlane/agent-adapter";
+import { openCodeEffect } from "../effect-boundary.js";
+import { createCheckpointRegistry } from "./checkpoint.js";
 import { OpenCodeV2Error } from "./errors.js";
 import { createClient, verifyServer } from "./client.js";
 import { createModelCapabilities } from "./models.js";
@@ -56,10 +61,61 @@ export function createOpenCodeV2AgentRuntimeFactory(
     );
     const client = createClient(configuration.url, configuration.authorization);
     let closed = false;
+    const stopped = new AbortController();
+    const checkpoints = createCheckpointRegistry(client, workspace);
+    const forks = new Set<Promise<AgentAdapter>>();
     const adapters = new Set<ReturnType<typeof createSessionAdapter>>();
     try {
       await verifyServer(client, signal);
       const models = await createModelCapabilities(client, workspace, signal);
+      const forkAdapter = (
+        checkpoint: unknown,
+        selected: ModelSelection | undefined,
+        parentSignal: AbortSignal,
+      ): Promise<AgentAdapter> => {
+        const pending = Effect.runPromise(
+          Effect.gen(function* () {
+            if (closed)
+              throw new OpenCodeV2Error("execution", "runtime is closed");
+            const entry = yield* Effect.try({
+              try: () => checkpoints.read(checkpoint),
+              catch: (cause) => cause,
+            });
+            const selection = selected ?? entry.selection;
+            yield* openCodeEffect(async () => {
+              await models.validateModelSelection?.(selection);
+            });
+            const lifecycleSignal = AbortSignal.any([
+              signal,
+              parentSignal,
+              stopped.signal,
+            ]);
+            const initial = yield* checkpoints.fork(
+              checkpoint,
+              selection,
+              lifecycleSignal,
+            );
+            const adapter = createSessionAdapter({
+              client,
+              workspace,
+              models,
+              checkpoints,
+              forkAdapter,
+              configuredSelection: selection,
+              lifecycleSignal,
+              redact,
+              initialSession: { ...initial, selection },
+            });
+            adapters.add(adapter);
+            return adapter;
+          }),
+        );
+        forks.add(pending);
+        void pending
+          .finally(() => forks.delete(pending))
+          .catch(() => undefined);
+        return pending;
+      };
       return {
         identity: "opencode-v2",
         capabilities: V2_CAPABILITIES,
@@ -69,10 +125,16 @@ export function createOpenCodeV2AgentRuntimeFactory(
             throw new OpenCodeV2Error("execution", "runtime is closed");
           const adapter = createSessionAdapter({
             client,
+            checkpoints,
+            forkAdapter,
             workspace,
             models,
             configuredSelection: context.modelSelection,
-            lifecycleSignal: AbortSignal.any([signal, context.signal]),
+            lifecycleSignal: AbortSignal.any([
+              signal,
+              context.signal,
+              stopped.signal,
+            ]),
             redact,
           });
           adapters.add(adapter);
@@ -81,10 +143,13 @@ export function createOpenCodeV2AgentRuntimeFactory(
         redactAdapter: (adapter) => redactAgentAdapter(adapter, redact),
         async close() {
           closed = true;
+          stopped.abort();
+          await Promise.allSettled([...forks]);
           const results = await Promise.allSettled(
             [...adapters].map((adapter) => adapter.close?.()),
           );
-          const failures = results.flatMap((result) =>
+          const roots = await Promise.allSettled([checkpoints.close()]);
+          const failures = [...results, ...roots].flatMap((result) =>
             result.status === "rejected" ? [result.reason] : [],
           );
           if (failures.length > 0)
