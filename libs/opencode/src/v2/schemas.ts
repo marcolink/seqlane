@@ -54,7 +54,13 @@ const assistantSchema = z.object({
     .array(
       z.union([
         z.object({ type: z.literal("text"), text: z.string().max(1_048_576) }),
-        z.object({ type: z.literal("reasoning") }),
+        z.object({
+          type: z.literal("reasoning"),
+          text: z.string().max(1_048_576).optional(),
+          time: z
+            .object({ created: time, completed: time.optional() })
+            .optional(),
+        }),
         toolSchema,
       ]),
     )

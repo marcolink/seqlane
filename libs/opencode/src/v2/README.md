@@ -34,6 +34,10 @@ mode never stops the supplied service.
 Each started tool activity receives a terminal event. If observation ends before
 native tool completion, the adapter closes that activity as failed. Cancellation
 uses the same terminal state. Native cleanup still requires termination proof.
+Activity events preserve tool input, output, and metadata. Changed tool details
+produce progress events while the tool runs. Model observations preserve native
+reasoning and tool content. Nested values use the same credential redaction as
+text output. Repeated snapshots do not duplicate terminal activity or usage.
 
 Managed version probing and server startup inherit only `PATH`, `HOME`,
 temporary-directory variables, `LANG`, `LC_ALL`, `TZ`, the four XDG directory

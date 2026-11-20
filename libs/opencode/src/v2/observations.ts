@@ -2,7 +2,8 @@ import type {
   AgentActivity,
   AgentAdapterRequest,
 } from "@seqlane/agent-adapter";
-import type { SeqlaneInvocationMetrics } from "@seqlane/core";
+import { redactOpaqueValue } from "@seqlane/agent-adapter";
+import { jsonValueSchema, type SeqlaneInvocationMetrics } from "@seqlane/core";
 import type { NativeAssistant, NativeMessage } from "./schemas.js";
 
 /** One reducer feeds both activity and usage; repeated snapshots are deduplicated. */
@@ -12,6 +13,7 @@ export function createObserver(
 ) {
   const tools = new Map<string, string>();
   const activeTools = new Map<string, AgentActivity>();
+  const terminalTools = new Set<string>();
   const models = new Set<string>();
   let finished = false;
   let metrics: SeqlaneInvocationMetrics = {};
@@ -24,22 +26,33 @@ export function createObserver(
   };
   function assistant(message: NativeAssistant): void {
     for (const tool of message.content) {
-      if (tool.type !== "tool" || tools.get(tool.id) === tool.state.status)
-        continue;
+      if (tool.type !== "tool" || terminalTools.has(tool.id)) continue;
+      const snapshot = JSON.stringify(tool);
+      if (tools.get(tool.id) === snapshot) continue;
       const previous = tools.get(tool.id);
-      tools.set(tool.id, tool.state.status);
+      tools.set(tool.id, snapshot);
       const name = redact(tool.name);
       const activity = {
         activityId: tool.id,
         kind: tool.name === "skill" ? ("skill" as const) : ("tool" as const),
         name,
         startedAt: tool.time.created,
+        ...(tool.state.input === undefined
+          ? {}
+          : { input: redactOpaqueValue(tool.state.input, redact) }),
+        ...(tool.state.content === undefined
+          ? {}
+          : { output: redactOpaqueValue(tool.state.content, redact) }),
+        ...(tool.state.metadata === undefined
+          ? {}
+          : { metadata: redactOpaqueValue(tool.state.metadata, redact) }),
       };
       if (previous === undefined) {
         activeTools.set(tool.id, { ...activity, state: "started" });
         notify(() => request.onActivity?.({ ...activity, state: "started" }));
       }
       if (tool.state.status === "completed" || tool.state.status === "error") {
+        terminalTools.add(tool.id);
         activeTools.delete(tool.id);
         notify(() =>
           request.onActivity?.({
@@ -50,6 +63,12 @@ export function createObserver(
               : { endedAt: tool.time.completed }),
           }),
         );
+      } else {
+        activeTools.set(tool.id, { ...activity, state: "progress" });
+        if (previous !== undefined)
+          notify(() =>
+            request.onActivity?.({ ...activity, state: "progress" }),
+          );
       }
     }
     if (message.time.completed === undefined || models.has(message.id)) return;
@@ -91,6 +110,9 @@ export function createObserver(
           ...(message.cost === undefined ? {} : { cost: message.cost }),
           ...(message.tokens === undefined ? {} : { usage: message.tokens }),
           response: {
+            content: jsonValueSchema.parse(
+              redactOpaqueValue(message.content, redact),
+            ),
             text: message.content
               .filter((part) => part.type === "text")
               .map((part) => redact(part.text))
