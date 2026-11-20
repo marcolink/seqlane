@@ -67,7 +67,14 @@ export function createObserver(
         activeTools.set(tool.id, { ...activity, state: "progress" });
         if (previous !== undefined)
           notify(() =>
-            request.onActivity?.({ ...activity, state: "progress" }),
+            request.onActivity?.({
+              activityId: activity.activityId,
+              kind: activity.kind,
+              name: activity.name,
+              startedAt: activity.startedAt,
+              state: "progress",
+              message: "Tool details updated",
+            }),
           );
       }
     }

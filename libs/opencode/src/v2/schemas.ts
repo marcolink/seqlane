@@ -30,15 +30,44 @@ export const tokensSchema = z.object({
   reasoning: time,
   cache: z.object({ read: time, write: time }),
 });
+// Bound opaque native values before recursive serialization and redaction.
+const observationValueSchema = z.unknown().superRefine((value, context) => {
+  const pending = [{ value, depth: 0 }];
+  let nodes = 0;
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (current === undefined) break;
+    if (++nodes > 65_536 || current.depth > 64) {
+      context.addIssue({
+        code: "custom",
+        message: "Native observation value exceeds the depth or node limit",
+      });
+      return;
+    }
+    if (typeof current.value !== "object" || current.value === null) continue;
+    for (const descriptor of Object.values(
+      Object.getOwnPropertyDescriptors(current.value),
+    )) {
+      if ("value" in descriptor)
+        pending.push({ value: descriptor.value, depth: current.depth + 1 });
+    }
+  }
+});
 export const toolSchema = z.object({
   type: z.literal("tool"),
   id: identity,
   name: z.string().min(1).max(256),
   state: z.object({
     status: z.enum(["streaming", "running", "completed", "error"]),
-    input: z.record(z.string(), z.unknown()).optional(),
-    content: z.array(z.unknown()).max(256).optional(),
-    metadata: z.record(z.string(), z.unknown()).optional(),
+    input: observationValueSchema
+      .pipe(z.record(z.string(), z.unknown()))
+      .optional(),
+    content: observationValueSchema
+      .pipe(z.array(z.unknown()).max(256))
+      .optional(),
+    metadata: observationValueSchema
+      .pipe(z.record(z.string(), z.unknown()))
+      .optional(),
   }),
   time: z.object({ created: time, completed: time.optional() }),
 });

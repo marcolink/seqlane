@@ -5,9 +5,13 @@ import { z } from "zod";
 import { createObserver } from "./observations.js";
 import { messageSchema } from "./schemas.js";
 
-function fixture() {
+function fixture(sink?: (event: unknown) => void) {
   const onActivity = vi.fn();
   const onObservation = vi.fn();
+  if (sink !== undefined) {
+    onActivity.mockImplementation(sink);
+    onObservation.mockImplementation(sink);
+  }
   const onMetrics = vi.fn();
   const controller = new AbortController();
   const observer = createObserver(
@@ -35,6 +39,7 @@ function message(
   status: string,
   input: unknown = { path: "first" },
   completed = false,
+  content: unknown = [{ type: "text", text: "result secret" }],
 ) {
   return messageSchema.parse({
     id: "assistant",
@@ -56,7 +61,7 @@ function message(
         state: {
           status,
           input,
-          content: [{ type: "text", text: "result secret" }],
+          content,
           metadata: { nested: { value: "secret" } },
         },
       },
@@ -66,6 +71,84 @@ function message(
 }
 
 describe("OpenCode V2 observations", () => {
+  it.each(["input", "content", "metadata"] as const)(
+    "rejects deep tool %s with a validation error before observation",
+    (field) => {
+      let nested: unknown = "secret";
+      for (let index = 0; index < 20_000; index++) nested = { nested };
+      const parsed = messageSchema.safeParse({
+        id: "assistant",
+        type: "assistant",
+        model: { providerID: "fixture", id: "model" },
+        time: { created: 1 },
+        content: [
+          {
+            type: "tool",
+            id: "deep",
+            name: "read",
+            time: { created: 1 },
+            state: {
+              status: "running",
+              [field]: field === "content" ? [nested] : { nested },
+            },
+          },
+        ],
+      });
+      expect(parsed.success).toBe(false);
+      expect(parsed.error).toBeInstanceOf(z.ZodError);
+      expect(parsed.error?.message).toContain("depth or node limit");
+    },
+  );
+
+  it("rejects overly broad tool values before recursive processing", () => {
+    expect(() =>
+      message("running", { items: Array(65_536).fill(null) }),
+    ).toThrow("depth or node limit");
+  });
+
+  it("keeps growing output within a slow event sink's pending byte budget", () => {
+    const limit = 2 * 1024 * 1024;
+    let pendingBytes = 0;
+    let overflow = false;
+    const h = fixture((event) => {
+      pendingBytes += Buffer.byteLength(JSON.stringify(event), "utf8");
+      if (pendingBytes > limit) {
+        overflow = true;
+        throw new Error("event sink pending byte limit exceeded");
+      }
+    });
+    const output = (size: number) => [{ type: "text", text: "x".repeat(size) }];
+    for (let index = 1; index <= 128; index++)
+      h.observer.observe([message("running", {}, false, output(index * 4096))]);
+    h.observer.observe([message("completed", {}, true, output(128 * 4096))]);
+    h.observer.finish();
+    expect(overflow).toBe(false);
+    expect(pendingBytes).toBeLessThan(limit);
+    const progress = h.onActivity.mock.calls.flatMap(([activity]) =>
+      activity.state === "progress" ? [activity] : [],
+    );
+    expect(progress).toHaveLength(127);
+    expect(
+      progress.every(
+        (activity) => Buffer.byteLength(JSON.stringify(activity)) < 1024,
+      ),
+    ).toBe(true);
+    expect(h.onActivity).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        state: "succeeded",
+        output: output(128 * 4096),
+      }),
+    );
+    expect(h.onObservation.mock.calls[0]?.[0].model.response.content).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "tool",
+          state: expect.objectContaining({ content: output(128 * 4096) }),
+        }),
+      ]),
+    );
+  });
+
   it("reports changed tool details while running and emits each terminal state once", () => {
     const h = fixture();
     const first = message("running");

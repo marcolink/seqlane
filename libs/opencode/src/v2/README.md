@@ -35,8 +35,11 @@ Each started tool activity receives a terminal event. If observation ends before
 native tool completion, the adapter closes that activity as failed. Cancellation
 uses the same terminal state. Native cleanup still requires termination proof.
 Activity events preserve tool input, output, and metadata. Changed tool details
-produce progress events while the tool runs. Model observations preserve native
-reasoning and tool content. Nested values use the same credential redaction as
+produce small progress notifications while the tool runs. Terminal events
+preserve the complete latest details. Opaque tool values have a depth limit
+of 64 and a node limit of 65,536 before serialization or redaction.
+Model observations preserve native reasoning and tool content. Nested values
+use the same credential redaction as
 text output. Repeated snapshots do not duplicate terminal activity or usage.
 
 Managed version probing and server startup inherit only `PATH`, `HOME`,
