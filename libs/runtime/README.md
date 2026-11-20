@@ -178,6 +178,14 @@ consumes fork outputs as normal input and explicitly selects one session;
 Seqlane never merges diverged histories. Failed or ambiguous turns publish no
 checkpoint and poison their session.
 
+Each agent session keeps a registry of the checkpoint objects it issues.
+Later turns and captures do not invalidate earlier handles. Fork validation
+requires the original object from that source session, with matching run,
+adapter, and configuration bindings. Copies and reconstructed objects are
+rejected, even when all fields match. Generation records the captured turn;
+it does not need to match the source session's current turn. Keep this registry
+private to the runtime; do not serialize it or expose native adapter state.
+
 Hosted model selection is resolved before execution. A new session may select a
 model; omitted selection uses the workflow default, then the configured adapter default. Reuse inherits
 the pinned selection, while a fork may pin a different selection. Seqlane
