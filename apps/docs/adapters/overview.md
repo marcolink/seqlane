@@ -29,10 +29,10 @@ other capabilities differ.
 Adapter support is not sufficient. The selected agent model must also support
 structured output. Read [Model selection](/authoring-workflows/models).
 
-| Adapter | Model selection | Reuse session | Fork session | Activity | Session UI |
-| --- | --- | --- | --- | --- | --- |
-| OpenCode | Yes | Yes | Yes | Yes | OpenCode 1, when available |
-| Codex | Yes | Yes | Yes | Yes | Codex app |
+| Adapter | Model selection | Reuse session | Fork session | Activity | Questions | Session UI |
+| --- | --- | --- | --- | --- | --- | --- |
+| OpenCode | Yes | Yes | Yes | Yes | OpenCode 2 only | OpenCode 1, when available |
+| Codex | Yes | Yes | Yes | Yes | Yes | Codex app |
 
 Model selection applies a workflow or session model to an agent session. Reuse
 continues a source session. Forking creates a session from a source

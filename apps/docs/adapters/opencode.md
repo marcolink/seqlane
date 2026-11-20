@@ -116,6 +116,7 @@ The detected version determines the available capabilities.
 | Session reuse | Yes | Yes |
 | Checkpoint and fork | Yes | Yes |
 | Activity and usage | Yes | Yes |
+| Interactive questions | No | Text and single choice |
 | Session UI | When the server provides a browser URL | No |
 
 A workflow that requires an unsupported capability fails before that agent
@@ -123,7 +124,14 @@ work starts. Deterministic and dry runs start no service and make no model calls
 
 ### OpenCode 2 models and sessions
 
-Pending permissions and forms fail the task. Seqlane never answers them.
+Pending permissions fail the task. Seqlane never approves them.
+Enable `--interactive` to answer native questions in the same invocation.
+The native `question` tool supports text and single-choice questions, including
+custom text alternatives. Multiselect questions and arbitrary native forms fail.
+Without interactivity, pending questions fail the task. Input cancellation or
+timeout cancels the native form before Seqlane stops owned work.
+Read [Interactivity](/interactivity) for terminal requirements and deadlines.
+
 Authored provider, model, and reasoning selections must exist in the native
 catalog. The model must support tools. Ordered session reuse preserves the
 native session and model. Responses from another provider, model, or reasoning
