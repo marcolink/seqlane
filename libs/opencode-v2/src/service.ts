@@ -1,0 +1,185 @@
+import { execFile } from "node:child_process";
+import { randomBytes } from "node:crypto";
+import { promisify } from "node:util";
+import { setTimeout } from "node:timers/promises";
+import { isAbsolute } from "node:path";
+import { isIP } from "node:net";
+import { z } from "zod";
+import { createClient, OPENCODE_V2_VERSION, verifyServer } from "./client.js";
+import { spawnOwnedServer } from "./process.js";
+import { OpenCodeV2Error } from "./errors.js";
+import {
+  createServerEnvironment,
+  serverEnvironmentSchema,
+} from "./environment.js";
+
+export const loopbackHostSchema = z.string().transform((host, context) => {
+  if (host === "localhost") return "127.0.0.1";
+  if (isIP(host) === 4 && host.startsWith("127.")) return host;
+  if (isIP(host) === 6 && new URL(`http://[${host}]`).hostname === "[::1]")
+    return "::1";
+  context.addIssue({ code: "custom", message: "must be a loopback host" });
+  return z.NEVER;
+});
+const startupSchema = z.strictObject({
+  workspace: z.string().min(1),
+  host: loopbackHostSchema.default("127.0.0.1"),
+  port: z.number().int().min(0).max(65535).default(0),
+  executable: z
+    .string()
+    .min(1)
+    .pipe(
+      z.custom<string>(
+        (value) => typeof value === "string" && isAbsolute(value),
+        "must be an absolute executable path",
+      ),
+    )
+    .optional(),
+});
+const readinessSchema = z
+  .string()
+  .transform((line, context) => {
+    try {
+      const value: unknown = JSON.parse(line);
+      return value;
+    } catch {
+      context.addIssue({ code: "custom", message: "invalid readiness JSON" });
+      return z.NEVER;
+    }
+  })
+  .pipe(z.strictObject({ url: z.url() }));
+
+/** A foreground server owned by this run. No native shared-service discovery. */
+export async function startOpenCodeV2Service(options: {
+  workspace: string;
+  signal: AbortSignal;
+  host?: string;
+  port?: number;
+  executable?: string;
+  environment?: Readonly<z.input<typeof serverEnvironmentSchema>>;
+  onOwnedProcessAcquired?: (pid: number) => Promise<void>;
+}) {
+  const {
+    signal,
+    onOwnedProcessAcquired,
+    environment = process.env,
+    ...input
+  } = options;
+  const configuration = startupSchema.parse(input);
+  // Node's process.env has a special prototype; materialize it before validation.
+  const serverEnvironment = createServerEnvironment(
+    environment === process.env ? { ...environment } : environment,
+  );
+  signal.throwIfAborted();
+  if (!["darwin", "linux"].includes(process.platform))
+    throw new OpenCodeV2Error(
+      "compatibility",
+      "managed V2 servers require macOS or Linux",
+    );
+  const executable = configuration.executable ?? "opencode";
+  try {
+    const version = await promisify(execFile)(executable, ["--version"], {
+      signal,
+      env: serverEnvironment,
+      timeout: 10_000,
+      maxBuffer: 16_384,
+    });
+    if (
+      !z
+        .enum([OPENCODE_V2_VERSION, `opencode v${OPENCODE_V2_VERSION}`])
+        .safeParse(version.stdout.trim()).success
+    )
+      throw new OpenCodeV2Error(
+        "compatibility",
+        `executable must be OpenCode ${OPENCODE_V2_VERSION}`,
+      );
+  } catch (cause) {
+    if (cause instanceof OpenCodeV2Error) throw cause;
+    throw new OpenCodeV2Error(
+      "configuration",
+      "cannot validate the selected V2 executable",
+      cause,
+    );
+  }
+  const password = randomBytes(32).toString("base64url");
+  const authorization = `Basic ${Buffer.from(`opencode:${password}`).toString("base64")}`;
+  const owned = spawnOwnedServer(executable, {
+    ...configuration,
+    password,
+    environment: serverEnvironment,
+  });
+  const close = owned.close;
+  try {
+    if (owned.pid === undefined)
+      throw new OpenCodeV2Error(
+        "execution",
+        "owned server has no process identity",
+      );
+    await onOwnedProcessAcquired?.(owned.pid);
+    const startupSignal = AbortSignal.any([
+      signal,
+      AbortSignal.timeout(30_000),
+    ]);
+    while (true) {
+      startupSignal.throwIfAborted();
+      if (owned.startupError !== undefined) throw owned.startupError;
+      if (owned.exited)
+        throw new OpenCodeV2Error(
+          "execution",
+          "owned server exited during startup",
+        );
+      const frame = owned.stdout
+        .split("\n")
+        .slice(0, -1)
+        .map((line) => readinessSchema.safeParse(line))
+        .find((parsed) => parsed.success);
+      if (frame?.success) {
+        const endpoint = new URL(frame.data.url);
+        const requestedHost = configuration.host.includes(":")
+          ? `[${configuration.host}]`
+          : configuration.host;
+        if (
+          endpoint.username !== "" ||
+          endpoint.password !== "" ||
+          endpoint.pathname !== "/" ||
+          endpoint.search !== "" ||
+          endpoint.hash !== "" ||
+          endpoint.hostname !== requestedHost ||
+          endpoint.protocol !== "http:" ||
+          !endpoint.port ||
+          (configuration.port !== 0 &&
+            Number(endpoint.port) !== configuration.port)
+        )
+          throw new OpenCodeV2Error(
+            "protocol",
+            "owned server reported an unexpected endpoint",
+          );
+        try {
+          await verifyServer(
+            createClient(endpoint.origin, authorization),
+            startupSignal,
+          );
+          return { url: endpoint.origin, authorization, close };
+        } catch (cause) {
+          if (cause instanceof OpenCodeV2Error) throw cause;
+        }
+      }
+      await setTimeout(50, undefined, { signal: startupSignal });
+    }
+  } catch (cause) {
+    try {
+      await close();
+    } catch (cleanup) {
+      throw new OpenCodeV2Error(
+        "termination",
+        "startup failed and owned server cleanup failed",
+        new AggregateError([cause, cleanup]),
+      );
+    }
+    throw new OpenCodeV2Error(
+      "execution",
+      "owned server failed startup",
+      cause,
+    );
+  }
+}
