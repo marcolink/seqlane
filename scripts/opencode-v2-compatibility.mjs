@@ -11,7 +11,7 @@ import {
   startOpenCodeV2Service,
   createOpenCodeV2AgentRuntimeFactory,
   OPENCODE_V2_VERSION,
-} from "../libs/opencode-v2/dist/index.js";
+} from "@seqlane/opencode-adapter/v2";
 
 const executable = process.env.SEQLANE_OPENCODE_V2_EXECUTABLE;
 assert(

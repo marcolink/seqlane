@@ -37,7 +37,6 @@ test("accepts the exact release project set", () => {
       "runtime",
       "protocol",
       "opencode",
-      "opencode-v2",
       "core",
       "codex-adapter",
       "cli",
@@ -124,5 +123,70 @@ test("requires exact internal versions in packed manifests", () => {
         dependencies: { "@seqlane/protocol": "workspace:*" },
       }),
     /workspace dependency/,
+  );
+});
+
+test("requires every packed entrypoint, including the OpenCode V2 export", () => {
+  const manifest = {
+    name: "@seqlane/opencode-adapter",
+    version: releaseVersion,
+    main: "./dist/index.js",
+    module: "./dist/index.js",
+    types: "./dist/index.d.ts",
+    exports: {
+      ".": { types: "./dist/index.d.ts", import: "./dist/index.js" },
+      "./v2": {
+        types: "./dist/v2/index.d.ts",
+        import: "./dist/v2/index.js",
+      },
+    },
+  };
+  const entries = [
+    "package/LICENSE",
+    "package/package.json",
+    "package/dist/index.js",
+    "package/dist/index.d.ts",
+    "package/dist/v2/index.js",
+    "package/dist/v2/index.d.ts",
+  ];
+  assert.doesNotThrow(() =>
+    validatePackedManifest(manifest.name, releaseVersion, manifest, entries),
+  );
+  for (const missing of entries.slice(2)) {
+    assert.throws(
+      () =>
+        validatePackedManifest(
+          manifest.name,
+          releaseVersion,
+          manifest,
+          entries.filter((entry) => entry !== missing),
+        ),
+      /missing entrypoint/,
+    );
+  }
+  assert.throws(
+    () =>
+      validatePackedManifest(manifest.name, releaseVersion, manifest, [
+        "package/LICENSE",
+        "package/package.json",
+      ]),
+    /missing entrypoint/,
+  );
+});
+
+test("requires executable entrypoints in CLI archives", () => {
+  const manifest = {
+    name: "seqlane",
+    version: releaseVersion,
+    bin: { seqlane: "bin/run.js" },
+  };
+  assert.throws(
+    () => validatePackedManifest(manifest.name, releaseVersion, manifest, []),
+    /missing entrypoint package\/bin\/run.js/,
+  );
+  assert.doesNotThrow(() =>
+    validatePackedManifest(manifest.name, releaseVersion, manifest, [
+      "package/bin/run.js",
+    ]),
   );
 });

@@ -36,9 +36,6 @@
     },
     {
       "path": "../../libs/acp"
-    },
-    {
-      "path": "../../libs/opencode-v2"
     }
   ]
 }

@@ -1,4 +1,4 @@
-import { createOpenCodeV2AgentRuntimeFactory } from "@seqlane/opencode-v2-adapter";
+import { createOpenCodeV2AgentRuntimeFactory } from "@seqlane/opencode-adapter/v2";
 import type { AgentRuntimeFactory } from "@seqlane/agent-adapter";
 import { createCodexAgentRuntimeFactory } from "@seqlane/codex-adapter";
 import { createOpenCodeAgentRuntimeFactory } from "@seqlane/opencode-adapter";

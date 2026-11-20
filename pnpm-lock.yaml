@@ -104,6 +104,9 @@ importers:
       '@seqlane/core':
         specifier: workspace:*
         version: link:libs/core
+      '@seqlane/opencode-adapter':
+        specifier: workspace:*
+        version: link:libs/opencode
       '@seqlane/runtime':
         specifier: workspace:*
         version: link:libs/runtime
@@ -281,9 +284,6 @@ importers:
       '@seqlane/opencode-adapter':
         specifier: workspace:*
         version: link:../../libs/opencode
-      '@seqlane/opencode-v2-adapter':
-        specifier: workspace:*
-        version: link:../../libs/opencode-v2
       '@seqlane/protocol':
         specifier: workspace:*
         version: link:../../libs/protocol
@@ -453,6 +453,9 @@ importers:
       '@opencode-ai/sdk':
         specifier: 1.18.27
         version: 1.18.27
+      '@opencode/client':
+        specifier: 2.1.2
+        version: 2.1.2(effect@4.1.4)
       '@seqlane/agent-adapter':
         specifier: workspace:*
         version: link:../adapter
@@ -465,21 +468,6 @@ importers:
       effect:
         specifier: 4.1.4
         version: 4.1.4
-      zod:
-        specifier: 4.6.6
-        version: 4.6.6
-
-  libs/opencode-v2:
-    dependencies:
-      '@opencode/client':
-        specifier: 2.1.2
-        version: 2.1.2(effect@4.0.1)
-      '@seqlane/agent-adapter':
-        specifier: workspace:*
-        version: link:../adapter
-      '@seqlane/core':
-        specifier: workspace:*
-        version: link:../core
       zod:
         specifier: 4.6.6
         version: 4.6.6
@@ -6676,12 +6664,12 @@ snapshots:
     dependencies:
       cross-spawn: 7.0.6
 
-  '@opencode/client@2.1.2(effect@4.0.1)':
+  '@opencode/client@2.1.2(effect@4.1.4)':
     dependencies:
       '@opencode/protocol': 2.1.2
       '@opencode/schema': 2.1.2
     optionalDependencies:
-      effect: 4.0.1
+      effect: 4.1.4
 
   '@opencode/protocol@2.1.2':
     dependencies:

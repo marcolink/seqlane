@@ -2,7 +2,7 @@ import {
   createOpenCodeV2AgentRuntimeFactory,
   startOpenCodeV2Service,
   loopbackHostSchema as v2HostSchema,
-} from "@seqlane/opencode-v2-adapter";
+} from "@seqlane/opencode-adapter/v2";
 import type { AgentRuntimeFactory } from "@seqlane/agent-adapter";
 import { isAbsolute } from "node:path";
 import { z } from "zod";

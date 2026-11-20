@@ -1,7 +1,7 @@
 {
   "name": "@seqlane/opencode-adapter",
   "version": "0.0.0",
-  "description": "OpenCode adapter for Seqlane.",
+  "description": "OpenCode 1 and OpenCode 2 adapters for Seqlane.",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -17,6 +17,11 @@
       "types": "./dist/testing.d.ts",
       "import": "./dist/testing.js",
       "default": "./dist/testing.js"
+    },
+    "./v2": {
+      "types": "./dist/v2/index.d.ts",
+      "import": "./dist/v2/index.js",
+      "default": "./dist/v2/index.js"
     }
   },
   "nx": {
@@ -35,7 +40,8 @@
     "@seqlane/protocol": "workspace:*",
     "effect": "4.1.4",
     "zod": "4.6.6",
-    "@effect/platform-node": "4.1.4"
+    "@effect/platform-node": "4.1.4",
+    "@opencode/client": "2.1.2"
   },
   "files": [
     "dist",
@@ -44,7 +50,8 @@
     "!dist/**/*.test.*",
     "!dist/**/*test-support*",
     "!dist/test-fixtures/**",
-    "!dist/**/*-fixture.*"
+    "!dist/**/*-fixture.*",
+    "tested-v2-versions.json"
   ],
   "publishConfig": {
     "access": "public",

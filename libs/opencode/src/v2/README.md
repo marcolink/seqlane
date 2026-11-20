@@ -1,13 +1,13 @@
-# @seqlane/opencode-v2-adapter
+# OpenCode 2 implementation
 
-Private OpenCode 2 adapter used by the Seqlane CLI. This package is published
-so `seqlane` can install it. Its exports are not a supported authoring API.
+Private OpenCode 2 adapter used by the Seqlane CLI. The
+`@seqlane/opencode-adapter/v2` export contains this implementation.
+Its exports are not a supported authoring API.
 Workflow authors use `@seqlane/core`.
 
 The adapter uses the OpenCode 2 API and checks server compatibility before
 submitting work. It implements the existing generic adapter contract. The
-generic runtime has no concrete adapter dependency. The OpenCode 1 adapter
-remains separate.
+generic runtime has no concrete adapter dependency. The same package contains the OpenCode 1 implementation at its root export.
 
 Execution creates a native session with the selected model, admits one input,
 then polls bounded message pages through that exact input. It validates native
@@ -66,7 +66,7 @@ not the experimental native session log or live-only global event stream.
 Run deterministic fixtures after `pnpm test:mapping`:
 
 ```sh
-pnpm --dir libs/opencode-v2 exec vitest run
+pnpm --dir libs/opencode exec vitest run src/v2
 ```
 
 The separate native compatibility probe uses a local OpenAI-compatible test

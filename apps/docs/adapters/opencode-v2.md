@@ -1,6 +1,7 @@
 # OpenCode 2
 
-Select `opencode-v2` for OpenCode 2. The adapter uses `@opencode/client` and
+Select `opencode-v2` for OpenCode 2. The CLI loads the
+`@seqlane/opencode-adapter/v2` export from the same package as OpenCode 1. The adapter uses `@opencode/client` and
 checks server compatibility before agent work starts. The `opencode` adapter
 continues to use OpenCode 1.
 
