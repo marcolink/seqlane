@@ -11,7 +11,7 @@ import {
   startOpenCodeV2Service,
   createOpenCodeV2AgentRuntimeFactory,
   OPENCODE_V2_VERSION,
-} from "../libs/opencode-v2/dist/index.js";
+} from "@seqlane/opencode-adapter/v2";
 
 const executable = process.env.SEQLANE_OPENCODE_V2_EXECUTABLE;
 assert(
@@ -168,7 +168,7 @@ export default createFlow({id:'v2-probe',input:z.object({}),output,model:{model:
 .task('second',task,()=>({}),{session:({tasks})=>reuse(tasks.first.session)})
 .output(({tasks})=>tasks.second.output).define();`,
   );
-  const run = async (flags) => {
+  const run = async (flags, adapter = "opencode-v2") => {
     const result = await promisify(execFile)(
       process.execPath,
       [
@@ -179,7 +179,7 @@ export default createFlow({id:'v2-probe',input:z.object({}),output,model:{model:
         "--workspace",
         workspace,
         "--adapter",
-        "opencode-v2",
+        adapter,
         "--json",
         ...flags,
       ],
@@ -304,6 +304,26 @@ console.log(JSON.stringify({ credentialPresent: password !== undefined, serviceS
     url.port,
   ]);
   assert.equal(agentCalls, 4);
+  await run(["--opencode-executable", executable], "opencode");
+  await run(
+    [
+      "--opencode-mode",
+      "external",
+      "--opencode-host",
+      "127.0.0.1",
+      "--opencode-port",
+      new URL(external.url).port,
+    ],
+    "opencode",
+  );
+  assert.equal(
+    agentCalls,
+    8,
+    "automatic detection must execute each task once",
+  );
+  console.log(
+    "PASS automatic CLI: managed and authenticated external V2 detection",
+  );
   assert.equal(
     (await fetch(`${external.url}/api/info`, { headers })).status,
     200,

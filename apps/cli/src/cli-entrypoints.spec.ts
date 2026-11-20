@@ -1,5 +1,6 @@
 // @test-scope ./adapter-flags.ts
 // @test-scope ./opencode-v2-runtime.ts
+// @test-scope ./opencode-runtime.ts
 // @test-scope ./commands/run.ts
 // @test-scope ./run-input.ts
 // @test-scope ./run-execution.ts
@@ -165,6 +166,11 @@ async function startExternalOpenCodeFixture(): Promise<{
   const server = createServer((request, response) => {
     const path = request.url ?? "/";
     requests.push(path);
+    if (path === "/global/health") {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ healthy: true, version: "1.18.27" }));
+      return;
+    }
     if (request.method === "GET" && path === "/") {
       response.writeHead(200, { "content-type": "text/html" });
       response.end("<html><body>OpenCode</body></html>");
@@ -998,7 +1004,7 @@ export default createFlow({ id: "stdout", input: z.object({}), output: z.boolean
     const opencode = join(bin, "opencode");
     writeFileSync(
       opencode,
-      '#!/bin/sh\nprintf \'%s\' "$*" > "$SEQLANE_TEST_OPENCODE_SPAWNED"\nexit 1\n',
+      '#!/bin/sh\nif [ "$1" = "--version" ]; then printf "1.18.27\\n"; exit 0; fi\nprintf \'%s\' "$*" > "$SEQLANE_TEST_OPENCODE_SPAWNED"\nexit 1\n',
     );
     chmodSync(opencode, 0o755);
 

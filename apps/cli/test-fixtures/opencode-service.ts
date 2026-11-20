@@ -2,6 +2,7 @@
 export const openCodeServiceFixture = String.raw`#!/usr/bin/env node
 import { createServer } from "node:http";
 import { appendFileSync, writeFileSync } from "node:fs";
+if (process.argv.includes("--version")) { console.log("1.18.27"); process.exit(0); }
 const marker = process.env.SEQLANE_TEST_SERVICE_MARKER;
 const mode = process.env.SEQLANE_TEST_SERVICE_MODE;
 const authorization = "Basic " + Buffer.from(process.env.OPENCODE_SERVER_USERNAME + ":" + process.env.OPENCODE_SERVER_PASSWORD).toString("base64");

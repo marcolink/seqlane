@@ -1,11 +1,24 @@
 # @seqlane/opencode-adapter
 
-Internal SDK adapter for the Seqlane agent runtime. This package is public on
+Internal OpenCode 1 and OpenCode 2 adapters for the Seqlane agent runtime. This package is public on
 npm so `seqlane` can install it. Its exports are not a supported API. Workflow
 authors use `@seqlane/core`; OpenCode SDK, session, and endpoint details stay
 internal.
 
-Agent tasks use the pinned OpenCode SDK with the selected endpoint, workspace,
+The root runtime factory uses OpenCode 1. The `/v2` factory uses OpenCode 2.
+The CLI selects the implementation automatically with `--adapter opencode`.
+Managed mode probes the selected executable before startup. External mode reads
+validated server information before session creation. Detection accepts stable
+OpenCode 1 versions and the pinned OpenCode 2.1.2 release. V1 retains its
+version-aware structured-output policy. Authentication, transport, malformed
+version, and unsupported-version errors stop detection.
+Use `--opencode-executable` to select an absolute managed executable path.
+The explicit `opencode-v2` selector and its flags remain available.
+Read the [OpenCode 2 implementation guide](src/v2/README.md) for its contracts
+and verification commands. The implementations keep separate SDKs, session
+policies, and version checks.
+
+The OpenCode 1 adapter uses the pinned OpenCode SDK with the selected endpoint, workspace,
 and model configuration. The adapter does not receive, derive, merge, or
 apply Seqlane per-task permission rules. Runtime configuration is authoritative
 for tools, filesystem, shell, network, MCP, skills, and approvals.

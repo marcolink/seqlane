@@ -11,12 +11,14 @@ Classifier tasks use a separate
 [classifier connection](/authoring-workflows/classifier-tasks).
 
 ```sh
-seqlane run ./workflow.ts --input '{}' --adapter opencode
+seqlane run ./workflow.ts \
+  --input '{}' \
+  --adapter opencode
 ```
 
 ## Available adapters
 
-- [OpenCode](/adapters/opencode) starts a private OpenCode 1 service or connects to a loopback external service.
+- [OpenCode](/adapters/opencode) detects V1 or V2, starts a private service, or connects to a loopback external service.
 - [OpenCode 2](/adapters/opencode-v2) uses the V2 client with a private or explicit external service.
 - [Codex](/adapters/codex) starts a local Codex app-server process for the run.
 
@@ -30,7 +32,7 @@ structured output. Read [Model selection](/authoring-workflows/models).
 
 | Adapter | Model selection | Reuse session | Fork session | Activity | Session UI |
 | --- | --- | --- | --- | --- | --- |
-| OpenCode | Yes | Yes | Yes | Yes | When available |
+| OpenCode 1 | Yes | Yes | Yes | Yes | When available |
 | OpenCode 2 | Yes | Yes | No | Yes | No |
 | Codex | Yes | Yes | Yes | Yes | Codex app |
 

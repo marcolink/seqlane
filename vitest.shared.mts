@@ -5,8 +5,8 @@ const workspaceRoot = fileURLToPath(new URL(".", import.meta.url));
 
 export const workspaceAliases = [
   {
-    find: "@seqlane/opencode-v2-adapter",
-    replacement: resolve(workspaceRoot, "libs/opencode-v2/src/index.ts"),
+    find: "@seqlane/opencode-adapter/v2",
+    replacement: resolve(workspaceRoot, "libs/opencode/src/v2/index.ts"),
   },
   {
     find: "@seqlane/agent-adapter/private/owned-process",

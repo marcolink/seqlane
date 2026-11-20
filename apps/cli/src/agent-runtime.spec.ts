@@ -1,4 +1,5 @@
 // @test-scope ./agent-runtime.ts
+// @test-scope ./opencode-runtime.ts
 // @test-scope ../../../libs/runtime/src/runtime/operations/host.ts
 import type { AgentAdapter, AgentRuntimeFactory } from "@seqlane/agent-adapter";
 import type { Plan, PlanNode, SeqlaneEvent } from "@seqlane/core";
@@ -28,7 +29,11 @@ import {
 vi.mock("@seqlane/opencode-adapter", async (importOriginal) => {
   const original =
     await importOriginal<typeof import("@seqlane/opencode-adapter")>();
-  return { ...original, startOpenCodeService: vi.fn() };
+  return {
+    ...original,
+    startOpenCodeService: vi.fn(),
+    detectOpenCodeExecutableVersion: vi.fn(async () => "v1" as const),
+  };
 });
 
 const input = z.object({ value: z.string() });
@@ -222,7 +227,16 @@ describe("CLI agent runtime composition", () => {
 
   it("uses an external OpenCode server without owning its lifecycle", async () => {
     vi.clearAllMocks();
-    const server = createServer((_request, response) => {
+    const server = createServer((request, response) => {
+      if (request.url === "/api/info") {
+        response.writeHead(404).end();
+        return;
+      }
+      if (request.url === "/global/health") {
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(JSON.stringify({ healthy: true, version: "1.18.27" }));
+        return;
+      }
       response.writeHead(200, { "content-type": "text/html" });
       response.end("<html><body>OpenCode</body></html>");
     });
@@ -267,6 +281,15 @@ describe("CLI agent runtime composition", () => {
     vi.clearAllMocks();
     let requestHost: string | undefined;
     const server = createServer((request, response) => {
+      if (request.url === "/api/info") {
+        response.writeHead(404).end();
+        return;
+      }
+      if (request.url === "/global/health") {
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(JSON.stringify({ healthy: true, version: "1.18.27" }));
+        return;
+      }
       requestHost = request.headers.host;
       response.writeHead(200, { "content-type": "text/html" });
       response.end("<html><body>OpenCode</body></html>");
@@ -303,7 +326,16 @@ describe("CLI agent runtime composition", () => {
 
   it("leaves an external OpenCode server alive after a runtime error", async () => {
     vi.clearAllMocks();
-    const server = createServer((_request, response) => {
+    const server = createServer((request, response) => {
+      if (request.url === "/api/info") {
+        response.writeHead(404).end();
+        return;
+      }
+      if (request.url === "/global/health") {
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(JSON.stringify({ healthy: true, version: "1.18.27" }));
+        return;
+      }
       response.writeHead(200, { "content-type": "text/html" });
       response.end("<html><body>OpenCode</body></html>");
     });
@@ -346,7 +378,16 @@ describe("CLI agent runtime composition", () => {
 
   it("leaves an external OpenCode server alive after cancellation", async () => {
     vi.clearAllMocks();
-    const server = createServer((_request, response) => {
+    const server = createServer((request, response) => {
+      if (request.url === "/api/info") {
+        response.writeHead(404).end();
+        return;
+      }
+      if (request.url === "/global/health") {
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(JSON.stringify({ healthy: true, version: "1.18.27" }));
+        return;
+      }
       response.writeHead(200, { "content-type": "text/html" });
       response.end("<html><body>OpenCode</body></html>");
     });
@@ -387,6 +428,15 @@ describe("CLI agent runtime composition", () => {
     vi.clearAllMocks();
     const authorizations: (string | undefined)[] = [];
     const server = createServer((request, response) => {
+      if (request.url === "/api/info") {
+        response.writeHead(404).end();
+        return;
+      }
+      if (request.url === "/global/health") {
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(JSON.stringify({ healthy: true, version: "1.18.27" }));
+        return;
+      }
       authorizations.push(request.headers.authorization);
       if (request.url?.startsWith("/provider")) {
         response.writeHead(200, { "content-type": "application/json" });

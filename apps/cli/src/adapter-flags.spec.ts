@@ -2,6 +2,30 @@ import { describe, expect, it } from "vitest";
 import { createRunAdapterConfiguration } from "./adapter-flags.js";
 
 describe("V2 CLI flag configuration", () => {
+  it("accepts a shared executable path for automatic detection", () => {
+    expect(
+      JSON.parse(
+        createRunAdapterConfiguration({
+          adapter: "opencode",
+          "opencode-executable": "/opt/opencode",
+        }) ?? "null",
+      ),
+    ).toMatchObject({ adapter: "opencode", executable: "/opt/opencode" });
+  });
+
+  it.each([
+    { "opencode-executable": "opencode" },
+    {
+      "opencode-mode": "external",
+      "opencode-host": "127.0.0.1",
+      "opencode-port": 4096,
+      "opencode-executable": "/opt/opencode",
+    },
+  ])("rejects an invalid automatic executable selection", (flags) => {
+    expect(() =>
+      createRunAdapterConfiguration({ adapter: "opencode", ...flags }),
+    ).toThrow();
+  });
   it("keeps V1 and V2 identities separate", () => {
     expect(createRunAdapterConfiguration({ adapter: "opencode" })).toBe(
       '{"adapter":"opencode","mode":"managed","host":"127.0.0.1","port":0}',

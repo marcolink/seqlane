@@ -43,6 +43,7 @@ const adapterFlagsSchema = z.object({
   "opencode-mode": z.string().optional(),
   "opencode-host": z.string().optional(),
   "opencode-port": z.number().optional(),
+  "opencode-executable": z.string().optional(),
   "opencode-v2-mode": z.string().optional(),
   "opencode-v2-host": z.string().optional(),
   "opencode-v2-port": z.number().optional(),
@@ -57,13 +58,12 @@ export function createRunAdapterConfiguration(
   if (flags.adapter === "codex")
     return createDirectRunAdapterConfiguration({ adapter: "codex" });
   const prefix = flags.adapter === "opencode-v2" ? "opencode-v2" : "opencode";
+  const executable = flags[`${prefix}-executable`];
   return createDirectRunAdapterConfiguration({
     adapter: flags.adapter,
     mode: flags[`${prefix}-mode`] ?? "managed",
     host: flags[`${prefix}-host`],
     port: flags[`${prefix}-port`],
-    ...(flags["opencode-v2-executable"] === undefined
-      ? {}
-      : { executable: flags["opencode-v2-executable"] }),
+    ...(executable === undefined ? {} : { executable }),
   });
 }

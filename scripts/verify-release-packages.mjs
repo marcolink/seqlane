@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { z } from "zod";
 
 const repositoryRoot = resolve(import.meta.dirname, "..");
 const repositoryUrl = "git+https://github.com/marcolink/seqlane.git";
@@ -15,7 +16,6 @@ export const expectedReleases = new Map([
   ["codex-adapter", "@seqlane/codex-adapter"],
   ["core", "@seqlane/core"],
   ["opencode", "@seqlane/opencode-adapter"],
-  ["opencode-v2", "@seqlane/opencode-v2-adapter"],
   ["protocol", "@seqlane/protocol"],
   ["runtime", "@seqlane/runtime"],
   ["tui", "@seqlane/tui"],
@@ -23,6 +23,30 @@ export const expectedReleases = new Map([
 
 const expectedProjects = [...expectedReleases.keys()];
 const expectedPackages = new Set(expectedReleases.values());
+
+const exportTargetSchema = z.lazy(() =>
+  z.union([
+    z.string().min(1),
+    z.null(),
+    z.array(exportTargetSchema),
+    z.record(z.string(), exportTargetSchema),
+  ]),
+);
+const entrypointsSchema = z.object({
+  main: z.string().min(1).optional(),
+  module: z.string().min(1).optional(),
+  types: z.string().min(1).optional(),
+  exports: exportTargetSchema.optional(),
+  bin: z
+    .union([z.string().min(1), z.record(z.string(), z.string().min(1))])
+    .optional(),
+});
+
+function exportTargets(value) {
+  if (typeof value === "string") return [value];
+  if (value === null || value === undefined) return [];
+  return Object.values(value).flatMap(exportTargets);
+}
 
 function fail(message) {
   throw new Error(message);
@@ -118,9 +142,28 @@ export function validateArchiveEntries(packageName, entries) {
   }
 }
 
-export function validatePackedManifest(packageName, releaseVersion, manifest) {
+export function validatePackedManifest(
+  packageName,
+  releaseVersion,
+  manifest,
+  entries,
+) {
   if (manifest.name !== packageName || manifest.version !== releaseVersion) {
     fail(`${packageName} archive metadata does not match ${releaseVersion}`);
+  }
+
+  const entrypoints = entrypointsSchema.parse(manifest);
+  for (const target of [
+    ...exportTargets(entrypoints.main),
+    ...exportTargets(entrypoints.module),
+    ...exportTargets(entrypoints.types),
+    ...exportTargets(entrypoints.exports),
+    ...exportTargets(entrypoints.bin),
+  ]) {
+    const path = `package/${target.replace(/^\.\//, "")}`;
+    if (!entries?.includes(path)) {
+      fail(`${packageName} archive is missing entrypoint ${path}`);
+    }
   }
 
   for (const [dependency, version] of Object.entries(
@@ -178,7 +221,7 @@ function verifyReleaseProject(
   const packedManifest = JSON.parse(
     capture("tar", ["-xOf", archive, "package/package.json"]),
   );
-  validatePackedManifest(packageName, releaseVersion, packedManifest);
+  validatePackedManifest(packageName, releaseVersion, packedManifest, entries);
   return releaseVersion;
 }
 

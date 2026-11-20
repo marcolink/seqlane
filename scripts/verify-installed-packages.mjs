@@ -55,11 +55,13 @@ try {
       "--out",
       archive,
     ]);
-    validateArchiveEntries(name, capture("tar", ["-tzf", archive]).split("\n"));
+    const entries = capture("tar", ["-tzf", archive]).split("\n");
+    validateArchiveEntries(name, entries);
     validatePackedManifest(
       name,
       source.version,
       JSON.parse(capture("tar", ["-xOf", archive, "package/package.json"])),
+      entries,
     );
     dependencies[name] = `file:${archive}`;
   }
@@ -144,6 +146,9 @@ import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 const names = ${JSON.stringify([...expectedReleases.values()])};
 const root = process.cwd();
+const openCodeV2 = await import("@seqlane/opencode-adapter/v2");
+assert.equal(openCodeV2.OPENCODE_V2_VERSION, "2.1.2");
+assert.equal(typeof openCodeV2.createOpenCodeV2AgentRuntimeFactory, "function");
 for (const name of names) {
   const entry = realpathSync(fileURLToPath(import.meta.resolve(name)));
   const path = relative(root, entry);

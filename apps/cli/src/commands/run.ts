@@ -101,6 +101,12 @@ export default class RunCommand extends SeqlaneCommand {
       dependsOn: ["adapter"],
       relationships: openCodeAdapterOnlyRelationships,
     }),
+    "opencode-executable": Flags.string({
+      description:
+        "Absolute OpenCode executable path (managed only; version is detected)",
+      dependsOn: ["adapter"],
+      relationships: openCodeAdapterOnlyRelationships,
+    }),
     workspace: Flags.string({
       description: "Workspace path for file-accessing tasks",
     }),

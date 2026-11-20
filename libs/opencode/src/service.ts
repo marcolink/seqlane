@@ -26,6 +26,8 @@ export interface OpenCodeService {
 export interface StartOpenCodeServiceOptions {
   readonly workspace: string;
   readonly signal: AbortSignal;
+  /** Absolute executable selected by the CLI; defaults to opencode on PATH. */
+  readonly executable?: string;
   /** Loopback address for the owned service. */
   readonly host?: string;
   /** TCP port for the owned service; zero asks OpenCode to select one. */
