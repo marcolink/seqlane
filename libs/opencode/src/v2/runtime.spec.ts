@@ -1,3 +1,4 @@
+// @test-scope ./checkpoint.ts
 // @test-scope ./runtime.ts
 // @test-scope ./client.ts
 // @test-scope ./models.ts
@@ -65,7 +66,18 @@ async function fixture() {
     body: unknown;
     auth: string | undefined;
   }[] = [];
+  const sessions = new Map<
+    string,
+    { history: string[]; model: typeof model & { variant: string } }
+  >();
   const state = {
+    sessions,
+    forks: 0,
+    failForkModel: false,
+    forkGate: undefined as Promise<void> | undefined,
+    failSwitch: false,
+    ignoreSwitch: false,
+    removedRoots: [] as string[],
     toolDetails,
     nativeOverflow: false,
     version: "2.1.2",
@@ -113,7 +125,10 @@ async function fixture() {
       auth: req.headers.authorization,
     });
     const send = (value: unknown) => {
-      if (req.method === "DELETE") {
+      if (
+        req.method === "DELETE" ||
+        (req.method === "POST" && path.endsWith("/model"))
+      ) {
         res.writeHead(204);
         res.end();
         return;
@@ -125,6 +140,7 @@ async function fixture() {
           !path.slice("/api/session/".length).includes("/") &&
           req.method === "GET") ||
         (path === "/api/session" && req.method === "POST") ||
+        path.endsWith("/fork") ||
         path.endsWith("/prompt") ||
         path.endsWith("/permission") ||
         path.endsWith("/form");
@@ -138,7 +154,10 @@ async function fixture() {
     };
     if (path === "/api/info")
       return send({ version: state.version, pid: 1, urls: [] });
-    if (path === "/api/model") return send({ data: [model] });
+    if (path === "/api/model")
+      return send({
+        data: [model, { ...model, id: "branch", variants: [{ id: "low" }] }],
+      });
     if (path === "/api/model/default") return send({ data: model });
     if (path === "/api/session/active")
       return send({
@@ -166,6 +185,10 @@ async function fixture() {
     }
     if (path === "/api/session" && req.method === "POST") {
       state.creates++;
+      sessions.set("ses_owned", {
+        history: [],
+        model: { ...model, variant: "high" },
+      });
       return send({
         id: "ses_owned",
         location: { directory: workspace },
@@ -192,11 +215,52 @@ async function fixture() {
           : [];
       return send({ data: children, cursor: {} });
     }
+    const nativeID = path.split("/")[3] ?? "";
+    if (path.endsWith("/fork")) {
+      const source = sessions.get(nativeID);
+      if (!source) throw new Error("missing fork source");
+      const id = `ses_fork_${++state.forks}`;
+      sessions.set(id, {
+        history: [...source.history],
+        model: { ...source.model },
+      });
+      await state.forkGate;
+      return send({
+        id,
+        location: { directory: workspace },
+        model: state.failForkModel ? {} : source.model,
+        fork: {
+          sessionID: nativeID,
+          boundary: { type: "through", messageID: "idle" },
+        },
+      });
+    }
+    if (path.endsWith("/model")) {
+      if (state.failSwitch) {
+        res.writeHead(503);
+        res.end("unavailable");
+        return;
+      }
+      const selected = z
+        .object({
+          model: z.object({
+            providerID: z.string(),
+            id: z.string(),
+            variant: z.string(),
+          }),
+        })
+        .parse(value);
+      const session = sessions.get(nativeID);
+      if (session && !state.ignoreSwitch)
+        session.model = { ...model, ...selected.model };
+      return send({});
+    }
     if (path.endsWith("/prompt")) {
       state.prompts++;
+      sessions.get(nativeID)?.history.push(`usr_${state.prompts}`);
       return send({
         id: `usr_${state.prompts}`,
-        sessionID: "ses_owned",
+        sessionID: nativeID,
         type: "user",
       });
     }
@@ -222,17 +286,26 @@ async function fixture() {
         return;
       }
       if (state.oversized) return send({ data: "x".repeat(1_048_576) });
-      const user = { id: `usr_${state.prompts}`, type: "user" };
+      const inputID =
+        sessions.get(nativeID)?.history.at(-1) ?? `usr_${state.prompts}`;
+      const user = { id: inputID, type: "user" };
       if (state.delayed) return send({ data: [user], cursor: {} });
       const assistant = {
         id: `msg_${state.prompts}`,
         type: "assistant",
         model: {
           ...model,
-          id: state.changedResponseModel ? "changed" : model.id,
+          id: state.changedResponseModel
+            ? "changed"
+            : (sessions.get(nativeID)?.model.id ?? model.id),
           ...(state.omitResponseVariant
             ? {}
-            : { variant: state.responseVariant }),
+            : {
+                variant:
+                  nativeID === "ses_owned"
+                    ? state.responseVariant
+                    : sessions.get(nativeID)?.model.variant,
+              }),
         },
         time: {
           created: 1,
@@ -303,6 +376,10 @@ async function fixture() {
     }
     if (path.startsWith("/api/session/")) {
       const sessionID = path.slice("/api/session/".length);
+      if (req.method === "DELETE") {
+        state.removedRoots.push(sessionID);
+        sessions.delete(sessionID);
+      }
       if (req.method === "DELETE" && sessionID === "ses_owned") {
         state.removed = true;
         return send({});
@@ -316,6 +393,15 @@ async function fixture() {
             id: state.changedModel ? "changed" : model.id,
             variant: "high",
           },
+        });
+      if (
+        sessions.has(sessionID) ||
+        (req.method === "DELETE" && sessionID.startsWith("ses_fork_"))
+      )
+        return send({
+          id: sessionID,
+          location: { directory: workspace },
+          model: sessions.get(sessionID)?.model,
         });
       if (state.childSessions.includes(sessionID))
         return send({
@@ -360,6 +446,240 @@ async function fixture() {
 }
 
 describe("OpenCode V2 real-client execution", () => {
+  it("retains immutable checkpoints across source reuse and two parallel forks", async () => {
+    const h = await fixture();
+    try {
+      await h.adapter.execute(request());
+      expect(h.state.forks).toBe(0);
+      const checkpoint = await h.adapter.captureCheckpoint!();
+      expect(h.state.forks).toBe(1);
+      expect(await h.adapter.captureCheckpoint!()).toEqual(checkpoint);
+      expect(h.state.forks).toBe(1);
+      await h.adapter.execute(request());
+      const [left, right] = await Promise.all([
+        h.adapter.fork!({ checkpoint, modelSelection: selection }),
+        h.adapter.fork!({ checkpoint }),
+      ]);
+      expect(h.state.prompts).toBe(2);
+      expect(h.state.sessions.get("ses_fork_2")?.history).toEqual(["usr_1"]);
+      expect(h.state.sessions.get("ses_fork_3")?.history).toEqual(["usr_1"]);
+      await expect(left.fork!({ checkpoint })).rejects.toThrow(
+        "checkpoint does not belong to this session",
+      );
+      expect(
+        h.calls
+          .filter((c) => c.path.endsWith("/fork"))
+          .every(
+            (c) => c.body === undefined || JSON.stringify(c.body) === "{}",
+          ),
+      ).toBe(true);
+      await Promise.all([left.execute(request()), right.execute(request())]);
+      expect(h.state.prompts).toBe(4);
+      await h.runtime.close?.();
+      expect(h.state.sessions.size).toBe(0);
+    } finally {
+      await h.close();
+    }
+  });
+  it("forks an earlier checkpoint after failed source reuse destroys the live session", async () => {
+    const h = await fixture();
+    try {
+      await h.adapter.execute(request());
+      const checkpoint = await h.adapter.captureCheckpoint!();
+      h.state.text = "invalid JSON";
+      await expect(h.adapter.execute(request())).rejects.toBeInstanceOf(
+        OpenCodeV2Error,
+      );
+      expect(h.state.sessions.has("ses_owned")).toBe(false);
+      expect(h.state.sessions.get("ses_fork_1")?.history).toEqual(["usr_1"]);
+      await expect(h.adapter.execute(request())).rejects.toThrow(
+        "session is busy or unavailable",
+      );
+      await expect(h.adapter.captureCheckpoint!()).rejects.toThrow(
+        "checkpoint is unavailable",
+      );
+      await expect(h.adapter.fork!({ checkpoint: {} })).rejects.toThrow(
+        "checkpoint does not belong to this run",
+      );
+      const branch = await h.adapter.fork!({ checkpoint });
+      expect(h.state.sessions.get("ses_fork_2")?.history).toEqual(["usr_1"]);
+      expect(h.state.prompts).toBe(2);
+      await expect(branch.fork!({ checkpoint })).rejects.toThrow(
+        "checkpoint does not belong to this session",
+      );
+      h.state.text = '{"answer":"ok"}';
+      await expect(branch.execute(request())).resolves.toEqual({
+        answer: "ok",
+      });
+      await h.adapter.close?.();
+      await expect(h.adapter.fork!({ checkpoint })).rejects.toThrow(
+        "session is unavailable",
+      );
+      await h.runtime.close?.();
+      expect(h.state.sessions.size).toBe(0);
+    } finally {
+      await h.close();
+    }
+  });
+  it("rejects empty, busy, malformed, foreign, and closed checkpoints", async () => {
+    const h = await fixture();
+    const other = await fixture();
+    try {
+      await expect(h.adapter.captureCheckpoint!()).rejects.toThrow();
+      await h.adapter.execute(request());
+      const checkpoint = await h.adapter.captureCheckpoint!();
+      await expect(other.adapter.fork!({ checkpoint })).rejects.toThrow();
+      await expect(h.adapter.fork!({ checkpoint: {} })).rejects.toThrow();
+      h.state.delayed = true;
+      const pending = h.adapter.execute(request()).catch((cause) => cause);
+      await vi.waitFor(() => expect(h.state.prompts).toBe(2));
+      await expect(h.adapter.captureCheckpoint!()).rejects.toThrow();
+      await h.runtime.close?.();
+      await pending;
+      await expect(h.adapter.captureCheckpoint!()).rejects.toThrow();
+      await expect(h.adapter.fork!({ checkpoint })).rejects.toThrow();
+    } finally {
+      await h.close();
+      await other.close();
+    }
+  });
+  it("cleans a partially validated native fork and preserves successful output", async () => {
+    const h = await fixture();
+    try {
+      h.state.failForkModel = true;
+      await expect(h.adapter.execute(request())).resolves.toEqual({
+        answer: "ok",
+      });
+      await expect(h.adapter.captureCheckpoint!()).rejects.toThrow();
+      expect(h.state.removedRoots).toContain("ses_fork_1");
+      h.state.failForkModel = false;
+      await h.adapter.execute(request());
+      const checkpoint = await h.adapter.captureCheckpoint!();
+      h.state.failForkModel = true;
+      await expect(h.adapter.fork!({ checkpoint })).rejects.toThrow();
+      expect(h.state.removedRoots).toContain("ses_fork_3");
+      expect(h.state.sessions.has("ses_owned")).toBe(true);
+    } finally {
+      await h.close();
+    }
+  });
+  it("cancels a fork without deleting its source, snapshot, or peer", async () => {
+    const h = await fixture();
+    try {
+      await h.adapter.execute(request());
+      const checkpoint = await h.adapter.captureCheckpoint!();
+      const left = await h.adapter.fork!({ checkpoint });
+      const right = await h.adapter.fork!({ checkpoint });
+      h.state.delayed = true;
+      const controller = new AbortController();
+      const pending = left
+        .execute(request({ signal: controller.signal }))
+        .catch((cause) => cause);
+      await vi.waitFor(() => expect(h.state.prompts).toBe(2));
+      controller.abort();
+      expect(await pending).toBeInstanceOf(Error);
+      expect(h.state.removedRoots).toEqual(["ses_fork_2"]);
+      h.state.delayed = false;
+      await expect(right.execute(request())).resolves.toEqual({ answer: "ok" });
+      await expect(h.adapter.fork!({ checkpoint })).resolves.toBeDefined();
+    } finally {
+      await h.close();
+    }
+  });
+  it("switches the fork model and reasoning before execution without a prompt", async () => {
+    const h = await fixture();
+    try {
+      await h.adapter.execute(request());
+      const checkpoint = await h.adapter.captureCheckpoint!();
+      const branch = await h.adapter.fork!({
+        checkpoint,
+        modelSelection: {
+          model: { provider: "fixture", model: "branch" },
+          reasoning: "low",
+        },
+      });
+      expect(h.state.prompts).toBe(1);
+      expect(h.state.sessions.get("ses_fork_2")?.model).toMatchObject({
+        id: "branch",
+        variant: "low",
+      });
+      await expect(branch.execute(request())).resolves.toEqual({
+        answer: "ok",
+      });
+    } finally {
+      await h.close();
+    }
+  });
+  it.each(["failSwitch", "ignoreSwitch"] as const)(
+    "cleans a fork after %s without affecting its checkpoint",
+    async (key) => {
+      const h = await fixture();
+      try {
+        await h.adapter.execute(request());
+        const checkpoint = await h.adapter.captureCheckpoint!();
+        h.state[key] = true;
+        await expect(
+          h.adapter.fork!({
+            checkpoint,
+            modelSelection: {
+              model: { provider: "fixture", model: "branch" },
+              reasoning: "low",
+            },
+          }),
+        ).rejects.toThrow();
+        expect(h.state.removedRoots).toEqual(["ses_fork_2"]);
+        expect(h.state.prompts).toBe(1);
+        h.state[key] = false;
+        await expect(h.adapter.fork!({ checkpoint })).resolves.toBeDefined();
+      } finally {
+        await h.close();
+      }
+    },
+  );
+  it("closes a fork acquired while runtime cleanup starts", async () => {
+    const h = await fixture();
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    try {
+      await h.adapter.execute(request());
+      const checkpoint = await h.adapter.captureCheckpoint!();
+      h.state.forkGate = gate;
+      const pending = h.adapter.fork!({ checkpoint }).catch((cause) => cause);
+      await vi.waitFor(() => expect(h.state.forks).toBe(2));
+      const closing = h.runtime.close?.();
+      release();
+      expect(await pending).toBeInstanceOf(Error);
+      await closing;
+      expect(h.state.sessions.size).toBe(0);
+    } finally {
+      release();
+      await h.close();
+    }
+  });
+  it("closes a snapshot acquired while runtime cleanup starts", async () => {
+    const h = await fixture();
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    try {
+      await h.adapter.execute(request());
+      h.state.forkGate = gate;
+      const pending = h.adapter.captureCheckpoint!().catch((cause) => cause);
+      await vi.waitFor(() => expect(h.state.forks).toBe(1));
+      await expect(h.adapter.execute(request())).rejects.toThrow();
+      const closing = h.runtime.close?.();
+      release();
+      expect(await pending).toBeInstanceOf(Error);
+      await closing;
+      expect(h.state.sessions.size).toBe(0);
+    } finally {
+      release();
+      await h.close();
+    }
+  });
   it("submits task input that is absent from the goal and instructions", async () => {
     const h = await fixture();
     try {
@@ -483,8 +803,8 @@ describe("OpenCode V2 real-client execution", () => {
       ]);
       expect(onObservation).toHaveBeenCalledTimes(1);
       expect(h.adapter.capabilities).toMatchObject({
-        checkpoint: false,
-        fork: false,
+        checkpoint: true,
+        fork: true,
         sessionUi: false,
       });
       await h.runtime.close?.();

@@ -9,6 +9,7 @@ import type { InteractionPolicy } from "@seqlane/protocol";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import {
+  createAgentSession,
   executeAgentAdapterRequest,
   RuntimeAdapterExecutionStartError,
   RuntimeUserInputUnsupportedError,
@@ -46,6 +47,129 @@ function request(taskId: string): ExecutorRequest {
     signal: new AbortController().signal,
   };
 }
+
+describe("runtime profile checkpoint handles", () => {
+  const binding = {
+    adapter: "fixture",
+    runId: "run-1",
+    configurationBinding: "e61ef39b-6ec5-4bc3-9ded-89a3f4fcf095",
+    capabilities,
+  };
+
+  function source(overrides: Partial<typeof binding> = {}) {
+    const definition = task();
+    let current: unknown;
+    const forked: unknown[] = [];
+    const adapter: AgentAdapter = {
+      capabilities,
+      execute: async (value) => {
+        value.onExecutionStarted();
+        current = value.input;
+        return current;
+      },
+      captureCheckpoint: async () => Object.freeze({ input: current }),
+      fork: async ({ checkpoint }) => {
+        forked.push(checkpoint);
+        return adapter;
+      },
+    };
+    const session = createAgentSession(
+      new Map([[definition.id, definition]]),
+      adapter,
+      undefined,
+      undefined,
+      { ...binding, ...overrides },
+      () => undefined,
+    );
+    return {
+      session,
+      forked,
+      execute: (input: string) =>
+        session.executor.execute({ ...request(definition.id), input }),
+      fork: (checkpoint: unknown) =>
+        session.fork!({ checkpoint, invocationId: "fork", task: definition }),
+    };
+  }
+
+  it("forks task A's snapshot after the source executes task B", async () => {
+    const runtime = source();
+    await runtime.execute("A");
+    const checkpointA = await runtime.session.checkpoint!();
+    await runtime.execute("B");
+
+    await runtime.fork(checkpointA);
+
+    expect(runtime.forked).toEqual([{ input: "A" }]);
+    expect(checkpointA).toMatchObject({ generation: 1 });
+  });
+
+  it("accepts multiple issued handles and repeated forks of an earlier handle", async () => {
+    const runtime = source();
+    await runtime.execute("A");
+    const first = await runtime.session.checkpoint!();
+    const second = await runtime.session.checkpoint!();
+    await runtime.execute("B");
+    const third = await runtime.session.checkpoint!();
+
+    for (const checkpoint of [first, second, third, first]) {
+      await runtime.fork(checkpoint);
+    }
+
+    expect(first).not.toBe(second);
+    expect(runtime.forked).toEqual([
+      { input: "A" },
+      { input: "A" },
+      { input: "B" },
+      { input: "A" },
+    ]);
+  });
+
+  it.each([
+    ["another source", {}],
+    ["another run", { runId: "run-2" }],
+    ["another adapter", { adapter: "other" }],
+    [
+      "another configuration",
+      { configurationBinding: "aaf9c86f-afc6-4dd9-92b6-de35c628ce45" },
+    ],
+  ])("rejects a handle from %s", async (_label, overrides) => {
+    const owner = source(overrides);
+    const recipient = source();
+    await owner.execute("A");
+    await recipient.execute("A");
+    await recipient.session.checkpoint!();
+    const checkpoint = await owner.session.checkpoint!();
+
+    await expect(recipient.fork(checkpoint)).rejects.toMatchObject({
+      name: "RuntimeAdapterCheckpointError",
+      reason: "foreign",
+    });
+    expect(recipient.forked).toEqual([]);
+  });
+
+  it("rejects reconstructed and forged handles before calling the adapter", async () => {
+    const runtime = source();
+    await runtime.execute("A");
+    const checkpoint = await runtime.session.checkpoint!();
+    const fields = z.record(z.string(), z.unknown()).parse(checkpoint);
+
+    for (const invalid of [
+      { ...fields },
+      structuredClone(checkpoint),
+      { ...fields, value: { input: "forged" } },
+    ]) {
+      await expect(runtime.fork(invalid)).rejects.toMatchObject({
+        name: "RuntimeAdapterCheckpointError",
+        reason: "foreign",
+      });
+    }
+    await expect(runtime.fork({})).rejects.toMatchObject({
+      name: "RuntimeAdapterCheckpointError",
+      reason: "malformed",
+    });
+    expect(runtime.forked).toEqual([]);
+  });
+});
 
 describe("runtime profile agent runtime boundary", () => {
   it("admits user input only when the runtime declares support", async () => {

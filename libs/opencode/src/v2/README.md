@@ -22,8 +22,52 @@ session creation. Serialized input has a 1 MiB UTF-8 limit.
 Ordered reuse, model and variant validation, activity, and per-invocation usage
 are supported. Assistant responses must match the session's provider, model,
 and reasoning variant. An omitted selected variant fails the invocation.
-Checkpoint, fork, and session UI remain disabled. Native V2
-fork boundaries require separate compatibility proof.
+Checkpoints and native forks are supported. Session UI remains disabled.
+
+Checkpoint capture forks an idle native snapshot after a successful task.
+The run keeps a Zod-validated registry of opaque handles, bound to their source
+adapter. Repeated capture returns the same handle until the source runs again.
+Empty, busy, closed, and foreign checkpoints fail before native allocation.
+A snapshot failure leaves the successful task result intact. Capture reports
+the failure and can retry while the source remains idle.
+
+Deferred forks copy the saved snapshot, even after the source session changes
+or a later execution fails and removes it. A failed source remains unavailable
+for execution and capture. Its earlier checkpoints remain available for forks
+until explicit adapter close or run cleanup.
+Native `fork({ sessionID })` copies the full current history and current
+instruction state. The adapter omits `before` because that boundary excludes
+a message and still inherits current instructions. Freezing both in a separate
+session preserves the completed task boundary. Each native fork is an
+independent root. Its `parentID` is absent, and its `fork.sessionID` identifies
+the copied session. Cancelling one root preserves its source and peers.
+
+Each fork applies its selected model and reasoning through native `switchModel`,
+then validates session identity, workspace, model, and idle state. Without an
+explicit selection, the fork inherits the checkpoint selection. Capture and
+fork never submit prompts or call a model. For example:
+
+```ts
+// Before: only ordered reuse was available.
+await source.execute(first);
+await source.execute(second);
+
+// After: save the first result before reusing its source.
+await source.execute(first);
+const checkpoint = await source.captureCheckpoint!();
+await source.execute(second);
+const branch = await source.fork!({ checkpoint });
+await branch.execute(third); // History contains first, then third.
+```
+
+The runtime tracks independent roots as soon as native allocation returns an ID.
+It cleans partially created forks and waits for pending allocations during close.
+Run cleanup removes live sessions, fork sessions, and retained snapshots.
+Snapshots remain available until run cleanup. Native storage grows with the
+number of captured task boundaries. Tasks without capture allocate no snapshot.
+New fork orchestration uses pinned Effect programs at the SDK integration
+boundary. Native allocation has a separate request bound so cancellation cannot
+lose an ID that native allocation returns.
 
 Cancellation interrupts the owned session tree, removes shells whose native
 metadata identifies an owned session, and confirms termination. Unknown shell
@@ -99,3 +143,16 @@ typed output, and selected reasoning variants.
 It also covers Basic authentication, server password isolation from native shells,
 native parent/child background-shell ownership, and cancellation cleanup.
 The separate CI job runs it on the pinned Linux binary.
+
+Run the separate native session proof after building the adapter:
+
+```sh
+pnpm exec tsc --build libs/opencode/tsconfig.json
+SEQLANE_OPENCODE_V2_EXECUTABLE=/absolute/path/to/opencode node scripts/opencode-v2-sessions-compatibility.mjs
+```
+
+This probe uses an isolated local provider with no paid model credentials.
+The probe covers deferred history, native instructions, parallel forks, selected
+reasoning, and cancellation that preserves peers. It also proves cleanup of
+independent roots and zero model calls during capture or fork.
+The earlier compatibility probe remains separate.
