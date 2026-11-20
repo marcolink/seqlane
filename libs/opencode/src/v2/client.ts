@@ -1,6 +1,7 @@
 import { OpenCode, type OpenCodeClient } from "@opencode/client";
 import { OpenCodeV2Error } from "./errors.js";
 import { serverInfoSchema } from "./schemas.js";
+import { boundedEventBody } from "./event-body.js";
 
 export const OPENCODE_V2_VERSION = "2.1.2";
 const responseLimit = 1_048_576;
@@ -9,6 +10,24 @@ const responseLimit = 1_048_576;
 const boundedFetch: typeof fetch = async (input, init) => {
   const response = await fetch(input, { ...init, redirect: "error" });
   if (response.body === null) return response;
+  const url = new URL(input instanceof Request ? input.url : String(input));
+  const streaming =
+    /^\/api\/experimental\/session\/[^/]+\/log$/.test(url.pathname) &&
+    response.ok &&
+    response.headers
+      .get("content-type")
+      ?.split(";")[0]
+      ?.trim()
+      .toLowerCase() === "text/event-stream";
+  if (streaming) {
+    const headers = new Headers(response.headers);
+    headers.delete("content-encoding");
+    headers.delete("content-length");
+    return new Response(boundedEventBody(response.body), {
+      status: response.status,
+      headers,
+    });
+  }
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let length = 0;
@@ -22,7 +41,8 @@ const boundedFetch: typeof fetch = async (input, init) => {
       chunks.push(item.value);
     }
   } finally {
-    await reader.cancel();
+    await reader.cancel().catch(() => undefined);
+    reader.releaseLock();
   }
   const body = Buffer.concat(chunks, length);
   const headers = new Headers(response.headers);
