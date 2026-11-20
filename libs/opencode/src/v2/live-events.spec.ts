@@ -151,6 +151,37 @@ describe("live events as completion wakeups", () => {
     await vi.waitFor(() => expect(events.abort).toHaveBeenCalledTimes(1));
   });
 
+  it("rate-limits full reads under sustained distinct native events", async () => {
+    const events = stream();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) =>
+        events.connect(init?.signal),
+      ),
+    );
+    const times: number[] = [];
+    let eventID = 0;
+    const pending = monitorWithLiveEvents(
+      createClient("http://fixture"),
+      (id) => id === "owned",
+      AbortSignal.timeout(5000),
+      async () => {
+        times.push(Date.now());
+        if (times.length === 4) return { value: "bounded" };
+        if (times.length > 1)
+          for (let index = 0; index < 100; index++)
+            events.emit(native("owned", `event_${eventID++}`));
+        return undefined;
+      },
+    );
+    await vi.waitFor(() => expect(times).toHaveLength(1));
+    events.emit(native("owned", `event_${eventID++}`));
+    await expect(pending).resolves.toBe("bounded");
+    expect(times[1]! - times[0]!).toBeLessThan(400);
+    expect(times[2]! - times[1]!).toBeGreaterThanOrEqual(450);
+    expect(times[3]! - times[2]!).toBeGreaterThanOrEqual(450);
+  });
+
   it("reconnects a closed stream and resumes immediate snapshot reads", async () => {
     const first = stream();
     first.close();

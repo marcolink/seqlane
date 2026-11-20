@@ -30,6 +30,7 @@ export async function monitorWithLiveEvents(
       Effect.scoped(
         Effect.gen(function* () {
           const wakeups = yield* Queue.sliding<true>(1);
+          let firstEvent = true;
           yield* Effect.forkScoped(
             monitorEvents(client, ownsSession, () =>
               Queue.offerUnsafe(wakeups, true),
@@ -53,10 +54,16 @@ export async function monitorWithLiveEvents(
                 }),
             );
             if (result !== undefined) return result.value;
-            yield* Effect.raceFirst(
-              Queue.take(wakeups),
-              Effect.sleep("1 second"),
+            const wakeup = Effect.raceFirst(
+              Queue.take(wakeups).pipe(Effect.map(() => true)),
+              Effect.sleep("1 second").pipe(Effect.map(() => false)),
             );
+            if (firstEvent) firstEvent = !(yield* wakeup);
+            else
+              // Bound full scans independently of a continuously full event queue.
+              yield* Effect.all([wakeup, Effect.sleep("500 millis")], {
+                concurrency: 2,
+              });
             // Collapse bursts and bound snapshot reads while output grows quickly.
             yield* Effect.sleep("50 millis");
           }

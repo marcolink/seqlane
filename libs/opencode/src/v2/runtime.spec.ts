@@ -1081,7 +1081,7 @@ describe("OpenCode V2 real-client execution", () => {
           expect(onActivity).toHaveBeenCalledWith(
             expect.objectContaining({ state: "started" }),
           ),
-        { timeout: 400, interval: 5 },
+        { timeout: 800, interval: 5 },
       );
       expect(onActivity).not.toHaveBeenCalledWith(
         expect.objectContaining({ state: "succeeded" }),

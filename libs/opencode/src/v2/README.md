@@ -145,8 +145,11 @@ read covers at most 1000 messages. A session tree contains at most 128 sessions.
 Child session pages must add a session while a cursor remains. Pending permission
 and form checks cover at most 16 sessions at once. Native global events wake
 message reads for owned sessions. Notifications use a one-item sliding queue
-and a 50-millisecond pause to combine bursts. Duplicate event IDs are bounded
-to 4096 entries. Child creation wakes a fresh ownership read.
+and a 50-millisecond pause to combine bursts. The first event read is prompt;
+later full scans wait at least 500 milliseconds, even during sustained events.
+The scan limit bounds ownership, question, and message requests together.
+Duplicate event IDs are bounded to 4096 entries.
+Child creation wakes a fresh ownership read.
 Events never decide completion. One-second recovery reads preserve progress
 after missed events, malformed hints, or a stream failure. The stream reconnects
 with a delay from 250 milliseconds to two seconds and rotates after 45 seconds.

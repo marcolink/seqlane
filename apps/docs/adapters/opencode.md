@@ -174,8 +174,9 @@ The live native event stream triggers message reads during execution.
 The adapter reconnects lost streams and reads messages each second to recover
 missed events. Events do not decide completion. Message reads confirm the
 admitted input, assistant model, and owned work state.
-Bursts can combine rapid intermediate updates. The adapter does not expose
-token streaming or a native transcript view.
+The first event triggers a prompt read. Later full reads have a minimum
+500 ms interval, so bursts can combine rapid intermediate updates.
+The adapter does not expose token streaming or a native transcript view.
 
 ## Explicit OpenCode 2 selection
 

@@ -190,7 +190,7 @@ try {
   try {
     await started.promise;
     assert(
-      toolStartedAt !== undefined && Date.now() - toolStartedAt < 500,
+      toolStartedAt !== undefined && Date.now() - toolStartedAt < 950,
       "Live tool activity must arrive before the one-second recovery read",
     );
     assert(
