@@ -147,6 +147,12 @@ Activity and assistant usage map to Seqlane events. Usage belongs to the current
 invocation, including reused sessions. Each started tool activity receives a
 terminal event. Unfinished activities end as failed when observation stops,
 including cancellation. Native cleanup still requires termination proof.
+Tool activity includes input, output, and metadata. Changes during execution
+produce progress notifications. Terminal events retain the complete latest
+details. Model observations include available reasoning and tool content.
+Credential redaction applies to nested values as well as text.
+Tool values have a depth limit of 64 and a node limit of 65,536.
+Invalid native observation data fails before batch events are emitted.
 
 The adapter waits one second between status polls, so polling can combine rapid
 intermediate updates. It does not provide token streaming or a native transcript view.

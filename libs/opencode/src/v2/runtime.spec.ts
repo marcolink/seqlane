@@ -16,6 +16,7 @@ import { defineTask, InteractionRequiredError } from "@seqlane/core";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { createOpenCodeV2AgentRuntimeFactory } from "./runtime.js";
+import { OpenCodeV2Error } from "./errors.js";
 
 const workspace = process.cwd();
 const selection = {
@@ -53,6 +54,11 @@ function request(
   };
 }
 async function fixture() {
+  const toolDetails: {
+    input?: unknown;
+    content?: unknown;
+    metadata?: unknown;
+  } = {};
   const calls: {
     method: string;
     path: string;
@@ -60,6 +66,8 @@ async function fixture() {
     auth: string | undefined;
   }[] = [];
   const state = {
+    toolDetails,
+    nativeOverflow: false,
     version: "2.1.2",
     changedModel: false,
     changedResponseModel: false,
@@ -121,7 +129,12 @@ async function fixture() {
         path.endsWith("/permission") ||
         path.endsWith("/form");
       res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify(wrapped ? { data: value } : value));
+      const serialized = JSON.stringify(wrapped ? { data: value } : value);
+      res.end(
+        state.nativeOverflow
+          ? serialized.replaceAll('"__native_overflow__"', "1e400")
+          : serialized,
+      );
     };
     if (path === "/api/info")
       return send({ version: state.version, pid: 1, urls: [] });
@@ -246,7 +259,10 @@ async function fixture() {
               created: 1,
               ...(state.runningTool ? {} : { completed: 2 }),
             },
-            state: { status: state.runningTool ? "running" : "completed" },
+            state: {
+              status: state.runningTool ? "running" : "completed",
+              ...state.toolDetails,
+            },
           },
         ],
       };
@@ -562,6 +578,65 @@ describe("OpenCode V2 real-client execution", () => {
       await h.close();
     }
   });
+  it.each(["input", "content", "metadata"] as const)(
+    "rejects a configured credential in nested tool %s keys with a safe typed error",
+    async (field) => {
+      const h = await fixture();
+      try {
+        const nested = {
+          wrapper: [{ "prefix-Basic fixture-secret-suffix": "detail" }],
+        };
+        h.state.toolDetails[field] = field === "content" ? [nested] : nested;
+        const onActivity = vi.fn();
+        const onObservation = vi.fn();
+        const onMetrics = vi.fn();
+        const execution = h.adapter.execute(
+          request({ onActivity, onObservation, onMetrics }),
+        );
+        await expect(execution).rejects.toBeInstanceOf(OpenCodeV2Error);
+        await expect(execution).rejects.toMatchObject({
+          code: "protocol",
+          message:
+            "OpenCode V2: native observation contains a credential in a property name",
+          cause: undefined,
+        });
+        expect(onActivity).not.toHaveBeenCalled();
+        expect(onObservation).not.toHaveBeenCalled();
+        expect(onMetrics).not.toHaveBeenCalled();
+        expect(h.state.prompts).toBe(1);
+        expect(h.state.removed).toBe(true);
+      } finally {
+        await h.close();
+      }
+    },
+  );
+  it.each(["input", "content", "metadata"] as const)(
+    "rejects overflowing JSON numbers in tool %s before observation callbacks",
+    async (field) => {
+      const h = await fixture();
+      try {
+        h.state.nativeOverflow = true;
+        const value = { overflow: "__native_overflow__" };
+        h.state.toolDetails[field] = field === "content" ? [value] : value;
+        const onActivity = vi.fn();
+        const onObservation = vi.fn();
+        const onMetrics = vi.fn();
+        await expect(
+          h.adapter.execute(request({ onActivity, onObservation, onMetrics })),
+        ).rejects.toMatchObject({
+          code: "protocol",
+          message: "OpenCode V2: native observation contains invalid JSON data",
+        });
+        expect(onActivity).not.toHaveBeenCalled();
+        expect(onObservation).not.toHaveBeenCalled();
+        expect(onMetrics).not.toHaveBeenCalled();
+        expect(h.state.prompts).toBe(1);
+        expect(h.state.removed).toBe(true);
+      } finally {
+        await h.close();
+      }
+    },
+  );
   it("preserves absent usage and redacts the connection credential in observations", async () => {
     const h = await fixture();
     try {

@@ -34,6 +34,19 @@ mode never stops the supplied service.
 Each started tool activity receives a terminal event. If observation ends before
 native tool completion, the adapter closes that activity as failed. Cancellation
 uses the same terminal state. Native cleanup still requires termination proof.
+Activity events preserve tool input, output, and metadata. Changed tool details
+produce small progress notifications while the tool runs. Terminal events
+preserve the complete latest details. Opaque tool values have a depth limit
+of 64 and a node limit of 65,536 before serialization or redaction.
+Model observations preserve native reasoning and tool content. Nested values
+use the same credential redaction as text output. If a nested property name
+contains a configured credential, the adapter rejects the entire observation
+batch before it emits activity or model observations. It reports a typed
+protocol error without the unsafe name. It does not rename keys or merge
+colliding names. Repeated snapshots do not duplicate terminal activity or usage.
+Sanitized content passes canonical JSON validation before any batch callback.
+Invalid native JSON data, including overflowing numbers, fails with a typed
+protocol error. Only consumer callback failures are ignored.
 
 Managed version probing and server startup inherit only `PATH`, `HOME`,
 temporary-directory variables, `LANG`, `LC_ALL`, `TZ`, the four XDG directory
