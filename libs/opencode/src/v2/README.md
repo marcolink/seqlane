@@ -67,7 +67,11 @@ to native tools. This policy does not restrict access to credential files under
 `HOME` or the XDG directories. External mode
 uses the environment of the existing service.
 
-Responses are bounded to 1 MiB before client JSON decoding. One invocation
+JSON responses are bounded to 1 MiB before client decoding, including errors.
+The private transport passes successful native session logs through as SSE.
+It bounds each frame to 1 MiB of UTF-8 bytes and splits coalesced frames before
+SDK decoding. Closing the stream cancels the underlying response reader.
+One invocation
 read covers at most 1000 messages. A session tree contains at most 128 sessions.
 Child session pages must add a session while a cursor remains. Pending permission
 and form checks cover at most 16 sessions at once. Status polling waits one
