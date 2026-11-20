@@ -6,22 +6,22 @@ import {
 import type { AgentRuntimeFactory } from "@seqlane/agent-adapter";
 import { isAbsolute } from "node:path";
 import { z } from "zod";
+export const openCodeExecutableSchema = z
+  .string()
+  .min(1)
+  .pipe(
+    z.custom<string>(
+      (value) => typeof value === "string" && isAbsolute(value),
+      "must be an absolute executable path",
+    ),
+  );
 export const directRunV2ConfigurationSchema = z.discriminatedUnion("mode", [
   z.strictObject({
     adapter: z.literal("opencode-v2"),
     mode: z.literal("managed"),
     host: v2HostSchema.default("127.0.0.1"),
     port: z.number().int().min(0).max(65535).default(0),
-    executable: z
-      .string()
-      .min(1)
-      .pipe(
-        z.custom<string>(
-          (value) => typeof value === "string" && isAbsolute(value),
-          "must be an absolute executable path",
-        ),
-      )
-      .optional(),
+    executable: openCodeExecutableSchema.optional(),
   }),
   z.strictObject({
     adapter: z.literal("opencode-v2"),
@@ -47,7 +47,7 @@ export function createDirectRunV2AgentRuntimeFactory(
       ...(password === undefined
         ? {}
         : {
-            authorization: `Basic ${Buffer.from(`opencode:${password}`).toString("base64")}`,
+            authorization: `Basic ${Buffer.from(`${environment.OPENCODE_SERVER_USERNAME ?? "opencode"}:${password}`).toString("base64")}`,
           }),
     });
   }

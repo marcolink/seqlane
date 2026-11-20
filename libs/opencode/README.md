@@ -5,7 +5,15 @@ npm so `seqlane` can install it. Its exports are not a supported API. Workflow
 authors use `@seqlane/core`; OpenCode SDK, session, and endpoint details stay
 internal.
 
-The root export uses OpenCode 1. The `/v2` export uses OpenCode 2.
+The root runtime factory uses OpenCode 1. The `/v2` factory uses OpenCode 2.
+The CLI selects the implementation automatically with `--adapter opencode`.
+Managed mode probes the selected executable before startup. External mode reads
+validated server information before session creation. Detection accepts stable
+OpenCode 1 versions and the pinned OpenCode 2.1.2 release. V1 retains its
+version-aware structured-output policy. Authentication, transport, malformed
+version, and unsupported-version errors stop detection.
+Use `--opencode-executable` to select an absolute managed executable path.
+The explicit `opencode-v2` selector and its flags remain available.
 Read the [OpenCode 2 implementation guide](src/v2/README.md) for its contracts
 and verification commands. The implementations keep separate SDKs, session
 policies, and version checks.

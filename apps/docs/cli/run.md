@@ -154,6 +154,11 @@ that contain dots or equals signs.
 Select the adapter for agent tasks. Supported values are `opencode`, `opencode-v2`, and
 `codex`. Omit this flag for deterministic workflows.
 
+`opencode` detects the selected executable or external server version before
+agent work. It selects OpenCode 1 or the pinned OpenCode 2.1.2 implementation.
+`opencode-v2` explicitly requires V2. The detected implementation determines
+capabilities; V2 does not support checkpoint, fork, or session UI.
+
 ```sh
 seqlane run ./workflow.ts \
   --input '{"topic":"Seqlane"}' \
@@ -349,10 +354,24 @@ seqlane run ./workflow.ts \
   --opencode-port 4096
 ```
 
+### `--opencode-executable`
+
+Set an absolute OpenCode executable path for managed mode. This flag requires
+`--adapter opencode`. Without this flag, Seqlane resolves `opencode` from `PATH`.
+The run reads the version before it starts the service. External mode rejects
+this flag.
+
+```sh
+seqlane run ./workflow.ts \
+  --adapter opencode \
+  --opencode-executable /absolute/path/to/opencode \
+  --workspace ./repository
+```
+
 ## OpenCode 2 flags
 
-Use `--adapter opencode-v2` with OpenCode 2. The V1 adapter keeps the
-`opencode` identity. Read [OpenCode 2](/adapters/opencode-v2) for setup.
+Use `--adapter opencode-v2` to explicitly require OpenCode 2. Use
+`--adapter opencode` for automatic detection. Read [OpenCode 2](/adapters/opencode-v2) for setup.
 
 | Flag | Meaning |
 | --- | --- |
@@ -362,4 +381,4 @@ Use `--adapter opencode-v2` with OpenCode 2. The V1 adapter keeps the
 | `--opencode-v2-executable` | Absolute executable path; managed mode only |
 
 External mode requires an explicit host and port. V2 flags require the V2
-adapter. Existing `--opencode-*` flags require the V1 adapter.
+adapter. Shared `--opencode-*` flags require `--adapter opencode`.

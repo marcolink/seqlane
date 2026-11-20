@@ -95,7 +95,7 @@ export function acquireOpenCodeServiceProcess(
     const acquired = yield* Effect.acquireRelease(
       Effect.sync(() => {
         const child = (options.spawn ?? spawn)(
-          "opencode",
+          options.executable ?? "opencode",
           [
             "serve",
             `--hostname=${settings.host}`,

@@ -49,6 +49,12 @@ seqlane run ./workflows/minimal-example/workflow.ts \
   --adapter opencode
 ```
 
+`--adapter opencode` detects OpenCode 1 or the pinned OpenCode 2.1.2 release.
+Managed mode reads the selected executable's version before startup. External
+mode reads server information before session creation. Unsupported or malformed
+versions fail before agent work. Seqlane does not install or upgrade OpenCode.
+Use `--opencode-executable /absolute/path/to/opencode` to select a managed binary.
+
 OpenCode uses managed mode by default. The run starts and owns a private
 service at `127.0.0.1` with port `0`. Port `0` selects an ephemeral port. Use
 `--opencode-host` or `--opencode-port` to change this endpoint.
@@ -58,10 +64,10 @@ External mode requires `--opencode-host` and `--opencode-port`. Its port must
 be from `1` through `65535`. The run never starts or stops that service. Codex
 uses its native discovery defaults.
 
-Use `--adapter opencode-v2` for OpenCode 2.1.2. Its separate flags are
+Use `--adapter opencode-v2` to explicitly require OpenCode 2.1.2. Its separate flags are
 `--opencode-v2-mode`, `--opencode-v2-host`, `--opencode-v2-port`, and
 `--opencode-v2-executable`. The executable must be absolute and applies only
-to managed mode. External V2 mode reads `OPENCODE_SERVER_PASSWORD` for Basic
+to managed mode. External OpenCode mode reads `OPENCODE_SERVER_PASSWORD` for Basic
 authentication. V2 supports ordered reuse, but not checkpoint, fork, or session
 UI. See [OpenCode 2](../docs/adapters/opencode-v2.md) for setup.
 

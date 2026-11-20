@@ -2,11 +2,12 @@ import { createOpenCodeV2AgentRuntimeFactory } from "@seqlane/opencode-adapter/v
 import type { AgentRuntimeFactory } from "@seqlane/agent-adapter";
 import { createCodexAgentRuntimeFactory } from "@seqlane/codex-adapter";
 import { createOpenCodeAgentRuntimeFactory } from "@seqlane/opencode-adapter";
-import { startOpenCodeService } from "@seqlane/opencode-adapter";
+import { createDirectRunOpenCodeAgentRuntimeFactory } from "./opencode-runtime.js";
 import { isIP } from "node:net";
 import {
   createDirectRunV2AgentRuntimeFactory,
   directRunV2ConfigurationSchema,
+  openCodeExecutableSchema,
 } from "./opencode-v2-runtime.js";
 import { z } from "zod";
 
@@ -38,6 +39,7 @@ const managedOpenCodeConfigurationSchema = z.strictObject({
   mode: z.literal("managed"),
   host: loopbackHostSchema.default("127.0.0.1"),
   port: z.number().int().min(0).max(65_535).default(0),
+  executable: openCodeExecutableSchema.optional(),
 });
 
 const externalOpenCodeConfigurationSchema = z.strictObject({
@@ -118,11 +120,6 @@ export function createDirectRunAdapterConfiguration(value: unknown): string {
   return JSON.stringify(directRunAdapterConfigurationSchema.parse(value));
 }
 
-function externalOpenCodeUrl(host: string, port: number): string {
-  const authority = host.includes(":") ? `[${host}]` : host;
-  return new URL(`http://${authority}:${port}`).origin;
-}
-
 function parseDirectRunAdapterConfiguration(
   encoded: string,
 ): DirectRunAdapterConfiguration {
@@ -159,67 +156,9 @@ export function loadDirectRunAgentRuntimeFactory(
     case "codex":
       return createCodexAgentRuntimeFactory({ adapter: "codex" });
     case "opencode":
-      if (configuration.mode === "external") {
-        return createOpenCodeAgentRuntimeFactory({
-          adapter: "opencode",
-          url: externalOpenCodeUrl(configuration.host, configuration.port),
-        });
-      }
-      return async (signal, workspace, factoryOptions) => {
-        const service = await startOpenCodeService({
-          workspace: workspace ?? process.cwd(),
-          signal,
-          host: configuration.host,
-          port: configuration.port,
-          ...(factoryOptions?.onOwnedProcessAcquired === undefined
-            ? {}
-            : {
-                onOwnedProcessAcquired: factoryOptions.onOwnedProcessAcquired,
-              }),
-        });
-        try {
-          const runtime = await createOpenCodeAgentRuntimeFactory({
-            adapter: "opencode",
-            url: service.url,
-            authorization: service.authorization,
-            ...(workspace === undefined ? {} : { workspace }),
-          })(signal, workspace);
-          return {
-            ...runtime,
-            close: async () => {
-              const results = await Promise.allSettled([
-                runtime.close?.(),
-                service.close(),
-              ]);
-              const failures = results
-                .filter((result) => result.status === "rejected")
-                .map((result) =>
-                  result.status === "rejected" ? result.reason : undefined,
-                );
-              if (failures.length > 0) {
-                throw new AggregateError(
-                  failures,
-                  "Direct OpenCode adapter cleanup failed",
-                );
-              }
-            },
-          };
-        } catch (cause) {
-          let cleanupFailure: { readonly cause: unknown } | undefined;
-          try {
-            await service.close();
-          } catch (cleanupCause) {
-            cleanupFailure = { cause: cleanupCause };
-          }
-          if (cleanupFailure !== undefined) {
-            throw new AggregateError(
-              [cause, cleanupFailure.cause],
-              "Direct OpenCode runtime startup and cleanup failed",
-              { cause },
-            );
-          }
-          throw cause;
-        }
-      };
+      return createDirectRunOpenCodeAgentRuntimeFactory(
+        configuration,
+        environment,
+      );
   }
 }

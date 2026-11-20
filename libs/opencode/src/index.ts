@@ -11,6 +11,11 @@ export {
   OpenCodeServiceStartupError,
 } from "./errors.js";
 export { startOpenCodeService } from "./service.js";
+export {
+  detectOpenCodeExecutableVersion,
+  detectOpenCodeServerVersion,
+  OpenCodeVersionDetectionError,
+} from "./version-detection.js";
 export type {
   OpenCodeService,
   StartOpenCodeServiceOptions,
