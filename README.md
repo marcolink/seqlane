@@ -317,19 +317,20 @@ seqlane run ./workflow.ts \
   --workspace "$PWD"
 ```
 
-Use `--adapter opencode-v2` for OpenCode 2.1.2. V1 keeps `--adapter opencode`.
-V2 has separate mode, host, port, and executable flags:
+Use `--adapter opencode` to detect OpenCode 1 or the pinned OpenCode 2.1.2
+release. When both versions are installed, select one with an absolute executable path:
 
 ```sh
 seqlane run ./workflow.ts \
-  --adapter opencode-v2 \
-  --opencode-v2-executable /absolute/path/to/opencode \
+  --adapter opencode \
+  --opencode-executable /absolute/path/to/opencode \
   --workspace ./repository
 ```
 
-V2 supports typed output, authored models, ordered reuse, activity, and usage.
-Checkpoint, fork, and session UI remain disabled. Read the
-[OpenCode 2 guide](apps/docs/adapters/opencode-v2.md) for prerequisites.
+OpenCode 2 supports typed output, authored models, ordered reuse, activity, and
+usage. It does not support checkpoints, forks, or session UI. The explicit
+`--adapter opencode-v2` selector and its `--opencode-v2-*` flags remain available.
+Read the [OpenCode guide](apps/docs/adapters/opencode.md) for setup and version differences.
 
 OpenCode accepts `--opencode-mode`, `--opencode-host`, and `--opencode-port`.
 Managed mode is the default. It uses loopback host `127.0.0.1` and port `0` by
@@ -350,8 +351,8 @@ validates `{}`.
 
 ## Use the CLI
 
-The CLI runs one workflow and prints the result. Add `--adapter opencode` or
-`--adapter opencode-v2` or `--adapter codex` when the workflow contains agent tasks. Run
+The CLI runs one workflow and prints the result. For workflows with agent tasks,
+add `--adapter opencode` or `--adapter codex`. Run
 `seqlane run --help` to see all options. See the
 [CLI guide](apps/cli/README.md) for input, output, adapter, and workspace
 options.

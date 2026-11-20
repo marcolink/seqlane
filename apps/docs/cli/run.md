@@ -368,10 +368,10 @@ seqlane run ./workflow.ts \
   --workspace ./repository
 ```
 
-## OpenCode 2 flags
+### Explicit OpenCode 2 flags
 
 Use `--adapter opencode-v2` to explicitly require OpenCode 2. Use
-`--adapter opencode` for automatic detection. Read [OpenCode 2](/adapters/opencode-v2) for setup.
+`--adapter opencode` for automatic detection. Read [OpenCode](/adapters/opencode) for setup.
 
 | Flag | Meaning |
 | --- | --- |
@@ -380,5 +380,6 @@ Use `--adapter opencode-v2` to explicitly require OpenCode 2. Use
 | `--opencode-v2-port` | Managed default `0`; external requires `1`–`65535` |
 | `--opencode-v2-executable` | Absolute executable path; managed mode only |
 
-External mode requires an explicit host and port. V2 flags require the V2
-adapter. Shared `--opencode-*` flags require `--adapter opencode`.
+External mode requires an explicit host and port. The `--opencode-v2-*` flags
+require `--adapter opencode-v2`. Shared `--opencode-*` flags require
+`--adapter opencode`.
