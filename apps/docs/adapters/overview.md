@@ -18,8 +18,7 @@ seqlane run ./workflow.ts \
 
 ## Available adapters
 
-- [OpenCode](/adapters/opencode) detects V1 or V2, starts a private service, or connects to a loopback external service.
-- [OpenCode 2](/adapters/opencode-v2) uses the V2 client with a private or explicit external service.
+- [OpenCode](/adapters/opencode) detects OpenCode 1 or 2, starts a private service, or connects to a loopback external service.
 - [Codex](/adapters/codex) starts a local Codex app-server process for the run.
 
 ## Capabilities
@@ -32,13 +31,16 @@ structured output. Read [Model selection](/authoring-workflows/models).
 
 | Adapter | Model selection | Reuse session | Fork session | Activity | Session UI |
 | --- | --- | --- | --- | --- | --- |
-| OpenCode 1 | Yes | Yes | Yes | Yes | When available |
-| OpenCode 2 | Yes | Yes | No | Yes | No |
+| OpenCode | Yes | Yes | OpenCode 1 only | Yes | OpenCode 1, when available |
 | Codex | Yes | Yes | Yes | Yes | Codex app |
 
 Model selection applies a workflow or session model to an agent session. Reuse
 continues a source session. Forking creates a session from a source
 checkpoint.
+
+OpenCode capabilities depend on the detected version. OpenCode 2 does not
+support checkpoints, forks, or session UI. Read the
+[OpenCode guide](/adapters/opencode#capabilities) for version differences.
 
 Codex sessions appear as tasks in the Codex app. The Codex adapter does not
 provide a browser session URL.

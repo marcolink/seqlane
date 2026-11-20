@@ -69,7 +69,7 @@ Use `--adapter opencode-v2` to explicitly require OpenCode 2.1.2. Its separate f
 `--opencode-v2-executable`. The executable must be absolute and applies only
 to managed mode. External OpenCode mode reads `OPENCODE_SERVER_PASSWORD` for Basic
 authentication. V2 supports ordered reuse, but not checkpoint, fork, or session
-UI. See [OpenCode 2](../docs/adapters/opencode-v2.md) for setup.
+UI. See [OpenCode](../docs/adapters/opencode.md) for setup.
 
 Use `--input-file <path>` for JSON input from a file. The CLI accepts one input
 source per run, and input files have a 1 MiB limit.
