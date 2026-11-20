@@ -105,6 +105,9 @@ contains a configured credential, the adapter rejects the entire observation
 batch before it emits activity or model observations. It reports a typed
 protocol error without the unsafe name. It does not rename keys or merge
 colliding names. Repeated snapshots do not duplicate terminal activity or usage.
+Sanitized content passes canonical JSON validation before any batch callback.
+Invalid native JSON data, including overflowing numbers, fails with a typed
+protocol error. Only consumer callback failures are ignored.
 
 Managed version probing and server startup inherit only `PATH`, `HOME`,
 temporary-directory variables, `LANG`, `LC_ALL`, `TZ`, the four XDG directory

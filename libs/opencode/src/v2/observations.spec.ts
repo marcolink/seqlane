@@ -72,6 +72,29 @@ function message(
 }
 
 describe("OpenCode V2 observations", () => {
+  it.each([false, true])(
+    "rejects non-JSON tool data before batch callbacks, completed=%s",
+    (completed) => {
+      const h = fixture();
+      const unsafe = message(
+        completed ? "completed" : "running",
+        { overflow: Infinity },
+        completed,
+      );
+      expect(() =>
+        h.observer.observe([message("completed", {}, true), unsafe]),
+      ).toThrow(
+        new OpenCodeV2Error(
+          "protocol",
+          "native observation contains invalid JSON data",
+        ),
+      );
+      h.observer.finish();
+      expect(h.onActivity).not.toHaveBeenCalled();
+      expect(h.onObservation).not.toHaveBeenCalled();
+      expect(h.onMetrics).not.toHaveBeenCalled();
+    },
+  );
   it.each(["input", "content", "metadata"] as const)(
     "rejects credential-bearing nested %s keys before activity or model emission",
     (field) => {
