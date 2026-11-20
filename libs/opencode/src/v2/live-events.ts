@@ -18,35 +18,55 @@ const formEventSchema = z.object({
 });
 
 /** Live events are hints. Bounded message reads remain the completion authority. */
-export function monitorWithLiveEvents(
+export async function monitorWithLiveEvents(
   client: V2Client,
   ownsSession: (id: string) => boolean,
   signal: AbortSignal,
   read: (signal: AbortSignal) => Promise<{ value: unknown } | undefined>,
 ): Promise<unknown> {
-  return Effect.runPromise(
-    Effect.scoped(
-      Effect.gen(function* () {
-        const wakeups = yield* Queue.sliding<true>(1);
-        yield* Effect.forkScoped(
-          monitorEvents(client, ownsSession, () =>
-            Queue.offerUnsafe(wakeups, true),
-          ),
-        );
-        while (true) {
-          const result = yield* openCodeEffect(read);
-          if (result !== undefined) return result.value;
-          yield* Effect.raceFirst(
-            Queue.take(wakeups),
-            Effect.sleep("1 second"),
+  let readFailure: unknown;
+  try {
+    return await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const wakeups = yield* Queue.sliding<true>(1);
+          yield* Effect.forkScoped(
+            monitorEvents(client, ownsSession, () =>
+              Queue.offerUnsafe(wakeups, true),
+            ),
           );
-          // Collapse bursts and bound snapshot reads while output grows quickly.
-          yield* Effect.sleep("50 millis");
-        }
-      }),
-    ),
-    { signal },
-  );
+          while (true) {
+            const result = yield* Effect.acquireUseRelease(
+              Effect.sync(() => {
+                const controller = new AbortController();
+                const pending = read(controller.signal);
+                return { controller, pending };
+              }),
+              ({ pending }) => openCodeEffect(() => pending),
+              ({ controller, pending }) =>
+                Effect.promise(async () => {
+                  controller.abort();
+                  // Join native form cancellation before interruption leaves this edge.
+                  await pending.catch((cause) => {
+                    readFailure = cause;
+                  });
+                }),
+            );
+            if (result !== undefined) return result.value;
+            yield* Effect.raceFirst(
+              Queue.take(wakeups),
+              Effect.sleep("1 second"),
+            );
+            // Collapse bursts and bound snapshot reads while output grows quickly.
+            yield* Effect.sleep("50 millis");
+          }
+        }),
+      ),
+      { signal },
+    );
+  } catch (cause) {
+    throw readFailure ?? cause;
+  }
 }
 
 function monitorEvents(

@@ -60,3 +60,7 @@ jobs:
         env:
           SEQLANE_OPENCODE_V2_EXECUTABLE: ${{ runner.temp }}/opencode-v2/node_modules/.bin/opencode
         run: node scripts/opencode-v2-questions-compatibility.mjs
+      - name: Check native live activity and recovery
+        env:
+          SEQLANE_OPENCODE_V2_EXECUTABLE: ${{ runner.temp }}/opencode-v2/node_modules/.bin/opencode
+        run: node scripts/opencode-v2-events-compatibility.mjs

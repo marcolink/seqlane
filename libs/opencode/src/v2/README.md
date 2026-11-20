@@ -17,6 +17,17 @@ tools and permissions. Pending permissions fail without a reply. Native question
 forms support text and single-choice answers through `requestUserInput`.
 Without this callback, pending forms fail without a reply.
 
+Native schema enforcement remains unavailable in the pinned V2 prompt API.
+It accepts text but has no output-schema field or internal `StructuredOutput`
+tool. The adapter requests JSON and validates it locally with the task schema.
+A supported server tool or plugin must accept each task's schema and expose its
+terminal result before the adapter can enforce schemas during generation.
+
+The CLI server also leaves durable event persistence disabled. Its session log
+returns watermarks but no retained events. Durable replay requires upstream
+CLI support for `events: { persist: true }`. Live hints and finite message reads
+provide current activity and recovery without that capability.
+
 Question forms require `metadata.kind: "question"` and ordered `q0` field keys.
 The adapter rejects multiselect fields, arbitrary forms, and unsupported field
 constraints. Canonical validation limits each request to eight questions,
