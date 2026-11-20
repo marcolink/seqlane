@@ -10,12 +10,23 @@ submitting work. It implements the existing generic adapter contract. The
 generic runtime has no concrete adapter dependency. The same package contains the OpenCode 1 implementation at its root export.
 
 Execution creates a native session with the selected model, admits one input,
-then polls bounded message pages through that exact input. It validates native
+then reads bounded message pages through that exact input. It validates native
 responses with Zod and returns one locally validated JSON value. It never
 repairs output by replaying task instructions. Native configuration controls
 tools and permissions. Pending permissions fail without a reply. Native question
 forms support text and single-choice answers through `requestUserInput`.
 Without this callback, pending forms fail without a reply.
+
+Native schema enforcement remains unavailable in the pinned V2 prompt API.
+It accepts text but has no output-schema field or internal `StructuredOutput`
+tool. The adapter requests JSON and validates it locally with the task schema.
+A supported server tool or plugin must accept each task's schema and expose its
+terminal result before the adapter can enforce schemas during generation.
+
+The CLI server also leaves durable event persistence disabled. Its session log
+returns watermarks but no retained events. Durable replay requires upstream
+CLI support for `events: { persist: true }`. Live hints and finite message reads
+provide current activity and recovery without that capability.
 
 Question forms require `metadata.kind: "question"` and ordered `q0` field keys.
 The adapter rejects optional fields, multiselect fields, arbitrary forms, and
@@ -135,17 +146,38 @@ to native tools. This policy does not restrict access to credential files under
 uses the environment of the existing service.
 
 JSON responses are bounded to 1 MiB before client decoding, including errors.
-The private transport passes successful native session logs through as SSE.
+The private transport passes successful native session logs and global events through as SSE.
 It bounds each frame to 1 MiB of UTF-8 bytes and splits coalesced frames before
 SDK decoding. Closing the stream cancels the underlying response reader.
 One invocation
 read covers at most 1000 messages. A session tree contains at most 128 sessions.
 Child session pages must add a session while a cursor remains. Pending permission
-and form checks cover at most 16 sessions at once. Status polling waits one
-second between reads. Requests have a 10-second bound; task cancellation also
-bounds monitoring.
-Cleanup has a separate 5-second bound. Monitoring uses finite message reads,
-not the experimental native session log or live-only global event stream.
+and form checks cover at most 16 sessions at once. Native message, tool, text,
+and reasoning events read invocation messages and emit activity for owned sessions.
+These reads confirm the admitted input and assistant model. They cannot complete
+execution or repeat ownership, permission, and form requests.
+
+Each runtime owns one lazy SDK event subscription. The dispatcher parses each
+event once and routes read hints to monitors that own the session. Cancelling
+one monitor preserves its peers. The last monitor waits for the native reader
+to close. Reconnection, rotation, and runtime close also join reader cleanup.
+
+Notifications use a one-item sliding queue and a 50-millisecond pause to combine
+bursts. The first event read is prompt. Later message reads wait at least
+500 milliseconds. Full checks run at most once per second after the first event.
+Permission, form, and child-creation events request full checks. Coalesced full
+requests keep priority over later message events.
+Duplicate event IDs are bounded to 4096 entries.
+Only full reads can confirm owned work and return a terminal result.
+Recovery checks continue during sustained message events. They wait for both
+the one-second full-check interval and the message cooldown. These checks preserve
+progress after missed events, malformed hints, or a stream failure. The stream reconnects
+with a delay from 250 milliseconds to two seconds and rotates after 45 seconds.
+Requests have a 10-second bound; task cancellation also bounds monitoring.
+Cleanup has a separate 5-second bound. The native global stream has no replay.
+The managed CLI does not enable durable log persistence, so monitoring does
+not depend on experimental session-log replay. Activity uses complete message
+snapshots rather than a token API.
 
 Run deterministic fixtures after `pnpm test:mapping`:
 
@@ -179,3 +211,14 @@ The probe covers deferred history, native instructions, parallel forks, selected
 reasoning, and cancellation that preserves peers. It also proves cleanup of
 independent roots and zero model calls during capture or fork.
 The earlier compatibility probe remains separate.
+
+After building the adapter, run the native live-event proof:
+
+```sh
+SEQLANE_OPENCODE_V2_EXECUTABLE=/absolute/path/to/opencode node scripts/opencode-v2-events-compatibility.mjs
+```
+
+The local test provider needs no paid model credentials. It proves stream
+reconnect, tool activity before the recovery read and tool completion, terminal
+activity, and one admitted task. Malformed final output fails without repair
+or task replay.

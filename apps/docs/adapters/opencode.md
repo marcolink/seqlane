@@ -154,6 +154,7 @@ it ends. Session UI remains unavailable.
 
 The adapter requests one JSON value and validates it with the task output
 schema. Invalid output fails without a repair prompt or task replay.
+The OpenCode 2 API does not enforce that schema during generation.
 
 The prompt includes task input under `Task input:`. Input must be a JSON value
 whose serialized form is at most 1 MiB in UTF-8. Non-JSON values and oversized
@@ -174,8 +175,17 @@ Credential redaction applies to nested values as well as text.
 Tool values have a depth limit of 64 and a node limit of 65,536.
 Invalid native observation data fails before batch events are emitted.
 
-The adapter waits one second between status polls, so polling can combine rapid
-intermediate updates. It does not provide token streaming or a native transcript view.
+The live native event stream triggers message reads during execution.
+Concurrent tasks share one event subscription. Cancelling one task keeps the
+stream open for its peers. The last task waits for the stream to close.
+Message updates confirm the admitted input and assistant model, then emit activity.
+Permission, form, and child-session events also request full checks of owned work.
+Only full checks can complete execution.
+The first event triggers a prompt read. Later message reads have a minimum
+500 ms interval. Full checks run at most once per second after the first event.
+Recovery checks continue during sustained message activity and lost streams.
+Bursts can combine rapid intermediate updates.
+The adapter does not expose token streaming or a native transcript view.
 
 ## Explicit OpenCode 2 selection
 

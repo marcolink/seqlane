@@ -10,6 +10,7 @@ import {
   type AgentRuntimeFactory,
 } from "@seqlane/agent-adapter";
 import { openCodeEffect } from "../effect-boundary.js";
+import { createLiveEventDispatcher } from "./live-event-dispatcher.js";
 import { createCheckpointRegistry } from "./checkpoint.js";
 import { OpenCodeV2Error } from "./errors.js";
 import { createClient, verifyServer } from "./client.js";
@@ -63,6 +64,7 @@ export function createOpenCodeV2AgentRuntimeFactory(
     let closed = false;
     const stopped = new AbortController();
     const checkpoints = createCheckpointRegistry(client, workspace);
+    const events = createLiveEventDispatcher(client);
     const forks = new Set<Promise<AgentAdapter>>();
     const adapters = new Set<ReturnType<typeof createSessionAdapter>>();
     try {
@@ -97,6 +99,7 @@ export function createOpenCodeV2AgentRuntimeFactory(
             );
             const adapter = createSessionAdapter({
               client,
+              events,
               workspace,
               models,
               checkpoints,
@@ -125,6 +128,7 @@ export function createOpenCodeV2AgentRuntimeFactory(
             throw new OpenCodeV2Error("execution", "runtime is closed");
           const adapter = createSessionAdapter({
             client,
+            events,
             checkpoints,
             forkAdapter,
             workspace,
@@ -144,6 +148,7 @@ export function createOpenCodeV2AgentRuntimeFactory(
         async close() {
           closed = true;
           stopped.abort();
+          await events.close();
           await Promise.allSettled([...forks]);
           const results = await Promise.allSettled(
             [...adapters].map((adapter) => adapter.close?.()),
@@ -164,6 +169,7 @@ export function createOpenCodeV2AgentRuntimeFactory(
         },
       };
     } catch (cause) {
+      await events.close();
       throw redactOpaqueValue(cause, redact);
     }
   };
