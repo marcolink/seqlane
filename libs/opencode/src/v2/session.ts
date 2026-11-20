@@ -56,6 +56,7 @@ export function createSessionAdapter({
   redact,
 }: SessionOptions): AgentAdapter {
   let sessionID = initialSession?.id;
+  let checkpointSourceID = initialSession?.id;
   let busy = false;
   let pinnedSelection = initialSession?.selection;
   let pinnedNativeModel = initialSession?.model;
@@ -123,12 +124,12 @@ export function createSessionAdapter({
       return pending;
     },
     fork({ checkpoint, modelSelection }) {
-      if (unusable || lifecycleSignal.aborted)
+      if (stopped.signal.aborted || lifecycleSignal.aborted)
         return Promise.reject(
           new OpenCodeV2Error("execution", "session is unavailable"),
         );
       try {
-        if (checkpoints.read(checkpoint).source !== sessionID)
+        if (checkpoints.read(checkpoint).source !== checkpointSourceID)
           throw new OpenCodeV2Error(
             "configuration",
             "checkpoint does not belong to this session",
@@ -178,6 +179,7 @@ export function createSessionAdapter({
           requestOptions(),
         );
         sessionID = checkpoints.track(raw);
+        checkpointSourceID = sessionID;
         const session = sessionSchema.parse(raw);
         pinnedSelection = selection;
         pinnedNativeModel = assertSessionModel(session, selection);

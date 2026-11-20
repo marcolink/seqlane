@@ -129,6 +129,9 @@ Enable `--interactive` to answer native questions in the same invocation.
 The native `question` tool supports text and single-choice questions, including
 custom text alternatives. Optional fields, multiselect questions, and arbitrary
 native forms fail.
+Seqlane validates the permissions and question forms across the owned session
+tree before it asks for answers or sends replies. The pending set supports at
+most 1,024 unique forms across the tree.
 Without interactivity, pending questions fail the task. Input cancellation or
 timeout cancels the native form before Seqlane stops owned work.
 Read [Interactivity](/interactivity) for terminal requirements and deadlines.
@@ -140,8 +143,9 @@ variant fail the task. If a response omits a selected variant, the task fails.
 Failed sessions cannot be reused.
 
 Checkpoints and forks preserve a completed task's history and instructions.
-Later reuse of the source does not change that checkpoint. Parallel forks use
-independent sessions. Cancelling one fork preserves its source and peers.
+Later reuse or failure of the source does not change that checkpoint. Earlier
+checkpoints remain available until adapter close or run cleanup. Parallel forks
+use independent sessions. Cancelling one fork preserves its source and peers.
 A fork can select another model or reasoning level before agent work starts.
 Capture and fork make no model calls. The run removes retained snapshots when
 it ends. Session UI remains unavailable.

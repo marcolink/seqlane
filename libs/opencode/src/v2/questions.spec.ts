@@ -1,7 +1,14 @@
 // @test-scope ./schemas.ts
-import { describe, expect, it } from "vitest";
+// @test-scope ./client.ts
+import { once } from "node:events";
+import { createServer } from "node:http";
+import { defineTask, InteractionRequiredError } from "@seqlane/core";
+import type { AgentAdapterRequest } from "@seqlane/agent-adapter";
+import { describe, expect, it, vi } from "vitest";
+import { z } from "zod";
+import { createClient } from "./client.js";
 import { questionFormSchema } from "./schemas.js";
-import { translateQuestionForm } from "./questions.js";
+import { createQuestionMonitor, translateQuestionForm } from "./questions.js";
 
 const field = {
   key: "q0",
@@ -181,5 +188,212 @@ describe("native question translation", () => {
         answers: { question_0: "option_0" },
       }),
     ).toEqual({ q0: field.options[0]!.value });
+  });
+});
+
+async function monitorFixture(sessionIDs = ["ses_first", "ses_last"]) {
+  const forms = new Map<string, unknown[]>();
+  const details = new Map<string, unknown>();
+  const permissions = new Set<string>();
+  const effects: string[] = [];
+  for (const sessionID of sessionIDs) {
+    const native = { ...form(), id: `form_${sessionID}`, sessionID };
+    forms.set(sessionID, [native]);
+    details.set(sessionID, { ...native, state: { status: "pending" } });
+  }
+  const server = createServer((request, response) => {
+    const path = new URL(request.url ?? "/", "http://fixture").pathname;
+    const sessionID = path.split("/")[3] ?? "";
+    response.setHeader("content-type", "application/json");
+    if (path.endsWith("/permission")) {
+      response.end(
+        JSON.stringify({
+          data: permissions.has(sessionID) ? [{ id: "permission" }] : [],
+        }),
+      );
+    } else if (path.endsWith("/reply")) {
+      effects.push(`reply:${sessionID}`);
+      response.writeHead(204);
+      response.end();
+    } else if (request.method === "DELETE") {
+      effects.push(`cancel:${sessionID}`);
+      response.writeHead(204);
+      response.end();
+    } else if (path.endsWith("/form")) {
+      response.end(JSON.stringify({ data: forms.get(sessionID) ?? [] }));
+    } else {
+      effects.push(`detail:${sessionID}`);
+      response.end(JSON.stringify({ data: details.get(sessionID) }));
+    }
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  if (address === null || typeof address === "string")
+    throw new Error("Fixture listener has no port");
+  const callback = vi.fn(async () => {
+    effects.push("callback");
+    return { status: "answered" as const, answers: { question_0: "Ada" } };
+  });
+  const request: AgentAdapterRequest = {
+    invocationId: "question-preflight",
+    task: defineTask({
+      id: "question-preflight",
+      input: z.object({}),
+      output: z.object({}),
+      execute: async () => ({}),
+    }),
+    input: {},
+    agent: { goal: "Answer questions", instructions: [] },
+    signal: AbortSignal.timeout(5_000),
+    onExecutionStarted: vi.fn(),
+    requestUserInput: callback,
+  };
+  return {
+    forms,
+    details,
+    permissions,
+    effects,
+    callback,
+    monitor: createQuestionMonitor(
+      createClient(`http://127.0.0.1:${address.port}`),
+      request,
+      (text) => text,
+    ),
+    sessions: new Set(sessionIDs),
+    async close() {
+      server.closeAllConnections();
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      );
+    },
+  };
+}
+
+describe("native question preflight", () => {
+  it.each([
+    "list-owner",
+    "list-fields",
+    "detail-owner",
+    "detail-fields",
+    "detail-size",
+  ])("rejects a later %s before earlier callbacks or replies", async (mode) => {
+    const h = await monitorFixture();
+    try {
+      const native = {
+        ...form(),
+        id: "form_ses_last",
+        sessionID: "ses_last",
+      };
+      if (mode === "list-owner")
+        h.forms.set("ses_last", [{ ...native, sessionID: "ses_foreign" }]);
+      if (mode === "list-fields")
+        h.forms.set("ses_last", [{ ...native, fields: [] }]);
+      if (mode === "detail-owner")
+        h.details.set("ses_last", {
+          ...native,
+          sessionID: "ses_foreign",
+          state: { status: "pending" },
+        });
+      if (mode === "detail-fields")
+        h.details.set("ses_last", {
+          ...native,
+          fields: [],
+          state: { status: "pending" },
+        });
+      if (mode === "detail-size")
+        h.details.set("ses_last", {
+          ...native,
+          fields: Array.from({ length: 8 }, (_, index) => ({
+            ...field,
+            key: `q${index}`,
+            title: "a".repeat(4096),
+            description: undefined,
+            options: Array.from({ length: 20 }, (_, option) => ({
+              label: "b".repeat(256),
+              value: `value ${option}`,
+            })),
+          })),
+          state: { status: "pending" },
+        });
+      await expect(h.monitor(h.sessions)).rejects.toThrow();
+      expect(h.callback).not.toHaveBeenCalled();
+      expect(h.effects.some((effect) => effect.startsWith("reply:"))).toBe(
+        false,
+      );
+    } finally {
+      await h.close();
+    }
+  });
+  it("rejects a permission in a later enumeration batch before callbacks or replies", async () => {
+    const sessions = Array.from({ length: 17 }, (_, index) => `ses_${index}`);
+    const h = await monitorFixture(sessions);
+    try {
+      h.permissions.add("ses_16");
+      await expect(h.monitor(h.sessions)).rejects.toBeInstanceOf(
+        InteractionRequiredError,
+      );
+      expect(h.callback).not.toHaveBeenCalled();
+      expect(h.effects.some((effect) => effect.startsWith("reply:"))).toBe(
+        false,
+      );
+    } finally {
+      await h.close();
+    }
+  });
+  it("rejects a form ID shared by different sessions before callbacks or replies", async () => {
+    const h = await monitorFixture();
+    try {
+      h.forms.set("ses_last", [
+        { ...form(), id: "form_ses_first", sessionID: "ses_last" },
+      ]);
+      await expect(h.monitor(h.sessions)).rejects.toThrow("different owner");
+      expect(h.callback).not.toHaveBeenCalled();
+      expect(h.effects.some((effect) => effect.startsWith("reply:"))).toBe(
+        false,
+      );
+    } finally {
+      await h.close();
+    }
+  });
+  it("bounds the aggregate pending set before detail reads or callbacks", async () => {
+    const h = await monitorFixture();
+    try {
+      for (const [sessionID, count] of [
+        ["ses_first", 600],
+        ["ses_last", 425],
+      ] as const)
+        h.forms.set(
+          sessionID,
+          Array.from({ length: count }, (_, index) => ({
+            ...form(),
+            id: `form_${sessionID}_${index}`,
+            sessionID,
+          })),
+        );
+      await expect(h.monitor(h.sessions)).rejects.toThrow();
+      expect(h.callback).not.toHaveBeenCalled();
+      expect(h.effects).toEqual([]);
+    } finally {
+      await h.close();
+    }
+  });
+  it("reads all form details before callbacks and replies for a valid tree", async () => {
+    const h = await monitorFixture();
+    try {
+      await h.monitor(h.sessions);
+      expect(h.effects).toEqual([
+        "detail:ses_first",
+        "detail:ses_last",
+        "callback",
+        "reply:ses_first",
+        "callback",
+        "reply:ses_last",
+      ]);
+      await h.monitor(h.sessions);
+      expect(h.callback).toHaveBeenCalledTimes(2);
+    } finally {
+      await h.close();
+    }
   });
 });

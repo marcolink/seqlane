@@ -35,6 +35,9 @@ twenty choices per question, and 64 KiB. Display text redacts connection
 credentials. Synthetic question and option IDs map answers to original native
 values. Each form ID receives at most one callback and one reply per invocation.
 Cancellation cancels the outstanding form before owned session cleanup.
+The monitor validates permissions, form ownership, form details, and canonical
+requests across the owned session tree before any callback or reply.
+The pending set contains at most 1,024 unique forms across the tree.
 
 After building the adapter, run the native question proof:
 
@@ -62,7 +65,10 @@ Empty, busy, closed, and foreign checkpoints fail before native allocation.
 A snapshot failure leaves the successful task result intact. Capture reports
 the failure and can retry while the source remains idle.
 
-Deferred forks copy the saved snapshot, even after the source session changes.
+Deferred forks copy the saved snapshot, even after the source session changes
+or a later execution fails and removes it. A failed source remains unavailable
+for execution and capture. Its earlier checkpoints remain available for forks
+until explicit adapter close or run cleanup.
 Native `fork({ sessionID })` copies the full current history and current
 instruction state. The adapter omits `before` because that boundary excludes
 a message and still inherits current instructions. Freezing both in a separate

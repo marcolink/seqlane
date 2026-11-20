@@ -591,6 +591,46 @@ describe("OpenCode V2 real-client execution", () => {
       await h.close();
     }
   });
+  it("forks an earlier checkpoint after failed source reuse destroys the live session", async () => {
+    const h = await fixture();
+    try {
+      await h.adapter.execute(request());
+      const checkpoint = await h.adapter.captureCheckpoint!();
+      h.state.text = "invalid JSON";
+      await expect(h.adapter.execute(request())).rejects.toBeInstanceOf(
+        OpenCodeV2Error,
+      );
+      expect(h.state.sessions.has("ses_owned")).toBe(false);
+      expect(h.state.sessions.get("ses_fork_1")?.history).toEqual(["usr_1"]);
+      await expect(h.adapter.execute(request())).rejects.toThrow(
+        "session is busy or unavailable",
+      );
+      await expect(h.adapter.captureCheckpoint!()).rejects.toThrow(
+        "checkpoint is unavailable",
+      );
+      await expect(h.adapter.fork!({ checkpoint: {} })).rejects.toThrow(
+        "checkpoint does not belong to this run",
+      );
+      const branch = await h.adapter.fork!({ checkpoint });
+      expect(h.state.sessions.get("ses_fork_2")?.history).toEqual(["usr_1"]);
+      expect(h.state.prompts).toBe(2);
+      await expect(branch.fork!({ checkpoint })).rejects.toThrow(
+        "checkpoint does not belong to this session",
+      );
+      h.state.text = '{"answer":"ok"}';
+      await expect(branch.execute(request())).resolves.toEqual({
+        answer: "ok",
+      });
+      await h.adapter.close?.();
+      await expect(h.adapter.fork!({ checkpoint })).rejects.toThrow(
+        "session is unavailable",
+      );
+      await h.runtime.close?.();
+      expect(h.state.sessions.size).toBe(0);
+    } finally {
+      await h.close();
+    }
+  });
   it("rejects empty, busy, malformed, foreign, and closed checkpoints", async () => {
     const h = await fixture();
     const other = await fixture();
